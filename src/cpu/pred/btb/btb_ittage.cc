@@ -1,4 +1,4 @@
-#include "cpu/pred/ftb/ftb_ittage.hh"
+#include "cpu/pred/btb/btb_ittage.hh"
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include "base/intmath.hh"
 #include "base/trace.hh"
 #include "cpu/o3/dyn_inst.hh"
-#include "cpu/pred/ftb/stream_common.hh"
+#include "cpu/pred/btb/stream_common.hh"
 #include "debug/DecoupleBP.hh"
 #include "debug/DecoupleBPVerbose.hh"
 #include "debug/DecoupleBPUseful.hh"
@@ -18,20 +18,20 @@ namespace gem5 {
 
 namespace branch_prediction {
 
-namespace ftb_pred{
+namespace btb_pred{
 
-FTBITTAGE::FTBITTAGE(const Params& p)
-    : TimedBaseFTBPredictor(p),
-      numPredictors(p.numPredictors),
-      tableSizes(p.tableSizes),
-      tableTagBits(p.TTagBitSizes),
-      tablePcShifts(p.TTagPcShifts),
-      histLengths(p.histLengths),
-      maxHistLen(p.maxHistLen),
-      numTablesToAlloc(p.numTablesToAlloc),
-      numBr(p.numBr)
+BTBITTAGE::BTBITTAGE(const Params& p):
+TimedBaseBTBPredictor(p),
+numPredictors(p.numPredictors),
+tableSizes(p.tableSizes),
+tableTagBits(p.TTagBitSizes),
+tablePcShifts(p.TTagPcShifts),
+histLengths(p.histLengths),
+maxHistLen(p.maxHistLen),
+numTablesToAlloc(p.numTablesToAlloc),
+numBr(p.numBr)
 {
-    DPRINTF(ITTAGE || debugFlag, "FTBITTAGE constructor numBr=%d\n", numBr);
+    DPRINTF(ITTAGE || debugFlag, "BTBITTAGE constructor numBr=%d\n", numBr);
     tageTable.resize(numPredictors);
     tableIndexBits.resize(numPredictors);
     tableIndexMasks.resize(numPredictors);
@@ -64,15 +64,15 @@ FTBITTAGE::FTBITTAGE(const Params& p)
 }
 
 void
-FTBITTAGE::tickStart()
+BTBITTAGE::tickStart()
 {
 }
 
 void
-FTBITTAGE::tick() {}
+BTBITTAGE::tick() {}
 
 std::pair<bool, bool>
-FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, int &main_table_index,
+BTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, int &main_table_index,
                         TageEntry &alt_entry, int &alt_table, int &alt_table_index, bool &use_alt_pred,
                         bool &use_base_table, bitset &usefulMask)
 {
@@ -119,12 +119,11 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
     if (provider_counts > 0) {
         use_alt_pred = main_entry.counter == 0 && alt_provided;
         use_base_table = main_entry.counter == 0 && !alt_provided;
-        // if (!(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1))) {
-        //     debugFlag = true;
-        // }
-        DPRINTF(ITTAGE || debugFlag,
-                "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n", provided,
-                provider_counts, main_table, main_table_index, use_alt_pred);
+        if (!(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1))) {
+            debugFlag = true;
+        }
+        DPRINTF(ITTAGE || debugFlag, "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
+                provided, provider_counts, main_table, main_table_index, use_alt_pred);
         assert(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1));
     } else {
         use_alt_pred = false;
@@ -136,10 +135,10 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
 }
 
 void
-FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<FullFTBPrediction> &stagePreds) {
-    // if (debugPC == stream_start) {
-    //     debugFlag = true;
-    // }
+BTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<FullBTBPrediction> &stagePreds) {
+    if (debugPC == stream_start) {
+        debugFlag = true;
+    }
     DPRINTF(ITTAGE || debugFlag, "putPCHistory startAddr: %#lx\n", stream_start);
     TageEntry main_entry, alt_entry;
     main_entry.valid = false;
@@ -181,7 +180,6 @@ FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
             useTarget = base_target;
             warn("no target found\n");
         }
-        DPRINTF(ITTAGE || debugFlag, "indirect target=%#lx\n", useTarget);
         if (taken) {
             stagePreds[s].indirectTarget = useTarget;
         }
@@ -196,20 +194,20 @@ FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
 }
 
 std::shared_ptr<void>
-FTBITTAGE::getPredictionMeta() {
+BTBITTAGE::getPredictionMeta() {
     std::shared_ptr<void> meta_void_ptr = std::make_shared<TageMeta>(meta);
     return meta_void_ptr;
 }
 
 void
-FTBITTAGE::update(const FetchStream &entry)
+BTBITTAGE::update(const FetchStream &entry)
 {
-    // if (debugPC == entry.startPC || debugPC2 == entry.startPC) {
-    //     debugFlag = true;
-    // }
+    if (debugPC == entry.startPC || debugPC2 == entry.startPC) {
+        debugFlag = true;
+    }
     Addr startAddr = entry.getRealStartPC();
     DPRINTF(ITTAGE || debugFlag, "update startAddr: %#lx\n", startAddr);
-    auto ftb_entry = entry.updateFTBEntry;
+    auto btb_entry = entry.updateNewBTBEntry;
 
     // get tage predictions from meta
     // TODO: use component idx
@@ -219,8 +217,8 @@ FTBITTAGE::update(const FetchStream &entry)
     auto updateAltTagFoldedHist = meta->altTagFoldedHist;
     auto updateIndexFoldedHist = meta->indexFoldedHist;
     
-    FTBSlot indirect_slot;
-    for (auto slot : ftb_entry.slots) {
+    BTBSlot indirect_slot;
+    for (auto slot : btb_entry.slots) {
         if (slot.isIndirect) {
             indirect_slot = slot;
             break;
@@ -349,15 +347,18 @@ FTBITTAGE::update(const FetchStream &entry)
             unsigned maskMaxNum = std::pow(2, (numPredictors - (pred.main_table + 1)));
             unsigned mask = allocLFSR.get() % maskMaxNum;
             bitset allocateLFSR(numPredictors - (pred.main_table + 1), mask);
-
+            std::string buf;
+            boost::to_string(allocateLFSR, buf);
+            DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
             auto flipped_usefulMask = pred.usefulMask.flip();
+            boost::to_string(flipped_usefulMask, buf);
+            DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", buf, pred.usefulMask.size());
             bitset masked = allocateLFSR & flipped_usefulMask;
+            boost::to_string(masked, buf);
+            DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", buf, masked.size());
             bitset allocate = masked.any() ? masked : flipped_usefulMask;
-            DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", allocateLFSR, allocateLFSR.size());
-            DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", flipped_usefulMask,
-                    pred.usefulMask.size());
-            DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", masked, masked.size());
-            DPRINTF(ITTAGE || debugFlag, "allocate %s, size %d\n", allocate, allocate.size());
+            boost::to_string(allocate, buf);
+            DPRINTF(ITTAGE || debugFlag, "allocate %s, size %d\n", buf, allocate.size());
 
             bool allocateValid = flipped_usefulMask.any();
             if (needToAllocate && allocateValid) {
@@ -385,7 +386,7 @@ FTBITTAGE::update(const FetchStream &entry)
 }
 
 void
-FTBITTAGE::updateCounter(bool taken, unsigned width, short &counter) {
+BTBITTAGE::updateCounter(bool taken, unsigned width, short &counter) {
     int max = (1 << (width)) - 1;
     int min = 0;
     if (taken) {
@@ -396,7 +397,7 @@ FTBITTAGE::updateCounter(bool taken, unsigned width, short &counter) {
 }
 
 Addr
-FTBITTAGE::getTageTag(Addr pc, int t, bitset &foldedHist, bitset &altFoldedHist)
+BTBITTAGE::getTageTag(Addr pc, int t, bitset &foldedHist, bitset &altFoldedHist)
 {
     bitset buf(tableTagBits[t], pc >> tablePcShifts[t]);  // lower bits of PC
     bitset altTagBuf(altFoldedHist);
@@ -408,13 +409,13 @@ FTBITTAGE::getTageTag(Addr pc, int t, bitset &foldedHist, bitset &altFoldedHist)
 }
 
 Addr
-FTBITTAGE::getTageTag(Addr pc, int t)
+BTBITTAGE::getTageTag(Addr pc, int t)
 {
     return getTageTag(pc, t, tagFoldedHist[t].get(), altTagFoldedHist[t].get());
 }
 
 Addr
-FTBITTAGE::getTageIndex(Addr pc, int t, bitset &foldedHist)
+BTBITTAGE::getTageIndex(Addr pc, int t, bitset &foldedHist)
 {
     bitset buf(tableIndexBits[t], pc >> tablePcShifts[t]);  // lower bits of PC
     buf ^= foldedHist;
@@ -422,19 +423,19 @@ FTBITTAGE::getTageIndex(Addr pc, int t, bitset &foldedHist)
 }
 
 Addr
-FTBITTAGE::getTageIndex(Addr pc, int t)
+BTBITTAGE::getTageIndex(Addr pc, int t)
 {
     return getTageIndex(pc, t, indexFoldedHist[t].get());
 }
 
 bool
-FTBITTAGE::matchTag(Addr expected, Addr found)
+BTBITTAGE::matchTag(Addr expected, Addr found)
 {
     return expected == found;
 }
 
 bool
-FTBITTAGE::satIncrement(int max, short &counter)
+BTBITTAGE::satIncrement(int max, short &counter)
 {
     if (counter < max) {
         ++counter;
@@ -443,7 +444,7 @@ FTBITTAGE::satIncrement(int max, short &counter)
 }
 
 bool
-FTBITTAGE::satDecrement(int min, short &counter)
+BTBITTAGE::satDecrement(int min, short &counter)
 {
     if (counter > min) {
         --counter;
@@ -452,9 +453,11 @@ FTBITTAGE::satDecrement(int min, short &counter)
 }
 
 void
-FTBITTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
+BTBITTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
 {
-    DPRINTF(ITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, history);
+    std::string buf;
+    boost::to_string(history, buf);
+    DPRINTF(ITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf);
     if (shamt == 0) {
         DPRINTF(ITTAGE || debugFlag, "shamt is 0, returning\n");
         return;
@@ -471,7 +474,7 @@ FTBITTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool 
 }
 
 void
-FTBITTAGE::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred)
+BTBITTAGE::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred)
 {
     int shamt;
     bool cond_taken;
@@ -480,7 +483,7 @@ FTBITTAGE::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPredict
 }
 
 void
-FTBITTAGE::recoverHist(const boost::dynamic_bitset<> &history,
+BTBITTAGE::recoverHist(const boost::dynamic_bitset<> &history,
     const FetchStream &entry, int shamt, bool cond_taken)
 {
     // TODO: need to get idx
@@ -494,10 +497,12 @@ FTBITTAGE::recoverHist(const boost::dynamic_bitset<> &history,
 }
 
 void
-FTBITTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
+BTBITTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
 {
     DPRINTF(ITTAGE || debugFlag, "checking folded history when %s\n", when);
-    DPRINTF(ITTAGE || debugFlag, "history:\t%s\n", hist);
+    std::string hist_str;
+    boost::to_string(hist, hist_str);
+    DPRINTF(ITTAGE || debugFlag, "history:\t%s\n", hist_str.c_str());
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 2; type++) {
             DPRINTF(ITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
@@ -509,11 +514,11 @@ FTBITTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * whe
 }
 
 void
-FTBITTAGE::commitBranch(const FetchStream &stream, const DynInstPtr &inst)
+BTBITTAGE::commitBranch(const FetchStream &stream, const DynInstPtr &inst)
 {
 }
 
-} // namespace ftb_pred
+} // namespace btb_pred
 
 }  // namespace branch_prediction
 

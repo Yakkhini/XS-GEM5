@@ -318,15 +318,24 @@ def build_test_system(np):
                     test_sys.cpu[i].branchPred.tage.enableSC = not args.disable_sc
                     print("db_switches:", bp_db_switches)
                 else:
-                    if enable_bp_db:
-                        print("bpdb not supported for this branch predictor")
-                    if args.enable_loop_buffer:
-                        print("loop buffer not supported for this branch predictor")
-                    if args.enable_loop_predictor:
-                        print("loop predictor not supported for this branch predictor")
-                    if args.enable_jump_ahead_predictor:
-                        print("jump ahead predictor not supported for this branch predictor")
-                    assert(False)
+                    bpClass = ObjectList.bp_list.get('DecoupledBPUWithBTB')
+                    if isinstance(test_sys.cpu[i].branchPred, bpClass):
+                        test_sys.cpu[i].branchPred = bpClass(
+                                                        bpDBSwitches=bp_db_switches,
+                                                        enableLoopBuffer=args.enable_loop_buffer,
+                                                        enableLoopPredictor=args.enable_loop_predictor,
+                                                        enableJumpAheadPredictor=args.enable_jump_ahead_predictor
+                                                        )
+                    else:
+                        if enable_bp_db:
+                            print("bpdb not supported for this branch predictor")
+                        if args.enable_loop_buffer:
+                            print("loop buffer not supported for this branch predictor")
+                        if args.enable_loop_predictor:
+                            print("loop predictor not supported for this branch predictor")
+                        if args.enable_jump_ahead_predictor:
+                            print("jump ahead predictor not supported for this branch predictor")
+                    # assert(False)
             test_sys.cpu[i].createThreads()
             print("Create threads for test sys cpu ({})".format(type(test_sys.cpu[i])))
 

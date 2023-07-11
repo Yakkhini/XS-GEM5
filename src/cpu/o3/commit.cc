@@ -952,6 +952,8 @@ Commit::commit()
         // Squashed sequence number must be older than youngest valid
         // instruction in the ROB. This prevents squashes from younger
         // instructions overriding squashes from older instructions.
+        DPRINTF(Commit, "fromIEW->squash %d, commitStatus %d, fromIEW->squashedSeqNum %d, youngestSeqNum %d\n",
+            fromIEW->squash[tid], commitStatus[tid], fromIEW->squashedSeqNum[tid], youngestSeqNum[tid]);
         if (fromIEW->squash[tid] &&
             commitStatus[tid] != TrapPending &&
             fromIEW->squashedSeqNum[tid] <= youngestSeqNum[tid]) {
@@ -1202,7 +1204,7 @@ Commit::commitInsts()
                     auto dbftb = dynamic_cast<branch_prediction::ftb_pred::DecoupledBPUWithFTB*>(bp);
                     bool miss = head_inst->mispredicted();
                     if (head_inst->isReturn()) {
-                        DPRINTF(FTBRAS, "commit inst PC %x miss %d real target %x pred target %x\n",
+                        DPRINTF(RAS, "commit inst PC %x miss %d real target %x pred target %x\n",
                                 head_inst->pcState().instAddr(), miss,
                                 head_rv_pc.npc(), *(head_inst->predPC));
                     }
@@ -1215,6 +1217,23 @@ Commit::commitInsts()
                         }
                     }
                     dbftb->notifyInstCommit(head_inst);
+                } else if (bp->isBTB()) {
+                    auto dbbtb = dynamic_cast<branch_prediction::btb_pred::DecoupledBPUWithBTB*>(bp);
+                    bool miss = head_inst->mispredicted();
+                    if (head_inst->isReturn()) {
+                        DPRINTF(RAS, "commit inst PC %x miss %d real target %x pred target %x\n",
+                                head_inst->pcState().instAddr(), miss,
+                                head_rv_pc.npc(), *(head_inst->predPC));
+                    }
+
+                    // FIXME: ignore mret/sret/uret in correspond with RTL
+                    if (!head_inst->isNonSpeculative() && head_inst->isControl()) {
+                        dbbtb->commitBranch(head_inst, miss);
+                        if (!head_inst->isReturn() && head_inst->isIndirectCtrl() && miss) {
+                            misPredIndirect[head_inst->pcState().instAddr()]++;
+                        }
+                    }
+                    dbbtb->notifyInstCommit(head_inst);
                 }
                 if (head_inst->isUpdateVsstatusSd()) {
                     auto v = cpu->readMiscRegNoEffect(RiscvISA::MiscRegIndex::MISCREG_VIRMODE, tid);

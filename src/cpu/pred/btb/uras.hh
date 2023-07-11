@@ -1,46 +1,48 @@
-#ifndef __CPU_PRED_FTB_URAS_HH__
-#define __CPU_PRED_FTB_URAS_HH__
+#ifndef __CPU_PRED_BTB_URAS_HH__
+#define __CPU_PRED_BTB_URAS_HH__
 
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
-#include "cpu/pred/ftb/stream_struct.hh"
-#include "cpu/pred/ftb/timed_base_pred.hh"
+#include "cpu/pred/btb/stream_struct.hh"
+#include "cpu/pred/btb/timed_base_pred.hh"
 #include "debug/URAS.hh"
-#include "params/FTBuRAS.hh"
+#include "params/BTBuRAS.hh"
 
 namespace gem5 {
 
 namespace branch_prediction {
 
-namespace ftb_pred {
+namespace btb_pred {
 
-class FTBuRAS : public TimedBaseFTBPredictor
+class BTBuRAS : public TimedBaseBTBPredictor
 {
     public:
     
-        typedef FTBuRASParams Params;
-        FTBuRAS(const Params &p);
+        typedef uRASParams Params;
+        BTBuRAS(const Params &p);
 
-        typedef struct FTBuRASEntry
+        typedef struct uRASEntry
         {
             Addr retAddr;
             unsigned ctr;
-            FTBuRASEntry(Addr retAddr, unsigned ctr) : retAddr(retAddr), ctr(ctr) {}
-            FTBuRASEntry(Addr retAddr) : retAddr(retAddr), ctr(0) {}
-            FTBuRASEntry() : retAddr(0), ctr(0) {}
-        }FTBuRASEntry;
+            uRASEntry(Addr retAddr, unsigned ctr) : retAddr(retAddr), ctr(ctr) {}
+            uRASEntry(Addr retAddr) : retAddr(retAddr), ctr(0) {}
+            uRASEntry() : retAddr(0), ctr(0) {}
+        }uRASEntry;
 
-        typedef struct FTBuRASMeta {
+        typedef struct uRASMeta {
             int sp;
-            FTBuRASEntry tos; // top of stack
-        }FTBuRASMeta;
+            uRASEntry tos; // top of stack
+        }uRASMeta;
 
         void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
-                          std::vector<FullFTBPrediction> &stagePreds) override;
+                          std::vector<FullBTBPrediction> &stagePreds) override;
         
         std::shared_ptr<void> getPredictionMeta() override;
 
-        void specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred) override;
+        void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
+
+        unsigned getDelay() override {return 0;}
 
         void recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken) override;
 
@@ -52,7 +54,7 @@ class FTBuRAS : public TimedBaseFTBPredictor
 
         int getMaxCtr() {return maxCtr;}
 
-        std::vector<FTBuRASEntry> getNonSpecStack() {return nonSpecStack;}
+        std::vector<uRASEntry> getNonSpecStack() {return nonSpecStack;}
 
         int getNonSpecSp() {return nonSpecSp;}
 
@@ -69,9 +71,9 @@ class FTBuRAS : public TimedBaseFTBPredictor
             // PUSH_AND_POP
         };
 
-        void push(Addr retAddr, std::vector<FTBuRASEntry> &stack, int &sp);
+        void push(Addr retAddr, std::vector<uRASEntry> &stack, int &sp);
 
-        void pop(std::vector<FTBuRASEntry> &stack, int &sp);
+        void pop(std::vector<uRASEntry> &stack, int &sp);
 
     private:
 
@@ -79,7 +81,7 @@ class FTBuRAS : public TimedBaseFTBPredictor
 
         void ptrDec(int &ptr);
 
-        void printStack(const char *when, std::vector<FTBuRASEntry> &stack, int &sp) {
+        void printStack(const char *when, std::vector<uRASEntry> &stack, int &sp) {
             DPRINTF(URAS, "printStack when %s: \n", when);
             for (int i = 0; i < numEntries; i++) {
                 DPRINTFR(URAS, "entry [%d], retAddr %#lx, ctr %d", i, stack[i].retAddr, stack[i].ctr);
@@ -102,11 +104,11 @@ class FTBuRAS : public TimedBaseFTBPredictor
 
         int nonSpecSp;
 
-        std::vector<FTBuRASEntry> specStack;
+        std::vector<uRASEntry> specStack;
 
-        std::vector<FTBuRASEntry> nonSpecStack;
+        std::vector<uRASEntry> nonSpecStack;
 
-        FTBuRASMeta meta;
+        uRASMeta meta;
 
         TraceManager *specRasTrace;
         TraceManager *nonSpecRasTrace;
@@ -114,7 +116,7 @@ class FTBuRAS : public TimedBaseFTBPredictor
 };
 
 struct SpecRASTrace : public Record {
-    SpecRASTrace(FTBuRAS::When when, FTBuRAS::RAS_OP op, Addr startPC, Addr brPC,
+    SpecRASTrace(BTBuRAS::When when, BTBuRAS::RAS_OP op, Addr startPC, Addr brPC,
         Addr retAddr, int sp, Addr tosAddr, unsigned tosCtr)
     {
         _tick = curTick();
@@ -130,7 +132,7 @@ struct SpecRASTrace : public Record {
 };
 
 struct NonSpecRASTrace : public Record {
-    NonSpecRASTrace(FTBuRAS::RAS_OP op, Addr startPC, Addr brPC, Addr retAddr,
+    NonSpecRASTrace(BTBuRAS::RAS_OP op, Addr startPC, Addr brPC, Addr retAddr,
         int predSp, Addr predTosAddr, unsigned predTosCtr,
         int sp, Addr tosAddr, unsigned tosCtr, bool miss)
     {
@@ -149,9 +151,9 @@ struct NonSpecRASTrace : public Record {
     }
 };
 
-}  // namespace ftb_pred
+}  // namespace btb_pred
 
 }  // namespace branch_prediction
 
 }  // namespace gem5
-#endif  // __CPU_PRED_FTB_URAS_HH__
+#endif  // __CPU_PRED_BTB_URAS_HH__

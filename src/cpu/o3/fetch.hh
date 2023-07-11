@@ -54,6 +54,7 @@
 #include "cpu/pred/bpred_unit.hh"
 #include "cpu/pred/stream/decoupled_bpred.hh"
 #include "cpu/pred/ftb/decoupled_bpred.hh"
+#include "cpu/pred/btb/decoupled_bpred.hh"
 #include "cpu/timebuf.hh"
 #include "cpu/translation.hh"
 #include "enums/SMTFetchPolicy.hh"
@@ -436,6 +437,9 @@ class Fetch
 
     branch_prediction::ftb_pred::DecoupledBPUWithFTB *dbpftb;
 
+    branch_prediction::btb_pred::DecoupledBPUWithBTB *dbpbtb;
+
+
     std::unique_ptr<PCStateBase> pc[MaxThreads];
 
     Addr fetchOffset[MaxThreads];
@@ -532,6 +536,7 @@ class Fetch
     bool fetchBufferValid[MaxThreads];
 
     /** Loop buffer with unrolling */
+    // TODO: use the same loop buffer for both of them
     branch_prediction::ftb_pred::LoopBuffer *loopBuffer;
 
     bool enableLoopBuffer{false};
@@ -576,6 +581,8 @@ class Fetch
     bool isStreamPred() { return branchPred->isStream(); }
 
     bool isFTBPred() { return branchPred->isFTB(); }
+
+    bool isBTBPred() {return branchPred->isBTB(); }
 
     bool usedUpFetchTargets;
 

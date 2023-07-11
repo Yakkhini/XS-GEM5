@@ -1,15 +1,14 @@
-#include "cpu/pred/ftb/decoupled_bpred.hh"
+#include "cpu/pred/btb/decoupled_bpred.hh"
 
 #include "base/output.hh"
 #include "base/debug_helper.hh"
-// #include "cpu/base.hh"
 #include "cpu/o3/cpu.hh"
 #include "cpu/o3/dyn_inst.hh"
-#include "cpu/pred/ftb/stream_common.hh"
+#include "cpu/pred/btb/stream_common.hh"
 #include "debug/DecoupleBPVerbose.hh"
 #include "debug/DecoupleBPHist.hh"
 #include "debug/Override.hh"
-#include "debug/FTB.hh"
+#include "debug/BTB.hh"
 #include "debug/ITTAGE.hh"
 #include "debug/JumpAheadPredictor.hh"
 #include "debug/Profiling.hh"
@@ -19,33 +18,32 @@ namespace gem5
 {
 namespace branch_prediction
 {
-namespace ftb_pred
+namespace btb_pred
 {
 
-DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
+DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     : BPredUnit(p),
       enableLoopBuffer(p.enableLoopBuffer),
       enableLoopPredictor(p.enableLoopPredictor),
       enableJumpAheadPredictor(p.enableJumpAheadPredictor),
-      enableTwoTaken(p.enableTwoTaken),
       fetchTargetQueue(p.ftq_size),
       fetchStreamQueueSize(p.fsq_size),
-      numBr(p.numBr),
-      predictWidth(p.predictWidth),
+    //   numBr(p.numBr),
+      blockSize(p.blockSize),
+      alignToBlockSize(p.alignToBlockSize),
       historyBits(p.maxHistLen),
-      uftb(p.uftb),
-      ftb(p.ftb),
+      ubtb(p.ubtb),
+      btb(p.btb),
       tage(p.tage),
-      ittage(p.ittage),
+    //   ittage(p.ittage),
       ras(p.ras),
-      uras(p.uras),
-    //   enableDB(p.enableBPDB),
+    //   uras(p.uras),
       bpDBSwitches(p.bpDBSwitches),
       numStages(p.numStages),
-      historyManager(p.numBr),
-      dbpFtbStats(this, p.numStages, p.fsq_size)
+      historyManager(8), // TODO: fix this
+      dbpBtbStats(this, p.numStages, p.fsq_size)
 {
-    gem5::branch_prediction::ftb_pred::predictWidth = p.predictWidth;
+    numBr = 8; //TODO: remove numBr
     if (bpDBSwitches.size() > 0) {
         
         bpdb.init_db();
@@ -91,17 +89,16 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
             someDBenabled = true;
         }
     }
-
-    bpType = DecoupledFTBType;
+    bpType = DecoupledBTBType;
     numStages = 3;
     // TODO: better impl (use vector to assign in python)
-    // problem: ftb->getAndSetNewFTBEntry
-    components.push_back(uftb);
-    components.push_back(uras);
-    components.push_back(ftb);
+    // problem: btb->getAndSetNewBTBEntry
+    components.push_back(ubtb);
+    // components.push_back(uras);
+    components.push_back(btb);
     components.push_back(tage);
     components.push_back(ras);
-    components.push_back(ittage);
+    // components.push_back(ittage);
     numComponents = components.size();
     for (int i = 0; i < numComponents; i++) {
         components[i]->setComponentIdx(i);
@@ -128,7 +125,7 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
     predsOfEachStage.resize(numStages);
     for (unsigned i = 0; i < numStages; i++) {
         predsOfEachStage[i].predSource = i;
-        predsOfEachStage[i].condTakens.resize(numBr, false);
+        clearPreds();
     }
 
     s0PC = 0x80000000;
@@ -233,10 +230,10 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
             *out_handle->stream() << phaseID << " " << numStaticBranches << " " << numEverTakenStaticBranches << " " << totalMispredicts;
             // sort by mispredicts
             std::sort(temp.begin(), temp.end(), [&](const MispredRecord &a, const MispredRecord &b) {
-                return gem5::branch_prediction::ftb_pred::DecoupledBPUWithFTB::getMispredCount(a) >
-                gem5::branch_prediction::ftb_pred::DecoupledBPUWithFTB::getMispredCount(b);
+                return gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(a) >
+                gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(b);
             });
-            for (int i = 0; i < outputTopN && i < temp.size(); i++) {
+            for (int i = 0; i < outputTopN; i++) {
                 *out_handle->stream() << " " << std::hex << temp[i].first.first; // pc
                 *out_handle->stream() << " " << std::dec << temp[i].first.second; // type
                 *out_handle->stream() << " " << std::dec << getMispredCount(temp[i]); // mispred count
@@ -270,11 +267,11 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
             *out_handle->stream() << phaseID << " " << numStaticBranches << " " << numEverTakenStaticBranches << " " << totalMispredicts;
             // sort by mispredicts
             std::sort(temp.begin(), temp.end(), [&](const MispredRecord &a, const MispredRecord &b) {
-                return gem5::branch_prediction::ftb_pred::DecoupledBPUWithFTB::getMispredCount(a) >
-                gem5::branch_prediction::ftb_pred::DecoupledBPUWithFTB::getMispredCount(b);
+                return gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(a) >
+                gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(b);
             });
             *out_handle->stream() << std::hex;
-            for (int i = 0; i < outputTopN && i < temp.size(); i++) {
+            for (int i = 0; i < outputTopN; i++) {
                 *out_handle->stream() << " " << std::hex << temp[i].first.first; // pc
                 *out_handle->stream() << " " << std::dec << temp[i].first.second; // type
                 *out_handle->stream() << " " << std::dec << getMispredCount(temp[i]); // mispred count
@@ -390,41 +387,31 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
         }
         simout.close(out_handle);
 
-        // dump ftb entries
+        // dump btb entries
         int outputTopNEntries = 1;
-        out_handle = simout.create("ftbEntriesByPhase.txt", false, true);
-        *out_handle->stream() << "phaseID"<< " " << "numFTBEntries";
+        out_handle = simout.create("btbEntriesByPhase.txt", false, true);
+        *out_handle->stream() << "phaseID"<< " " << "numBTBEntries";
         for (int i = 0; i <= outputTopNEntries; i++) {
-            *out_handle->stream() << " " << "entry_" << i << "_pc";
-            for (int n = 0; n < numBr; n++) {
-                *out_handle->stream() << " " << "entry_" << i << "_br_" << n << "_pc";
-                *out_handle->stream() << " " << "entry_" << i << "_br_" << n << "_type";
-            }
+            *out_handle->stream() << " " << "entry_" << i << "_pc" << " " << "entry_" << i << "_type";
         }
         *out_handle->stream() << std::endl;
         phaseID = 0;
 
-        for (auto& it : FTBEntriesByPhase) {
+        for (auto& it : BTBEntriesByPhase) {
             *out_handle->stream() << std::dec << phaseID;
             *out_handle->stream() << " " << it.size();
-            std::vector<std::tuple<Addr, FTBEntry, int>> ftbEntryTempVec;
+            std::vector<std::tuple<Addr, BTBEntry, int>> btbEntryTempVec;
             for (auto& rec : it) {
-                ftbEntryTempVec.push_back(std::make_tuple(rec.first, rec.second.first, rec.second.second));
+                btbEntryTempVec.push_back(std::make_tuple(rec.first, rec.second.first, rec.second.second));
             }
-            std::sort(ftbEntryTempVec.begin(), ftbEntryTempVec.end(),
-                [](const std::tuple<Addr, FTBEntry, int> &a,
-                const std::tuple<Addr, FTBEntry, int> &b) {
+            std::sort(btbEntryTempVec.begin(), btbEntryTempVec.end(),
+                [](const std::tuple<Addr, BTBEntry, int> &a,
+                const std::tuple<Addr, BTBEntry, int> &b) {
                     return std::get<2>(a) > std::get<2>(b);
                 });
-            for (int i = 0; i <= outputTopNEntries && i < ftbEntryTempVec.size(); i++) {
-                auto &rec = ftbEntryTempVec[i];
-                *out_handle->stream() << " " << std::hex << std::get<0>(rec);
-                auto &entry = std::get<1>(rec);
-                for (int n = 0; n < numBr; n++) {
-                    auto slot = entry.slots.size() <= n ? FTBSlot() : entry.slots[n];
-                    *out_handle->stream() << " " << slot.pc;
-                    *out_handle->stream() << " " << slot.getType();
-                }
+            for (int i = 0; i <= outputTopNEntries && i < btbEntryTempVec.size(); i++) {
+                auto &rec = btbEntryTempVec[i];
+                *out_handle->stream() << " " << std::hex << std::get<0>(rec) << " " << std::get<1>(rec).getType();
             }
             *out_handle->stream() << std::endl;
             phaseID++;
@@ -437,7 +424,7 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
     });
 }
 
-DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize):
+DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize):
     statistics::Group(parent),
     ADD_STAT(condNum, statistics::units::Count::get(), "the number of cond branches"),
     ADD_STAT(uncondNum, statistics::units::Count::get(), "the number of uncond branches"),
@@ -460,68 +447,25 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     ADD_STAT(ftqNotValid, statistics::units::Count::get(), "fetch needs ftq req but ftq not valid"),
     ADD_STAT(fsqNotValid, statistics::units::Count::get(), "ftq needs fsq req but fsq not valid"),
     ADD_STAT(fsqFullCannotEnq, statistics::units::Count::get(), "bpu has req but fsq full cannot enqueue"),
-    ADD_STAT(fsqFullFetchHungry, statistics::units::Count::get(), "fetch hungry when fsq full and bpu cannot enqueue"),
     ADD_STAT(commitFsqEntryHasInsts, statistics::units::Count::get(), "number of insts that commit fsq entries have"),
     ADD_STAT(commitFsqEntryFetchedInsts, statistics::units::Count::get(), "number of insts that commit fsq entries fetched"),
     ADD_STAT(commitFsqEntryOnlyHasOneJump, statistics::units::Count::get(), "number of fsq entries with only one instruction (jump)"),
-    ADD_STAT(ftbHit, statistics::units::Count::get(), "ftb hits (in predict block)"),
-    ADD_STAT(ftbMiss, statistics::units::Count::get(), "ftb misses (in predict block)"),
-    ADD_STAT(ftbMissInstNotCommitted, statistics::units::Count::get(), "inst causing ftb miss but not committed"),
-    ADD_STAT(ftbMissInstNotMispredicted, statistics::units::Count::get(), "inst causing ftb miss but not mispredicted"),
-    ADD_STAT(ftbMissInstMispredicted, statistics::units::Count::get(), "inst causing ftb miss actually mispredicted"),
-    ADD_STAT(ftbMissWithNoMispreds, statistics::units::Count::get(), "ftb miss with no branch mispreds"),
-    ADD_STAT(ftbMissWithNoBranches, statistics::units::Count::get(), "ftb miss with no branches committed"),
-    ADD_STAT(ftbMissWithNoHarm, statistics::units::Count::get(), "not harmful ftb misses, miss with no actually taken branches in it"),
-    ADD_STAT(ftbEntriesWithDifferentStart, statistics::units::Count::get(), "number of ftb entries with different start PC"),
-    ADD_STAT(ftbEntriesWithOnlyOneJump, statistics::units::Count::get(), "number of ftb entries with different start PC starting with a jump"),
+    ADD_STAT(btbHit, statistics::units::Count::get(), "btb hits (in predict block)"),
+    ADD_STAT(btbMiss, statistics::units::Count::get(), "btb misses (in predict block)"),
+    ADD_STAT(btbEntriesWithDifferentStart, statistics::units::Count::get(), "number of btb entries with different start PC"),
+    ADD_STAT(btbEntriesWithOnlyOneJump, statistics::units::Count::get(), "number of btb entries with different start PC starting with a jump"),
     ADD_STAT(predFalseHit, statistics::units::Count::get(), "false hit detected at pred"),
     ADD_STAT(commitFalseHit, statistics::units::Count::get(), "false hit detected at commit"),
-    ADD_STAT(committedSquashedCondNotMispredicted, statistics::units::Count::get(), "control squashed cond branch but no commit mispreds recorded (should not happen)"),
-    ADD_STAT(committedDecodeSquashedCondNotMispredicted, statistics::units::Count::get(), "control squashed (from decode) cond branch but no commit mispreds recorded (should not happen)"),
-    ADD_STAT(committedCommitSquashedCondNotMispredicted, statistics::units::Count::get(), "control squashed (from commit) cond branchbut no commit mispreds recorded (should not happen)"),
-    ADD_STAT(committedSquashedUncondNotMispredicted, statistics::units::Count::get(), "control squashed uncond branch but no commit mispreds recorded (possibly ftb unseen jals)"),
-    ADD_STAT(committedDecodeSquashedUncondNotMispredicted, statistics::units::Count::get(), "control squashed (from decode) uncond branch but no commit mispreds recorded (possibly ftb unseen jals corrected by decode)"),
-    ADD_STAT(committedCommitSquashedUncondNotMispredicted, statistics::units::Count::get(), "control squashed (from decode) uncond branch but no commit mispreds recorded (should not happen)"),
-    ADD_STAT(committedSquashedBranchFinallyMispredicted, statistics::units::Count::get(), "control squashed branch finally mispredicted"),
-    ADD_STAT(controlSquashedCommitted, statistics::units::Count::get(), "control squashed and committed insts"),
-    ADD_STAT(controlDecodeSquashedCondCommitted, statistics::units::Count::get(), "control squashed from decode and committed conditional branches"),
-    ADD_STAT(controlDecodeSquashedUncondCommitted, statistics::units::Count::get(), "control squashed from decode and committed unconditional branches"),
-    ADD_STAT(controlDecodeSquashedUncondDirectCommitted, statistics::units::Count::get(), "control squashed from decode and committed unconditional direct branches"),
-    ADD_STAT(controlDecodeSquashedUncondIndirectCommitted, statistics::units::Count::get(), "control squashed from decode and committed indirect branches"),
-    ADD_STAT(controlDecodeSquashedUncondReturnCommitted, statistics::units::Count::get(), "control squashed from decode and committed return branches"),
-    ADD_STAT(controlCommitSquashedCondCommitted, statistics::units::Count::get(), "control squashed from commit and committed conditional branches"),
-    ADD_STAT(controlCommitSquashedUncondCommitted, statistics::units::Count::get(), "control squashed from commit and committed unconditional branches"),
-    ADD_STAT(controlCommitSquashedUncondDirectCommitted, statistics::units::Count::get(), "control squashed from commit and committed unconditional direct branches"),
-    ADD_STAT(controlCommitSquashedUncondIndirectCommitted, statistics::units::Count::get(), "control squashed from commit and committed indirect branches"),
-    ADD_STAT(controlCommitSquashedUncondReturnCommitted, statistics::units::Count::get(), "control squashed from commit and committed return branches"),
-    ADD_STAT(controlSquashedNotCommitted, statistics::units::Count::get(), "control squashed but not committed insts"),
-    ADD_STAT(controlDecodeSquashedCondNotCommitted, statistics::units::Count::get(), "control squashed from decode but not committed conditional branches"),
-    ADD_STAT(controlDecodeSquashedUncondNotCommitted, statistics::units::Count::get(), "control squashed from decode but not committed unconditional branches"),
-    ADD_STAT(controlDecodeSquashedUncondDirectNotCommitted, statistics::units::Count::get(), "control squashed from decode but not committed unconditional direct branches"),
-    ADD_STAT(controlDecodeSquashedUncondIndirectNotCommitted, statistics::units::Count::get(), "control squashed from decode but not committed indirect branches"),
-    ADD_STAT(controlDecodeSquashedUncondReturnNotCommitted, statistics::units::Count::get(), "control squashed from decode but not committed return branches"),
-    ADD_STAT(controlCommitSquashedCondNotCommitted, statistics::units::Count::get(), "control squashed from commit but not committed conditional branches"),
-    ADD_STAT(controlCommitSquashedUncondNotCommitted, statistics::units::Count::get(), "control squashed from commit but not committed unconditional branches"),
-    ADD_STAT(controlCommitSquashedUncondDirectNotCommitted, statistics::units::Count::get(), "control squashed from commit but not committed unconditional direct branches"),
-    ADD_STAT(controlCommitSquashedUncondIndirectNotCommitted, statistics::units::Count::get(), "control squashed from commit but not committed indirect branches"),
-    ADD_STAT(controlCommitSquashedUncondReturnNotCommitted, statistics::units::Count::get(), "control squashed from commit but not committed return branches"),
-    // ADD_STAT(nonControlSquashedCommitted, statistics::units::Count::get(), "non-control squashed and committed insts"),
-    // ADD_STAT(nonControlSquashedNotCommitted, statistics::units::Count::get(), "non-control squashed but not committed insts"),
-    // ADD_STAT(trapSquashedCommitted, statistics::units::Count::get(), "trap squashed and committed insts"),
-    // ADD_STAT(trapSquashedNotCommitted, statistics::units::Count::get(), "trap squashed but not committed insts"),
-    ADD_STAT(committedStreamHadReceivedSquash, statistics::units::Count::get(), "committed stream had received squash"),
-    ADD_STAT(committedStreamSquashFromDecode, statistics::units::Count::get(), "committed stream had received squash from decode"),
-    ADD_STAT(committedStreamSquashFromCommit, statistics::units::Count::get(), "committed stream had received squash from commit"),
     ADD_STAT(predLoopPredictorExit, statistics::units::Count::get(), "loop predictor exits at pred"),
     ADD_STAT(predLoopPredictorUnconfNotExit, statistics::units::Count::get(), "loop predictor does not exit at pred because of unconf"),
     ADD_STAT(predLoopPredictorConfFixNotExit, statistics::units::Count::get(), "loop predictor confident and fix other predictor not taken in non-exit loop branch at pred"),
-    ADD_STAT(predFTBUnseenLoopBranchInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in ftb encountered"),
-    ADD_STAT(predFTBUnseenLoopBranchExitInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in ftb encountered and exited"),
+    ADD_STAT(predBTBUnseenLoopBranchInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in btb encountered"),
+    ADD_STAT(predBTBUnseenLoopBranchExitInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in btb encountered and exited"),
     ADD_STAT(commitLoopPredictorExit, statistics::units::Count::get(), "loop predictor pred loop exits detected at commit"),
     ADD_STAT(commitLoopPredictorExitCorrect, statistics::units::Count::get(), "loop predictor correctly pred loop exits detected at commit"),
     ADD_STAT(commitLoopPredictorExitWrong, statistics::units::Count::get(), "loop predictor wrongly pred loop exits detected at commit"),
-    ADD_STAT(commitFTBUnseenLoopBranchInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in ftb encountered at commit"),
-    ADD_STAT(commitFTBUnseenLoopBranchExitInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in ftb encountered and exited at commit"),
+    ADD_STAT(commitBTBUnseenLoopBranchInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in btb encountered at commit"),
+    ADD_STAT(commitBTBUnseenLoopBranchExitInLp, statistics::units::Count::get(), "loop predictor recorded loop branch that is not in btb encountered and exited at commit"),
     ADD_STAT(commitLoopPredictorConfFixNotExit, statistics::units::Count::get(), "loop predictor confident and fix other predictor not taken in non-exit loop branch at commit"),
     ADD_STAT(commitLoopPredictorConfFixNotExitCorrect, statistics::units::Count::get(), "loop predictor confident and fix other predictor not taken in non-exit loop branch correctly at commit"),
     ADD_STAT(commitLoopPredictorConfFixNotExitWrong, statistics::units::Count::get(), "loop predictor confident and fix other predictor not taken in non-exit loop branch wrongly at commit"),
@@ -551,23 +495,7 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     ADD_STAT(commitNonControlSquashedOnJaHitBlocks, statistics::units::Count::get(), "total number of non-control squashes on ja hit committed blocks"),
     ADD_STAT(commitTrapSquashedOnJaHitBlocks, statistics::units::Count::get(), "total number of trap squashes on ja hit committed blocks"),
     ADD_STAT(predJASkippedBlockNum, statistics::units::Count::get(), "distribution of ja skipped block numbers at pred"),
-    ADD_STAT(commitJASkippedBlockNum, statistics::units::Count::get(), "distribution of ja skipped block numbers at commit"),
-    ADD_STAT(decodeControlSquashLatencyDist, statistics::units::Count::get(), "distribution of cycles count from pred to decode control squash"),
-    ADD_STAT(commitControlSquashLatencyDist, statistics::units::Count::get(), "distribution of cycles count from pred to commit control squash"),
-    ADD_STAT(commitTrapSquashLatencyDist, statistics::units::Count::get(), "distribution of cycles count from pred to commit trap squash"),
-    ADD_STAT(commitNonControlSquashLatencyDist, statistics::units::Count::get(), "distribution of cycles count from pred to commit non-control squash"),
-    ADD_STAT(updateLatencyDist, statistics::units::Count::get(), "distribution of cycles count from pred to commit update"),
-    ADD_STAT(controlDecodeSquashOfCond, statistics::units::Count::get(), "control squash of cond branch at decode"),
-    ADD_STAT(controlDecodeSquashOfUncond, statistics::units::Count::get(), "control squash of uncond branch at decode"),
-    ADD_STAT(controlDecodeSquashOfUncondDirect, statistics::units::Count::get(), "control squash of uncond direct branch at decode"),
-    ADD_STAT(controlDecodeSquashOfUncondIndirect, statistics::units::Count::get(), "control squash of indirect branch at decode"),
-    ADD_STAT(controlDecodeSquashOfUncondReturn, statistics::units::Count::get(), "control squash of return branch at decode"),
-    ADD_STAT(controlCommitSquashOfCond, statistics::units::Count::get(), "control squash of cond branch at commit"),
-    ADD_STAT(controlCommitSquashOfUncond, statistics::units::Count::get(), "control squash of uncond branch at commit"),
-    ADD_STAT(controlCommitSquashOfUncondDirect, statistics::units::Count::get(), "control squash of uncond direct branch at commit"),
-    ADD_STAT(controlCommitSquashOfUncondIndirect, statistics::units::Count::get(), "control squash of indirect branch at commit"),
-    ADD_STAT(controlCommitSquashOfUncondReturn, statistics::units::Count::get(), "control squash of return branch at commit"),
-    ADD_STAT(ftqEndReasonDist, statistics::units::Count::get(), "distribution of ftq end reason")
+    ADD_STAT(commitJASkippedBlockNum, statistics::units::Count::get(), "distribution of ja skipped block numbers at commit")
 {
     predsOfEachStage.init(numStages);
     commitPredsFromEachStage.init(numStages+1);
@@ -578,19 +506,9 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     commitFsqEntryFetchedInsts.init(0, 16, 1);
     predJASkippedBlockNum.init(0, 16, 1);
     commitJASkippedBlockNum.init(0, 16, 1);
-    decodeControlSquashLatencyDist.init(1,16,1);
-    commitControlSquashLatencyDist.init(1,16,1);
-    commitTrapSquashLatencyDist.init(1,16,1);
-    commitNonControlSquashLatencyDist.init(1,16,1);
-    updateLatencyDist.init(1,64,2);
-    ftqEndReasonDist.init(static_cast<int>(FTQEndReason::NUM_REASONS)).flags(statistics::pdf);
-    ftqEndReasonDist.subname(static_cast<int>(FTQEndReason::NOT_END), "not_end");
-    ftqEndReasonDist.subname(static_cast<int>(FTQEndReason::TAKEN), "taken");
-    ftqEndReasonDist.subname(static_cast<int>(FTQEndReason::SIZE_LIMIT), "size_limit");
-    ftqEndReasonDist.subname(static_cast<int>(FTQEndReason::LOOP_END), "loop_end");
 }
 
-DecoupledBPUWithFTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &inst, bool mispred)
+DecoupledBPUWithBTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &inst, bool mispred)
 {
     _tick = curTick();
     Addr pc = inst->pcState().instAddr();
@@ -605,20 +523,19 @@ DecoupledBPUWithFTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &ins
 }
 
 void
-DecoupledBPUWithFTB::tick()
+DecoupledBPUWithBTB::tick()
 {
-    dbpFtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
+    dbpBtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
     if (streamQueueFull()) {
-        dbpFtbStats.fsqFullCannotEnq++;
+        dbpBtbStats.fsqFullCannotEnq++;
     }
 
     if (!receivedPred && numOverrideBubbles == 0 && sentPCHist) {
-        numOverrideBubbles = generateFinalPredAndCreateBubbles();
+        generateFinalPredAndCreateBubbles();
     }
-
     if (!squashing) {
-        DPRINTF(DecoupleBP, "DecoupledBPUWithFTB::tick()\n");
-        DPRINTF(Override, "DecoupledBPUWithFTB::tick()\n");
+        DPRINTF(DecoupleBP, "DecoupledBPUWithBTB::tick()\n");
+        DPRINTF(Override, "DecoupledBPUWithBTB::tick()\n");
         tryEnqFetchTarget();
         tryEnqFetchStream();
     } else {
@@ -655,7 +572,7 @@ DecoupledBPUWithFTB::tick()
 
         sentPCHist = true;
     }
-
+    
 
     // query loop buffer with start pc
     if (enableLoopBuffer && !lb.isActive() &&
@@ -665,10 +582,10 @@ DecoupledBPUWithFTB::tick()
     }
 
     DPRINTF(Override, "after putPCHistory\n");
-    for (int i = 0; i < numStages; i++) {
-        printFullFTBPrediction(predsOfEachStage[i]);
-    }
-
+    // for (int i = 0; i < numStages; i++) {
+    //     printFullBTBPrediction(predsOfEachStage[i]);
+    // }
+    
     if (streamQueueFull()) {
         DPRINTF(DecoupleBP, "Stream queue is full, don't request prediction\n");
         DPRINTF(Override, "Stream queue is full, don't request prediction\n");
@@ -676,122 +593,23 @@ DecoupledBPUWithFTB::tick()
     squashing = false;
 }
 
-// ideal_tick() is copied from commit: e7294f1813c331dbce8bcfa4d5eb981f7c8440c5
-// TODO: Fix bug in ideal_tick(): Bubbles created by generateFinalPredAndCreateBubbles() are lost in the next tick,
-// resulting in almost NO override bubbles. To resolve this, move tryEnqFetchTarget() and tryEnqFetchStream()
-// outside the while loop (before decrementing numOverrideBubbles). Additionally, ensure that TWO FTB entries
-// generated by generateAndSetNewFetchStream() are saved in the current tick, allowing both entries to enqueue
-// to FTQ/FSQ in the next tick.
-void
-DecoupledBPUWithFTB::ideal_tick()
-{
-    dbpFtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
-    if (streamQueueFull()) {
-        dbpFtbStats.fsqFullCannotEnq++;
-    }
-
-
-    int predsRemainsToBeMade = enableTwoTaken ? 2 : 1;
-    // in two taken roofline model, we create max(bubblesOfPreds1, bubblesOfPreds2) bubbles
-    int tempNumOverrideBubbles = 0;
-
-    if (numOverrideBubbles > 0) {
-        numOverrideBubbles--;
-    }
-
-    while (predsRemainsToBeMade > 0) {
-        // make one prediction
-        if (!squashing) {
-            DPRINTF(DecoupleBP, "DecoupledBPUWithFTB::tick()\n");
-            DPRINTF(Override, "DecoupledBPUWithFTB::tick()\n");
-            tryEnqFetchTarget();
-            tryEnqFetchStream();
-        } else {
-            receivedPred = false;
-            DPRINTF(DecoupleBP, "Squashing, skip this cycle, receivedPred is %d.\n", receivedPred);
-            DPRINTF(Override, "Squashing, skip this cycle, receivedPred is %d.\n", receivedPred);
-        }
-
-
-        sentPCHist = false;
-
-        if (!receivedPred && !streamQueueFull()) {
-            if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
-                if (s0PC == ObservingPC) {
-                    DPRINTFV(true, "Predicting block %#lx, id: %lu\n", s0PC, fsqId);
-                }
-                DPRINTF(DecoupleBP, "Requesting prediction for stream start=%#lx\n", s0PC);
-                DPRINTF(Override, "Requesting prediction for stream start=%#lx\n", s0PC);
-                // put startAddr in preds
-                for (int i = 0; i < numStages; i++) {
-                    predsOfEachStage[i].bbStart = s0PC;
-                }
-                for (int i = 0; i < numComponents; i++) {
-                    components[i]->putPCHistory(s0PC, s0History, predsOfEachStage);
-                }
-            } else {
-                DPRINTF(LoopBuffer, "Do not query bpu when loop buffer is active\n");
-                DPRINTF(DecoupleBP, "Do not query bpu when loop buffer is active\n");
-            }
-
-
-            sentPCHist = true;
-        }
-
-
-        // query loop buffer with start pc
-        if (enableLoopBuffer && !lb.isActive() &&
-                lb.streamBeforeLoop.getTakenTarget() == lb.streamBeforeLoop.startPC &&
-                !lb.streamBeforeLoop.resolved) { // do not activate loop buffer right after squash
-            lb.tryActivateLoop(s0PC);
-        }
-
-        DPRINTF(Override, "after putPCHistory\n");
-        for (int i = 0; i < numStages; i++) {
-            printFullFTBPrediction(predsOfEachStage[i]);
-        }
-
-        if (streamQueueFull()) {
-            DPRINTF(DecoupleBP, "Stream queue is full, don't request prediction\n");
-            DPRINTF(Override, "Stream queue is full, don't request prediction\n");
-        }
-        squashing = false;
-
-
-        if (!receivedPred && numOverrideBubbles == 0 && sentPCHist) {
-            tempNumOverrideBubbles = std::max(generateFinalPredAndCreateBubbles(), tempNumOverrideBubbles);
-            generateAndSetNewFetchStream();
-            if (!enableTwoTaken) {
-                numOverrideBubbles = tempNumOverrideBubbles;
-            } else {
-                if (predsRemainsToBeMade == 1) {
-                    numOverrideBubbles = tempNumOverrideBubbles;
-                }
-            }
-        }
-
-        predsRemainsToBeMade--;
-    }
-}
-
 // this function collects predictions from all stages and generate bubbles
 // when loop buffer is active, predictions are from saved stream
-int
-DecoupledBPUWithFTB::generateFinalPredAndCreateBubbles()
+void
+DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
 {
-    int bubblesToCreate = 0;
     DPRINTF(Override, "In generateFinalPredAndCreateBubbles().\n");
 
     if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
         // predsOfEachStage should be ready now
         for (int i = 0; i < numStages; i++) {
-            printFullFTBPrediction(predsOfEachStage[i]);
+            printFullBTBPrediction(predsOfEachStage[i]);
         }
         // choose the most accurate prediction
-        FullFTBPrediction *chosen = &predsOfEachStage[0];
+        FullBTBPrediction *chosen = &predsOfEachStage[0];
 
         for (int i = (int) numStages - 1; i >= 0; i--) {
-            if (predsOfEachStage[i].valid) {
+            if (predsOfEachStage[i].btbEntries.size() > 0) {
                 chosen = &predsOfEachStage[i];
                 DPRINTF(Override, "choose stage %d.\n", i);
                 break;
@@ -807,57 +625,55 @@ DecoupledBPUWithFTB::generateFinalPredAndCreateBubbles()
             first_hit_stage++;
         }
         // generate bubbles
-        bubblesToCreate = first_hit_stage;
+        numOverrideBubbles = first_hit_stage;
         // assign pred source
         finalPred.predSource = first_hit_stage;
         receivedPred = true;
 
-        finalPred.predCycle = curCycle();
-
         // if stage 2 has ret (handled by main RAS)
         // check if we have handled in stage 1
-        auto taken_slot_s1 = predsOfEachStage[1].getTakenSlot();
-        if (taken_slot_s1.isReturn) {
-            for (int i = 0; i < predsOfEachStage[1].ftbEntry.slots.size(); i++) {
-                DPRINTF(URAS, "s2 slot valid %d isCond %d\n", predsOfEachStage[1].ftbEntry.slots[i].valid, predsOfEachStage[1].ftbEntry.slots[i].isCond);
-            }
-            DPRINTF(URAS, "pred to be ret on s2 with choose stage %d\n", first_hit_stage);
-            DPRINTF(URAS, "s1 ftbEntry valid %d\n", predsOfEachStage[0].ftbEntry.valid);
-            auto taken_slot_s0 = predsOfEachStage[0].getTakenSlot();
-            for (int i = 0; i < predsOfEachStage[0].ftbEntry.slots.size(); i++) {
-                DPRINTF(URAS, "s1 slot valid %d isCond %d\n", predsOfEachStage[0].ftbEntry.slots[i].valid, predsOfEachStage[0].ftbEntry.slots[i].isCond);
-            }
-            if (!taken_slot_s0.isReturn) {
-                DPRINTF(URAS, "pc %llx pred to be ret on s2, but not on s1\n", predsOfEachStage[1].bbStart);
-            }
-            if (predsOfEachStage[1].returnTarget != predsOfEachStage[0].returnTarget) {
-                DPRINTF(URAS, "pc %llx pred to be ret but s1 target %llx, s2 target %llx\n", predsOfEachStage[1].bbStart, predsOfEachStage[0].returnTarget, predsOfEachStage[1].returnTarget);
-            }
-        }
+        // auto taken_slot_s1 = predsOfEachStage[1].getTakenSlot();
+        // if (taken_slot_s1.isReturn) {
+        //     for (int i = 0; i < predsOfEachStage[1].btbEntry.slots.size(); i++) {
+        //         DPRINTF(URAS, "s2 slot valid %d isCond %d\n", predsOfEachStage[1].btbEntry.slots[i].valid, predsOfEachStage[1].btbEntry.slots[i].isCond);
+        //     }
+        //     DPRINTF(URAS, "pred to be ret on s2 with choose stage %d\n", first_hit_stage);
+        //     DPRINTF(URAS, "s1 btbEntry valid %d\n", predsOfEachStage[0].btbEntry.valid);
+        //     auto taken_slot_s0 = predsOfEachStage[0].getTakenSlot();
+        //     for (int i = 0; i < predsOfEachStage[0].btbEntry.slots.size(); i++) {
+        //         DPRINTF(URAS, "s1 slot valid %d isCond %d\n", predsOfEachStage[0].btbEntry.slots[i].valid, predsOfEachStage[0].btbEntry.slots[i].isCond);
+        //     }
+        //     if (!taken_slot_s0.isReturn) {
+        //         DPRINTF(URAS, "pc %llx pred to be ret on s2, but not on s1\n", predsOfEachStage[1].bbStart);
+        //     }
+        //     if (predsOfEachStage[1].returnTarget != predsOfEachStage[0].returnTarget) {
+        //         DPRINTF(URAS, "pc %llx pred to be ret but s1 target %llx, s2 target %llx\n", predsOfEachStage[1].bbStart, predsOfEachStage[0].returnTarget, predsOfEachStage[1].returnTarget);
+        //     }
+        // }
 
-        printFullFTBPrediction(*chosen);
-        dbpFtbStats.predsOfEachStage[first_hit_stage]++;
+        // printFullBTBPrediction(*chosen);
+        dbpBtbStats.predsOfEachStage[first_hit_stage]++;
+
+        clearPreds();
     } else {
-        bubblesToCreate = 0;
+        numOverrideBubbles = 0;
         receivedPred = true;
         DPRINTF(LoopBuffer, "Do not generate final pred when loop buffer is active\n");
         DPRINTF(DecoupleBP, "Do not generate final pred when loop buffer is active\n");
     }
 
-    DPRINTF(Override, "Ends generateFinalPredAndCreateBubbles(), numOverrideBubbles is %d,"
-                      "receivedPred is set true.\n", bubblesToCreate);
+    DPRINTF(Override, "Ends generateFinalPredAndCreateBubbles(), numOverrideBubbles is %d, receivedPred is set true.\n", numOverrideBubbles);
 
-    return bubblesToCreate;
 }
 
 bool
-DecoupledBPUWithFTB::trySupplyFetchWithTarget(Addr fetch_demand_pc, bool &fetch_target_in_loop)
+DecoupledBPUWithBTB::trySupplyFetchWithTarget(Addr fetch_demand_pc, bool &fetch_target_in_loop)
 {
     return fetchTargetQueue.trySupplyFetchWithTarget(fetch_demand_pc, fetch_target_in_loop);
 }
 
 std::pair<bool, bool>
-DecoupledBPUWithFTB::decoupledPredict(const StaticInstPtr &inst,
+DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
                                const InstSeqNum &seqNum, PCStateBase &pc,
                                ThreadID tid, unsigned &currentLoopIter)
 {
@@ -909,7 +725,6 @@ DecoupledBPUWithFTB::decoupledPredict(const StaticInstPtr &inst,
         if (raw_taken) {
             if (current_loop_iter >= loop_iter - 1) {
                 run_out_of_this_entry = true;
-                dbpFtbStats.ftqEndReasonDist[static_cast<int>(FTQEndReason::LOOP_END)]++;
                 if (loop_exit) {
                     taken = false;
                     lb.tryUnpin();
@@ -921,7 +736,6 @@ DecoupledBPUWithFTB::decoupledPredict(const StaticInstPtr &inst,
     } else {
         if (taken) {
             run_out_of_this_entry = true;
-            dbpFtbStats.ftqEndReasonDist[static_cast<int>(FTQEndReason::TAKEN)]++;
         }
     }
 
@@ -939,11 +753,10 @@ DecoupledBPUWithFTB::decoupledPredict(const StaticInstPtr &inst,
         inst->advancePC(*target);
         if (target->instAddr() >= end) {
             run_out_of_this_entry = true;
-            dbpFtbStats.ftqEndReasonDist[static_cast<int>(FTQEndReason::SIZE_LIMIT)]++;
         }
     }
-        DPRINTF(DecoupleBP, "Predict it %staken to %#lx\n", taken ? "" : "not ",
-                target->instAddr());
+    DPRINTF(DecoupleBP, "Predict it %staken to %#lx\n", taken ? "" : "not ",
+            target->instAddr());
 
     if (run_out_of_this_entry) {
         // dequeue the entry
@@ -962,7 +775,7 @@ DecoupledBPUWithFTB::decoupledPredict(const StaticInstPtr &inst,
 }
 
 void
-DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
+DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
                             const PCStateBase &control_pc,
                             const PCStateBase &corr_target,
                             const StaticInstPtr &static_inst,
@@ -970,7 +783,7 @@ DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
                             const InstSeqNum &seq, ThreadID tid,
                             const unsigned &currentLoopIter, const bool fromCommit)
 {
-    dbpFtbStats.controlSquash++;
+    dbpBtbStats.controlSquash++;
 
     bool is_conditional = static_inst->isCondCtrl();
     bool is_indirect = static_inst->isIndirectCtrl();
@@ -994,6 +807,7 @@ DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
         return;
     }
 
+
     // get corresponding stream entry
     auto &stream = squashing_stream_it->second;
     // get target from ras preserved info for decode-detected unpredicted returns
@@ -1009,58 +823,14 @@ DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
     s0PC = real_target;
 
 
-    auto squashSrc = SQUASH_SRC_COMMIT;
     auto squashBranchInfo = BranchInfo(control_pc.instAddr(), real_target, static_inst, control_inst_size);
-    auto predCycle = stream.predCycle;
-    auto squashLat = curCycle() - predCycle;
-    if (!fromCommit) {
-        if (stream.isHit) {
-            stream.falseHit = true;
-        }
-        squashSrc = SQUASH_SRC_DECODE;
-        stream.squashSource = squashSrc;
-        dbpFtbStats.decodeControlSquashLatencyDist.sample(squashLat, 1);
-
-        // per branch type
-        if (squashBranchInfo.isCond) {
-            dbpFtbStats.controlDecodeSquashOfCond++;
-        } else {
-            dbpFtbStats.controlDecodeSquashOfUncond++;
-            if (!squashBranchInfo.isIndirect) {
-                dbpFtbStats.controlDecodeSquashOfUncondDirect++;
-            } else {
-                dbpFtbStats.controlDecodeSquashOfUncondIndirect++;
-                if (squashBranchInfo.isReturn) {
-                    dbpFtbStats.controlDecodeSquashOfUncondReturn++;
-                }
-            }
-        }
-    } else {
-        dbpFtbStats.commitControlSquashLatencyDist.sample(squashLat, 1);
-        // per branch type
-        if (squashBranchInfo.isCond) {
-            dbpFtbStats.controlCommitSquashOfCond++;
-        } else {
-            dbpFtbStats.controlCommitSquashOfUncond++;
-            if (!squashBranchInfo.isIndirect) {
-                dbpFtbStats.controlCommitSquashOfUncondDirect++;
-            } else {
-                dbpFtbStats.controlCommitSquashOfUncondIndirect++;
-                if (squashBranchInfo.isReturn) {
-                    dbpFtbStats.controlCommitSquashOfUncondReturn++;
-                }
-            }
-        }
-    }
-    stream.squashInfos[control_pc.instAddr()] = std::make_tuple(SQUASH_CTRL, squashSrc, squashBranchInfo);
-
     if (stream.isExit) {
-        dbpFtbStats.controlSquashOnLoopPredictorPredExit++;
+        dbpBtbStats.controlSquashOnLoopPredictorPredExit++;
     }
     if (stream.fromLoopBuffer) {
-        dbpFtbStats.squashOnLoopBufferPredBlock++;
+        dbpBtbStats.squashOnLoopBufferPredBlock++;
         if (stream.isDouble) {
-            dbpFtbStats.squashOnLoopBufferDoublePredBlock++;
+            dbpBtbStats.squashOnLoopBufferDoublePredBlock++;
         }
     }
 
@@ -1094,7 +864,7 @@ DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
 
     if (enableJumpAheadPredictor && stream.jaHit) {
         jap.invalidate(stream.startPC);
-        dbpFtbStats.controlSquashOnJaHitBlocks++;
+        dbpBtbStats.controlSquashOnJaHitBlocks++;
     }
 
     FetchTargetId ftq_demand_stream_id;
@@ -1161,7 +931,8 @@ DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
         lb.recordNewestStreamOutsideLoop(stream);
     }
 
-    
+    clearPreds();
+
     // inc stream id because current stream ends
     // now stream always ends
     ftq_demand_stream_id = stream_id + 1;
@@ -1184,11 +955,11 @@ DecoupledBPUWithFTB::controlSquash(unsigned target_id, unsigned stream_id,
 }
 
 void
-DecoupledBPUWithFTB::nonControlSquash(unsigned target_id, unsigned stream_id,
+DecoupledBPUWithBTB::nonControlSquash(unsigned target_id, unsigned stream_id,
                                const PCStateBase &inst_pc,
                                const InstSeqNum seq, ThreadID tid, const unsigned &currentLoopIter)
 {
-    dbpFtbStats.nonControlSquash++;
+    dbpBtbStats.nonControlSquash++;
     DPRINTFV(this->debugFlagOn || ::gem5::debug::DecoupleBP,
             "non control squash: target id: %lu, stream id: %lu, inst_pc: %x, "
             "seq: %lu\n",
@@ -1203,10 +974,6 @@ DecoupledBPUWithFTB::nonControlSquash(unsigned target_id, unsigned stream_id,
 
     auto ftq_demand_stream_id = stream_id;
     auto &stream = it->second;
-    stream.squashInfos[inst_pc.instAddr()] = std::make_tuple(SQUASH_OTHER, SQUASH_SRC_COMMIT, BranchInfo());
-    auto predCycle = stream.predCycle;
-    auto squashLat = curCycle() - predCycle;
-    dbpFtbStats.commitNonControlSquashLatencyDist.sample(squashLat, 1);
 
     if (enableLoopPredictor) {
         lp.startRepair();
@@ -1240,12 +1007,12 @@ DecoupledBPUWithFTB::nonControlSquash(unsigned target_id, unsigned stream_id,
 
     
     if (stream.isExit) {
-        dbpFtbStats.nonControlSquashOnLoopPredictorPredExit++;
+        dbpBtbStats.nonControlSquashOnLoopPredictorPredExit++;
     }
     if (stream.fromLoopBuffer) {
-        dbpFtbStats.squashOnLoopBufferPredBlock++;
+        dbpBtbStats.squashOnLoopBufferPredBlock++;
         if (stream.isDouble) {
-            dbpFtbStats.squashOnLoopBufferDoublePredBlock++;
+            dbpBtbStats.squashOnLoopBufferDoublePredBlock++;
         }
     }
 
@@ -1255,7 +1022,7 @@ DecoupledBPUWithFTB::nonControlSquash(unsigned target_id, unsigned stream_id,
     stream.squashType = SQUASH_OTHER;
 
     if (enableJumpAheadPredictor && stream.jaHit) {
-        dbpFtbStats.nonControlSquashOnJaHitBlocks++;
+        dbpBtbStats.nonControlSquashOnJaHitBlocks++;
     }
 
     // recover history info
@@ -1277,6 +1044,7 @@ DecoupledBPUWithFTB::nonControlSquash(unsigned target_id, unsigned stream_id,
     if (enableLoopBuffer) {
         lb.recordNewestStreamOutsideLoop(stream);
     }
+    clearPreds();
 
     s0PC = pc;
     fsqId = stream_id + 1;
@@ -1290,11 +1058,11 @@ DecoupledBPUWithFTB::nonControlSquash(unsigned target_id, unsigned stream_id,
 }
 
 void
-DecoupledBPUWithFTB::trapSquash(unsigned target_id, unsigned stream_id,
+DecoupledBPUWithBTB::trapSquash(unsigned target_id, unsigned stream_id,
                          Addr last_committed_pc, const PCStateBase &inst_pc,
                          ThreadID tid, const unsigned &currentLoopIter)
 {
-    dbpFtbStats.trapSquash++;
+    dbpBtbStats.trapSquash++;
     DPRINTF(DecoupleBP || debugFlagOn,
             "Trap squash: target id: %lu, stream id: %lu, inst_pc: %#lx\n",
             target_id, stream_id, inst_pc.instAddr());
@@ -1307,18 +1075,14 @@ DecoupledBPUWithFTB::trapSquash(unsigned target_id, unsigned stream_id,
     auto it = fetchStreamQueue.find(stream_id);
     assert(it != fetchStreamQueue.end());
     auto &stream = it->second;
-    stream.squashInfos[inst_pc.instAddr()] = std::make_tuple(SQUASH_TRAP, SQUASH_SRC_COMMIT, BranchInfo());
-    auto predCycle = stream.predCycle;
-    auto squashLat = curCycle() - predCycle;
-    dbpFtbStats.commitTrapSquashLatencyDist.sample(squashLat, 1);
 
     if (stream.isExit) {
-        dbpFtbStats.trapSquashOnLoopPredictorPredExit++;
+        dbpBtbStats.trapSquashOnLoopPredictorPredExit++;
     }
     if (stream.fromLoopBuffer) {
-        dbpFtbStats.squashOnLoopBufferPredBlock++;
+        dbpBtbStats.squashOnLoopBufferPredBlock++;
         if (stream.isDouble) {
-            dbpFtbStats.squashOnLoopBufferDoublePredBlock++;
+            dbpBtbStats.squashOnLoopBufferDoublePredBlock++;
         }
     }
 
@@ -1328,7 +1092,7 @@ DecoupledBPUWithFTB::trapSquash(unsigned target_id, unsigned stream_id,
     stream.squashType = SQUASH_TRAP;
 
     if (enableJumpAheadPredictor && stream.jaHit) {
-        dbpFtbStats.trapSquashOnJaHitBlocks++;
+        dbpBtbStats.trapSquashOnJaHitBlocks++;
     }
 
     if (enableLoopPredictor) {
@@ -1382,6 +1146,7 @@ DecoupledBPUWithFTB::trapSquash(unsigned target_id, unsigned stream_id,
     if (enableLoopBuffer) {
         lb.recordNewestStreamOutsideLoop(stream);
     }
+    clearPreds();
 
     s0PC = inst_pc.instAddr();
 
@@ -1392,7 +1157,7 @@ DecoupledBPUWithFTB::trapSquash(unsigned target_id, unsigned stream_id,
             fetchTargetQueue.getSupplyingTargetId());
 }
 
-void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
+void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
 {
     // aka, commit stream
     // commit controls in local prediction history buffer to committedSeq
@@ -1428,197 +1193,39 @@ void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
                 stream.exeBranchInfo.pc, stream.exeBranchInfo.target,
                 stream.predBranchInfo.pc, stream.predBranchInfo.target);
         
-        if (stream.isHit && !stream.falseHit) {
-            dbpFtbStats.ftbHit++;
+        if (stream.isHit) {
+            // FIXME: should count in terms of instruction instead of block
+            dbpBtbStats.btbHit++;
         } else {
             if (stream.exeTaken) {
-                dbpFtbStats.ftbMiss++;
-                DPRINTF(FTB, "FTB miss detected when update, stream start %#lx, predTick %lu, printing branch info:\n", stream.startPC, stream.predTick);
+                dbpBtbStats.btbMiss++;
+                DPRINTF(BTB, "BTB miss detected when update, stream start %#lx, predTick %lu, printing branch info:\n", stream.startPC, stream.predTick);
                 auto &slot = stream.exeBranchInfo;
-                DPRINTF(FTB, "    pc:%#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d\n",
+                DPRINTF(BTB, "    pc:%#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d\n",
                 slot.pc, slot.size, slot.target, slot.isCond, slot.isIndirect, slot.isCall, slot.isReturn);
-                // try to find branch indentified by exeBranchInfo in commitMispredictions
-                const auto misp_it = stream.commitMispredictions.find(slot.pc);
-                bool found = misp_it != stream.commitMispredictions.end();
-                DPRINTF(DBPFTBStats, "fsqID: %d, inst causing ftb miss: %#lx, found in commitMispredictions: %d\n", it->first, slot.pc, found);
-                if (!found) {
-                    dbpFtbStats.ftbMissInstNotCommitted++;
-                    DPRINTF(DBPFTBStats, "fsqID: %d, pc: %#lx not found in commitMispredictions\n", it->first, slot.pc);
-                    DPRINTF(DBPFTBStats, "dumping commitMispredictions:\n");
-                    for (auto &pair : stream.commitMispredictions) {
-                        DPRINTF(DBPFTBStats, "    pc: %#lx, mispred: %d\n", pair.first, pair.second);
-                    }
-                    if (stream.commitMispredictions.empty()) {
-                        dbpFtbStats.ftbMissWithNoBranches++;
-                    } else {
-                        bool someBranchesMispredicted = false;
-                        for (auto pc_misp_pair : stream.commitMispredictions) {
-                            someBranchesMispredicted |= pc_misp_pair.second;
-                        }
-                        if (!someBranchesMispredicted) {
-                            dbpFtbStats.ftbMissWithNoMispreds++;
-                        }
-                    }
-                } else {
-                    bool miss = misp_it->second;
-                    if (!miss) {
-                        dbpFtbStats.ftbMissInstNotMispredicted++;
-                        DPRINTF(DBPFTBStats, "fsqID: %d, pc: %#lx found in commitMispredictions, but not mispredicted\n", it->first, slot.pc);
-                    } else {
-                        dbpFtbStats.ftbMissInstMispredicted++;
-                    }
-                }
-            } else {
-                dbpFtbStats.ftbMissWithNoHarm++;
             }
             if (stream.falseHit) {
-                dbpFtbStats.commitFalseHit++;
+                dbpBtbStats.commitFalseHit++;
             }
         }
-        dbpFtbStats.commitPredsFromEachStage[stream.predSource]++;
+        dbpBtbStats.commitPredsFromEachStage[stream.predSource]++;
 
-        if (stream.squashType != SQUASH_NONE) {
-            dbpFtbStats.committedStreamHadReceivedSquash++;
-            if (stream.squashSource == SQUASH_SRC_DECODE) {
-                dbpFtbStats.committedStreamSquashFromDecode++;
-            } else if (stream.squashSource == SQUASH_SRC_COMMIT ) {
-                dbpFtbStats.committedStreamSquashFromCommit++;
-            }
-        }
-
-        for (auto &kv : stream.squashInfos) {
-            auto &pc = kv.first;
-            auto &squash_tuple = kv.second;
-            auto &squashType = std::get<0>(squash_tuple);
-            auto &squashSrc = std::get<1>(squash_tuple);
-            auto &squashBranchInfo = std::get<2>(squash_tuple);
-            DPRINTF(DBPFTBStats, "fsqID %d, squash info: pc=%#lx, squashType=%d, squashSrc=%d\n", it->first, pc, squashType, squashSrc);
-            // make sure the instruction triggering squash is actually committed
-            const auto mis_it = stream.commitMispredictions.find(pc);
-            if (mis_it != stream.commitMispredictions.end()) {
-                // previously control squashed
-                if (squashType == SQUASH_CTRL) {
-                    dbpFtbStats.controlSquashedCommitted++;
-                    // this squashed inst not mispredicted?
-                    if (!mis_it->second) {
-                        if (stream.exeBranchInfo.isCond) {
-                            dbpFtbStats.committedSquashedCondNotMispredicted++;
-                            if (squashSrc == SQUASH_SRC_DECODE) {
-                                dbpFtbStats.committedDecodeSquashedCondNotMispredicted++;
-                            } else if (squashSrc == SQUASH_SRC_COMMIT) {
-                                dbpFtbStats.committedCommitSquashedCondNotMispredicted++;
-                            }
-                        } else if (stream.exeBranchInfo.isUncond()) {
-                            dbpFtbStats.committedSquashedUncondNotMispredicted++;
-                            if (squashSrc == SQUASH_SRC_DECODE) {
-                                dbpFtbStats.committedDecodeSquashedUncondNotMispredicted++;
-                            } else if (squashSrc == SQUASH_SRC_COMMIT) {
-                                dbpFtbStats.committedCommitSquashedUncondNotMispredicted++;
-                            }
-                        }
-                    } else {
-                        dbpFtbStats.committedSquashedBranchFinallyMispredicted++;
-                    }
-
-                    // per branch type
-                    if (squashSrc == SQUASH_SRC_DECODE) {
-                        if (squashBranchInfo.isCond) {
-                            dbpFtbStats.controlDecodeSquashedCondCommitted++;
-                        }
-                        if (squashBranchInfo.isUncond()) {
-                            dbpFtbStats.controlDecodeSquashedUncondCommitted++;
-                            if (!squashBranchInfo.isIndirect) {
-                                dbpFtbStats.controlDecodeSquashedUncondDirectCommitted++;
-                            } else {
-                                dbpFtbStats.controlDecodeSquashedUncondIndirectCommitted++;
-                                if (squashBranchInfo.isReturn) {
-                                    dbpFtbStats.controlDecodeSquashedUncondReturnCommitted++;
-                                }
-                            }
-                        }
-                    } else if (squashSrc == SQUASH_SRC_COMMIT) {
-                        if (squashBranchInfo.isCond) {
-                            dbpFtbStats.controlCommitSquashedCondCommitted++;
-                        }
-                        if (squashBranchInfo.isUncond()) {
-                            dbpFtbStats.controlCommitSquashedUncondCommitted++;
-                            if (!squashBranchInfo.isIndirect) {
-                                dbpFtbStats.controlCommitSquashedUncondDirectCommitted++;
-                            } else {
-                                dbpFtbStats.controlCommitSquashedUncondIndirectCommitted++;
-                                if (squashBranchInfo.isReturn) {
-                                    dbpFtbStats.controlCommitSquashedUncondReturnCommitted++;
-                                }
-                            }
-                        }
-                    }
-
-                }
-            } else {
-                // not committed, it means this instruction is on a wrong path
-                if (squashType == SQUASH_CTRL) {
-                    dbpFtbStats.controlSquashedNotCommitted++;
-                    // per branch type
-                    if (squashSrc == SQUASH_SRC_DECODE) {
-                        if (squashBranchInfo.isCond) {
-                            dbpFtbStats.controlDecodeSquashedCondNotCommitted++;
-                        }
-                        if (squashBranchInfo.isUncond()) {
-                            dbpFtbStats.controlDecodeSquashedUncondNotCommitted++;
-                            if (!squashBranchInfo.isIndirect) {
-                                dbpFtbStats.controlDecodeSquashedUncondDirectNotCommitted++;
-                            } else {
-                                dbpFtbStats.controlDecodeSquashedUncondIndirectNotCommitted++;
-                                if (squashBranchInfo.isReturn) {
-                                    dbpFtbStats.controlDecodeSquashedUncondReturnNotCommitted++;
-                                }
-                            }
-                        }
-                    } else if (squashSrc == SQUASH_SRC_COMMIT) {
-                        if (squashBranchInfo.isCond) {
-                            dbpFtbStats.controlCommitSquashedCondNotCommitted++;
-                        }
-                        if (squashBranchInfo.isUncond()) {
-                            dbpFtbStats.controlCommitSquashedUncondNotCommitted++;
-                            if (!squashBranchInfo.isIndirect) {
-                                dbpFtbStats.controlCommitSquashedUncondDirectNotCommitted++;
-                            } else {
-                                dbpFtbStats.controlCommitSquashedUncondIndirectNotCommitted++;
-                                if (squashBranchInfo.isReturn) {
-                                    dbpFtbStats.controlCommitSquashedUncondReturnNotCommitted++;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         if (stream.isHit || stream.exeTaken) {
-            // update latency stats
-            auto updateLat = curCycle() - stream.predCycle;
-            dbpFtbStats.updateLatencyDist.sample(updateLat, 1);
-
-            // generate new ftb entry first
-            // each component will use info of this entry to update
-            ftb->getAndSetNewFTBEntry(stream);
+            stream.setUpdateInstEndPC(blockSize);
+            stream.setUpdateBTBEntries();
+            btb->getAndSetNewBTBEntry(stream);
             for (int i = 0; i < numComponents; ++i) {
                 components[i]->update(stream);
             }
-            // ftb entry stats
-            auto it = totalFTBEntries.find(stream.startPC);
-            if (it == totalFTBEntries.end()) {
-                auto &ftb_entry = stream.updateFTBEntry;
-                totalFTBEntries[stream.startPC] = std::make_pair(ftb_entry, 1);
-                dbpFtbStats.ftbEntriesWithDifferentStart++;
-                if (ftb_entry.slots.size() == 1) {
-                    if (ftb_entry.slots[0].pc == stream.startPC && ftb_entry.slots[0].isUncond()) {
-                        dbpFtbStats.ftbEntriesWithOnlyOneJump++;
-                    }
-                }
+            // btb entry stats
+            auto it = totalBTBEntries.find(stream.startPC);
+            if (it == totalBTBEntries.end()) {
+                auto &btb_entry = stream.updateNewBTBEntry;
+                totalBTBEntries[stream.startPC] = std::make_pair(btb_entry, 1);
             } else {
                 it->second.second++;
-                it->second.first = stream.updateFTBEntry;
+                it->second.first = stream.updateNewBTBEntry;
             }
         }
 
@@ -1628,7 +1235,7 @@ void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
                 // then we should write into storage
                 // update predicted blocks of ja info
                 jap.tryUpdate(jaInfo, stream.startPC);
-                jaInfo.setPredictedBlock(stream.startPC, stream.updateFTBEntry);
+                jaInfo.setPredictedBlock(stream.startPC, stream.updateNewBTBEntry);
             } else {
                 // this block has no pred, increment non-pred count
                 jaInfo.incrementNoPredBlockCount(stream.startPC);
@@ -1637,17 +1244,17 @@ void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
             // do some statistics
             if (stream.jaHit) {
                 int skippedBlocks = stream.jaEntry.jumpAheadBlockNum - 1;
-                dbpFtbStats.commitJATotalSkippedBlocks += skippedBlocks;
-                dbpFtbStats.commitJASkippedBlockNum.sample(skippedBlocks, 1);
+                dbpBtbStats.commitJATotalSkippedBlocks += skippedBlocks;
+                dbpBtbStats.commitJASkippedBlockNum.sample(skippedBlocks, 1);
                 switch (stream.squashType) {
                     case SQUASH_CTRL:
-                        dbpFtbStats.commitControlSquashedOnJaHitBlocks++;
+                        dbpBtbStats.commitControlSquashedOnJaHitBlocks++;
                         break;
                     case SQUASH_OTHER:
-                        dbpFtbStats.commitNonControlSquashedOnJaHitBlocks++;
+                        dbpBtbStats.commitNonControlSquashedOnJaHitBlocks++;
                         break;
                     case SQUASH_TRAP:
-                        dbpFtbStats.commitTrapSquashedOnJaHitBlocks++;
+                        dbpBtbStats.commitTrapSquashedOnJaHitBlocks++;
                         break;
                     default:
                         break;
@@ -1657,61 +1264,68 @@ void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
 
 
         // check loop predictor prediction
-        auto lp_infos = stream.loopRedirectInfos;
-        DPRINTF(LoopPredictor, "at commit fsqid %d, real_branch_pc %#lx, squash type %d, loop predcition infos:\n", it->first, stream.exeBranchInfo.pc, stream.squashType);
-        DPRINTF(LoopBuffer, "from loop buffer %d, doubling %d, exit %d\n", stream.fromLoopBuffer, stream.isDouble, stream.isExit);
-        for (int i = 0; i < numBr; ++i) {
-            auto &lp_info = lp_infos[i];
-            DPRINTF(LoopPredictor, "    branch_pc %#lx, end_loop %d, specCnt %d, tripCnt %d, conf %d\n",
-                lp_info.branch_pc, lp_info.end_loop, lp_info.e.specCnt, lp_info.e.tripCnt, lp_info.e.conf);
-            if (stream.fixNotExits[i]) {
-                dbpFtbStats.commitLoopPredictorConfFixNotExit++;
-                if (stream.squashType == SQUASH_CTRL && stream.squashPC == lp_info.branch_pc) {
-                    dbpFtbStats.commitLoopPredictorConfFixNotExitWrong++;
+        if (enableLoopPredictor) {
+
+            auto lp_infos = stream.loopRedirectInfos;
+            DPRINTF(LoopPredictor, "at commit fsqid %d, real_branch_pc %#lx, squash type %d, loop predcition infos:\n", it->first, stream.exeBranchInfo.pc, stream.squashType);
+            DPRINTF(LoopBuffer, "from loop buffer %d, doubling %d, exit %d\n", stream.fromLoopBuffer, stream.isDouble, stream.isExit);
+            for (int i = 0; i < numBr; ++i) {
+                auto &lp_info = lp_infos[i];
+                DPRINTF(LoopPredictor, "    branch_pc %#lx, end_loop %d, specCnt %d, tripCnt %d, conf %d\n",
+                    lp_info.branch_pc, lp_info.end_loop, lp_info.e.specCnt, lp_info.e.tripCnt, lp_info.e.conf);
+                if (stream.fixNotExits[i]) {
+                    dbpBtbStats.commitLoopPredictorConfFixNotExit++;
+                    if (stream.squashType == SQUASH_CTRL && stream.squashPC == lp_info.branch_pc) {
+                        dbpBtbStats.commitLoopPredictorConfFixNotExitWrong++;
+                    }
+                    if (stream.squashType != SQUASH_CTRL ||
+                        (stream.squashType == SQUASH_CTRL && stream.squashPC != lp_info.branch_pc))
+                    {
+                        dbpBtbStats.commitLoopPredictorConfFixNotExitCorrect++;
+                    }
                 }
-                if (stream.squashType != SQUASH_CTRL ||
-                    (stream.squashType == SQUASH_CTRL && stream.squashPC != lp_info.branch_pc))
-                {
-                    dbpFtbStats.commitLoopPredictorConfFixNotExitCorrect++;
+            }
+            if (stream.isExit) {
+                dbpBtbStats.commitLoopPredictorExit++;
+                if (stream.squashType == SQUASH_NONE) {
+                    dbpBtbStats.commitLoopPredictorExitCorrect++;
+                } else if (stream.squashType == SQUASH_CTRL) {
+                    // FIXME: distinguish between squash of other branches
+                    dbpBtbStats.commitLoopPredictorExitWrong++;
                 }
             }
         }
-        if (stream.isExit) {
-            dbpFtbStats.commitLoopPredictorExit++;
-            if (stream.squashType == SQUASH_NONE) {
-                dbpFtbStats.commitLoopPredictorExitCorrect++;
-            } else if (stream.squashType == SQUASH_CTRL) {
-                // FIXME: distinguish between squash of other branches
-                dbpFtbStats.commitLoopPredictorExitWrong++;
-            }
-        }
-        if (stream.fromLoopBuffer) {
-            dbpFtbStats.commitBlockInLoopBuffer++;
-            if (stream.isDouble) {
-                dbpFtbStats.commitDoubleBlockInLoopBuffer++;
-            }
-            if (stream.squashType != SQUASH_NONE) {
-                dbpFtbStats.commitBlockInLoopBufferSquashed++;
+        
+        if (enableLoopBuffer) {
+            if (stream.fromLoopBuffer) {
+                dbpBtbStats.commitBlockInLoopBuffer++;
                 if (stream.isDouble) {
-                    dbpFtbStats.commitDoubleBlockInLoopBufferSquashed++;
+                    dbpBtbStats.commitDoubleBlockInLoopBuffer++;
                 }
-            }
-            auto instNum = lb.getLoopInstNum(stream.startPC);
-            if (instNum > 0) {
-                dbpFtbStats.commitLoopBufferEntryInstNum.sample(instNum, 1);
-                if (stream.isDouble) {
-                    dbpFtbStats.commitLoopBufferDoubleEntryInstNum.sample(instNum, 1);
+                if (stream.squashType != SQUASH_NONE) {
+                    dbpBtbStats.commitBlockInLoopBufferSquashed++;
+                    if (stream.isDouble) {
+                        dbpBtbStats.commitDoubleBlockInLoopBufferSquashed++;
+                    }
+                }
+                auto instNum = lb.getLoopInstNum(stream.startPC);
+                if (instNum > 0) {
+                    dbpBtbStats.commitLoopBufferEntryInstNum.sample(instNum, 1);
+                    if (stream.isDouble) {
+                        dbpBtbStats.commitLoopBufferDoubleEntryInstNum.sample(instNum, 1);
+                    }
                 }
             }
         }
-        dbpFtbStats.commitFsqEntryHasInsts.sample(stream.commitInstNum, 1);
+
+        dbpBtbStats.commitFsqEntryHasInsts.sample(stream.commitInstNum, 1);
         if (stream.commitInstNum >= 0 && stream.commitInstNum <= 16) {
             commitFsqEntryHasInstsVector[stream.commitInstNum]++;
             if (stream.commitInstNum == 1 && stream.exeBranchInfo.isUncond()) {
-                dbpFtbStats.commitFsqEntryOnlyHasOneJump++;
+                dbpBtbStats.commitFsqEntryOnlyHasOneJump++;
             }
         }
-        dbpFtbStats.commitFsqEntryFetchedInsts.sample(stream.fetchInstNum, 1);
+        dbpBtbStats.commitFsqEntryFetchedInsts.sample(stream.fetchInstNum, 1);
         if (stream.fetchInstNum >= 0 && stream.fetchInstNum <= 16) {
             commitFsqEntryFetchedInstsVector[stream.fetchInstNum]++;
         }
@@ -1773,44 +1387,40 @@ void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
 
         it = fetchStreamQueue.erase(it);
 
-        dbpFtbStats.fsqEntryCommitted++;
+        dbpBtbStats.fsqEntryCommitted++;
     }
     DPRINTF(DecoupleBP, "after commit stream, fetchStreamQueue size: %lu\n",
             fetchStreamQueue.size());
-    if (it != fetchStreamQueue.end()) {
-        printStream(it->second);
-    }
+    printStream(it->second);
 
     historyManager.commit(stream_id);
 }
 
 void
-DecoupledBPUWithFTB::commitBranch(const DynInstPtr &inst, bool miss)
+DecoupledBPUWithBTB::commitBranch(const DynInstPtr &inst, bool miss)
 {
     // do overall statistics
     if (inst->isUncondCtrl()) {
-        addCfi(branch_prediction::ftb_pred::DecoupledBPUWithFTB::CfiType::UNCOND, miss);
+        addCfi(branch_prediction::btb_pred::DecoupledBPUWithBTB::CfiType::UNCOND, miss);
     }
     if (inst->isCondCtrl()) {
-        addCfi(branch_prediction::ftb_pred::DecoupledBPUWithFTB::CfiType::COND, miss);
+        addCfi(branch_prediction::btb_pred::DecoupledBPUWithBTB::CfiType::COND, miss);
     }
     if (inst->isReturn()) {
-        addCfi(branch_prediction::ftb_pred::DecoupledBPUWithFTB::CfiType::RETURN, miss);
+        addCfi(branch_prediction::btb_pred::DecoupledBPUWithBTB::CfiType::RETURN, miss);
     } else if (inst->isIndirectCtrl()) {
-        addCfi(branch_prediction::ftb_pred::DecoupledBPUWithFTB::CfiType::OTHER, miss);
+        addCfi(branch_prediction::btb_pred::DecoupledBPUWithBTB::CfiType::OTHER, miss);
     }
-    DPRINTF(DBPFTBStats, "inst=%s\n", inst->staticInst->disassemble(inst->pcState().instAddr()));
-    DPRINTF(DBPFTBStats, "isUncondCtrl=%d, isCondCtrl=%d, isReturn=%d, isIndirectCtrl=%d\n",
+    DPRINTF(DBPBTBStats, "inst=%s\n", inst->staticInst->disassemble(inst->pcState().instAddr()));
+    DPRINTF(DBPBTBStats, "isUncondCtrl=%d, isCondCtrl=%d, isReturn=%d, isIndirectCtrl=%d\n",
             inst->isUncondCtrl(), inst->isCondCtrl(), inst->isReturn(), inst->isIndirectCtrl());
 
     // break down into each predictor and each stage
     // find corresponding fsq entry first
     auto it = fetchStreamQueue.find(inst->fsqId);
     assert(it != fetchStreamQueue.end());
-
-    auto &entry = it->second;
+    auto entry = it->second;
     if (enableBranchTrace) {
-
         bptrace->write_record(BpTrace(entry, inst, miss));
     }
     Addr branchAddr = inst->pcState().instAddr();
@@ -1828,15 +1438,14 @@ DecoupledBPUWithFTB::commitBranch(const DynInstPtr &inst, bool miss)
             assert(info.isCond);
             mtype = DIR_WRONG;
         } else {
-            bool predBranchInFTB = false;
-            if (entry.isHit) {
-                for (auto &slot : entry.predFTBEntry.slots) {
-                    if (slot.pc == branchAddr && slot.getType() == info.getType()) {
-                        predBranchInFTB = true;
-                    }
+            bool predBranchInBTB = false;
+            for (auto &e: entry.predBTBEntries) {
+                if (e.pc == branchAddr) {
+                    predBranchInBTB = true;
+                    break;
                 }
             }
-            if (!predBranchInFTB) {
+            if (!predBranchInBTB) {
                 mtype = NO_PRED;
             } else {
                 if (entry.predTaken && entry.predBranchInfo.pc == branchAddr) {
@@ -1861,7 +1470,7 @@ DecoupledBPUWithFTB::commitBranch(const DynInstPtr &inst, bool miss)
         }
         MispredDesc desc = std::make_pair((int)miss, rm);
         topMispredictsByBranch[std::make_pair(branchAddr, info.getType())] = std::make_pair(desc,1);
-        dbpFtbStats.staticBranchNum++;
+        dbpBtbStats.staticBranchNum++;
     } else {
         DPRINTF(Profiling, "found, total %d, miss %d\n", find_it->second.second, find_it->second.first.first);
         find_it->second.second++;
@@ -1878,7 +1487,7 @@ DecoupledBPUWithFTB::commitBranch(const DynInstPtr &inst, bool miss)
         if (itt == takenBranches.end()) {
             DPRINTF(Profiling, "not found, insert\n");
             takenBranches[branchAddr] = 1;
-            dbpFtbStats.staticBranchNumEverTaken++;
+            dbpBtbStats.staticBranchNumEverTaken++;
         } else {
             DPRINTF(Profiling, "found, inc count %d to %d\n", itt->second, itt->second+1);
             itt->second++;
@@ -1902,55 +1511,57 @@ DecoupledBPUWithFTB::commitBranch(const DynInstPtr &inst, bool miss)
             ittts->second++;
         }
     }
-    entry.commitMispredictions[branchAddr] = miss;
-    DPRINTF(DBPFTBStats, "commit branchAddr %#lx, miss %d, fsqID %d\n", branchAddr, miss, inst->fsqId);
 
-    LoopTrace rec;
-    LoopEntry predLoopEntry = LoopEntry();
-    for (int i = 0; i < numBr; i++) {
-        if (entry.loopRedirectInfos[i].branch_pc == inst->pcState().instAddr()) {
-            predLoopEntry = entry.loopRedirectInfos[i].e;
-            break;
-        }
-    }
-    if (targetAddr < branchAddr || lp.findLoopBranchInStorage(branchAddr)) {
-        lp.commitLoopBranch(branchAddr, targetAddr, fallThruPC, miss, rec);
-        if (enableLoopDB) {
-            rec.set_outside_lp(branchAddr, targetAddr, miss, predLoopEntry.specCnt, predLoopEntry.tripCnt, predLoopEntry.conf);
-            lptrace->write_record(rec);
-        }
-    }
 
-    for (int i = 0; i < numBr; i++) {
-        if (entry.loopRedirectInfos[i].branch_pc == inst->pcState().instAddr()) {
-            auto &loopEntry = entry.loopRedirectInfos[i].e;
-            if (loopEntry.specCnt == loopEntry.tripCnt ||
-                (loopEntry.specCnt == loopEntry.tripCnt - 1 && entry.isDouble))
-            {
-                if (loopEntry.conf != lp.maxConf) {
-                    dbpFtbStats.commitLoopExitLoopPredictorNotConf++;
+    if (enableLoopPredictor) {
+        LoopTrace rec;
+        LoopEntry predLoopEntry = LoopEntry();
+        for (int i = 0; i < numBr; i++) {
+            if (entry.loopRedirectInfos[i].branch_pc == inst->pcState().instAddr()) {
+                predLoopEntry = entry.loopRedirectInfos[i].e;
+                break;
+            }
+        }
+        if (targetAddr < branchAddr || lp.findLoopBranchInStorage(branchAddr)) {
+            lp.commitLoopBranch(branchAddr, targetAddr, fallThruPC, miss, rec);
+            if (enableLoopDB) {
+                rec.set_outside_lp(branchAddr, targetAddr, miss, predLoopEntry.specCnt, predLoopEntry.tripCnt, predLoopEntry.conf);
+                lptrace->write_record(rec);
+            }
+        }
+
+        for (int i = 0; i < numBr; i++) {
+            if (entry.loopRedirectInfos[i].branch_pc == inst->pcState().instAddr()) {
+                auto &loopEntry = entry.loopRedirectInfos[i].e;
+                if (loopEntry.specCnt == loopEntry.tripCnt ||
+                    (loopEntry.specCnt == loopEntry.tripCnt - 1 && entry.isDouble))
+                {
+                    if (loopEntry.conf != lp.maxConf) {
+                        dbpBtbStats.commitLoopExitLoopPredictorNotConf++;
+                    }
+                } else {
+                    dbpBtbStats.commitLoopExitLoopPredictorNotPredicted++;
                 }
-            } else {
-                dbpFtbStats.commitLoopExitLoopPredictorNotPredicted++;
+            }
+        }
+        for (auto &info : entry.unseenLoopRedirectInfos) {
+            if (info.branch_pc == inst->pcState().instAddr()) {
+                auto &loopEntry = info.e;
+                dbpBtbStats.commitBTBUnseenLoopBranchInLp++;
+                if (loopEntry.specCnt == loopEntry.tripCnt) {
+                    dbpBtbStats.commitBTBUnseenLoopBranchExitInLp++;
+                }
             }
         }
     }
-    for (auto &info : entry.unseenLoopRedirectInfos) {
-        if (info.branch_pc == inst->pcState().instAddr()) {
-            auto &loopEntry = info.e;
-            dbpFtbStats.commitFTBUnseenLoopBranchInLp++;
-            if (loopEntry.specCnt == loopEntry.tripCnt) {
-                dbpFtbStats.commitFTBUnseenLoopBranchExitInLp++;
-            }
-        }
-    }
+
     for (auto component : components) {
         component->commitBranch(entry, inst);
     }
 }
 
 void
-DecoupledBPUWithFTB::notifyInstCommit(const DynInstPtr &inst)
+DecoupledBPUWithBTB::notifyInstCommit(const DynInstPtr &inst)
 {
     auto it = fetchStreamQueue.find(inst->fsqId);
     assert(it != fetchStreamQueue.end());
@@ -2004,22 +1615,22 @@ DecoupledBPUWithFTB::notifyInstCommit(const DynInstPtr &inst)
             takenBranchesByPhase.push_back(currentPhaseTakenBranches);
             currentPhaseTakenBranches.clear();
 
-            // per phase FTB entries
-            std::map<Addr, std::pair<FTBEntry, int>> currentPhaseFTBEntries;
-            for (auto &it : totalFTBEntries) {
+            // per phase BTB entries
+            std::map<Addr, std::pair<BTBEntry, int>> currentPhaseBTBEntries;
+            for (auto &it : totalBTBEntries) {
                 auto &entry = it.second.first;
                 auto visit_cnt = it.second.second;
-                auto last_it = lastPhaseFTBEntries.find(it.first);
-                if (last_it != lastPhaseFTBEntries.end()) {
+                auto last_it = lastPhaseBTBEntries.find(it.first);
+                if (last_it != lastPhaseBTBEntries.end()) {
                     visit_cnt -= last_it->second.second;
                 }
                 // use new entries, what if entry of the same start addr changes?
                 if (visit_cnt > 0) {
-                    currentPhaseFTBEntries[it.first] = std::make_pair(entry, visit_cnt);
+                    currentPhaseBTBEntries[it.first] = std::make_pair(entry, visit_cnt);
                 }
             }
-            lastPhaseFTBEntries = totalFTBEntries;
-            FTBEntriesByPhase.push_back(currentPhaseFTBEntries);
+            lastPhaseBTBEntries = totalBTBEntries;
+            BTBEntriesByPhase.push_back(currentPhaseBTBEntries);
 
             phaseIdToDump++;
         }
@@ -2059,7 +1670,7 @@ DecoupledBPUWithFTB::notifyInstCommit(const DynInstPtr &inst)
 }
 
 void
-DecoupledBPUWithFTB::squashStreamAfter(unsigned squash_stream_id)
+DecoupledBPUWithBTB::squashStreamAfter(unsigned squash_stream_id)
 {
     auto erase_it = fetchStreamQueue.upper_bound(squash_stream_id);
     while (erase_it != fetchStreamQueue.end()) {
@@ -2079,7 +1690,7 @@ DecoupledBPUWithFTB::squashStreamAfter(unsigned squash_stream_id)
             }
             int j = 0;
             for (auto &info : erase_it->second.unseenLoopRedirectInfos) {
-                DPRINTF(LoopPredictorVerbose, "ftb unseen loop entry %d: pc %#lx, endLoop %d, specCnt %d, tripCnty %d, conf %d\n",
+                DPRINTF(LoopPredictorVerbose, "btb unseen loop entry %d: pc %#lx, endLoop %d, specCnt %d, tripCnty %d, conf %d\n",
                     j+numBr, info.branch_pc, info.end_loop, info.e.specCnt, info.e.tripCnt, info.e.conf);
                 if (info.e.valid) {
                     lp.recover(info, false, 0, false, true, 0);
@@ -2092,7 +1703,7 @@ DecoupledBPUWithFTB::squashStreamAfter(unsigned squash_stream_id)
 }
 
 void
-DecoupledBPUWithFTB::dumpFsq(const char *when)
+DecoupledBPUWithBTB::dumpFsq(const char *when)
 {
     DPRINTF(DecoupleBPProbe, "dumping fsq entries %s...\n", when);
     for (auto it = fetchStreamQueue.begin(); it != fetchStreamQueue.end();
@@ -2104,7 +1715,7 @@ DecoupledBPUWithFTB::dumpFsq(const char *when)
 
 // this funtion use finalPred to enq fsq(ftq) and update s0PC
 void
-DecoupledBPUWithFTB::tryEnqFetchStream()
+DecoupledBPUWithBTB::tryEnqFetchStream()
 {
     defer _(nullptr, std::bind([this]{ debugFlagOn = false; }));
     if (s0PC == ObservingPC) {
@@ -2128,19 +1739,15 @@ DecoupledBPUWithFTB::tryEnqFetchStream()
         return;
     }
     assert(!streamQueueFull());
-
-    if (!enableTwoTaken) {
-        // Make new prediction here and enqueue the fetch stream.
-        generateAndSetNewFetchStream();
-        enqueueFetchStream();
+    if (true) {
+        bool should_create_new_stream = true;
+        makeNewPrediction(should_create_new_stream);
     } else {
-        // The stream entry has been set at the previous ideal_tick(),
-        // so at this point, we only need to enqueue the fetch stream.
-        enqueueFetchStream();
+        DPRINTF(DecoupleBP || debugFlagOn, "FSQ is full: %lu\n",
+                fetchStreamQueue.size());
     }
-
     for (int i = 0; i < numStages; i++) {
-        predsOfEachStage[i].valid = false;
+        predsOfEachStage[i].btbEntries.clear();
     }
     receivedPred = false;
     DPRINTF(Override, "In tryFetchEnqStream(), receivedPred reset to false.\n");
@@ -2148,7 +1755,7 @@ DecoupledBPUWithFTB::tryEnqFetchStream()
 }
 
 void
-DecoupledBPUWithFTB::setTakenEntryWithStream(const FetchStream &stream_entry, FtqEntry &ftq_entry)
+DecoupledBPUWithBTB::setTakenEntryWithStream(const FetchStream &stream_entry, FtqEntry &ftq_entry)
 {
     ftq_entry.taken = true;
     ftq_entry.takenPC = stream_entry.getControlPC();
@@ -2161,7 +1768,7 @@ DecoupledBPUWithFTB::setTakenEntryWithStream(const FetchStream &stream_entry, Ft
 }
 
 void
-DecoupledBPUWithFTB::setNTEntryWithStream(FtqEntry &ftq_entry, Addr end_pc)
+DecoupledBPUWithBTB::setNTEntryWithStream(FtqEntry &ftq_entry, Addr end_pc)
 {
     ftq_entry.taken = false;
     ftq_entry.takenPC = 0;
@@ -2174,7 +1781,7 @@ DecoupledBPUWithFTB::setNTEntryWithStream(FtqEntry &ftq_entry, Addr end_pc)
 }
 
 void
-DecoupledBPUWithFTB::tryEnqFetchTarget()
+DecoupledBPUWithBTB::tryEnqFetchTarget()
 {
     DPRINTF(DecoupleBP, "Try to enq fetch target\n");
     if (fetchTargetQueue.full()) {
@@ -2182,7 +1789,7 @@ DecoupledBPUWithFTB::tryEnqFetchTarget()
         return;
     }
     if (fetchStreamQueue.empty()) {
-        dbpFtbStats.fsqNotValid++;
+        dbpBtbStats.fsqNotValid++;
         // no stream that have not entered ftq
         DPRINTF(DecoupleBP, "No stream to enter ftq in fetchStreamQueue\n");
         return;
@@ -2193,13 +1800,10 @@ DecoupledBPUWithFTB::tryEnqFetchTarget()
     auto &ftq_enq_state = fetchTargetQueue.getEnqState();
     auto it = fetchStreamQueue.find(ftq_enq_state.streamId);
     if (it == fetchStreamQueue.end()) {
-        dbpFtbStats.fsqNotValid++;
+        dbpBtbStats.fsqNotValid++;
         // desired stream not found in fsq
         DPRINTF(DecoupleBP, "FTQ enq desired Stream ID %u is not found\n",
                 ftq_enq_state.streamId);
-        if (streamQueueFull()) {
-            dbpFtbStats.fsqFullFetchHungry++;
-        }
         return;
     }
 
@@ -2216,7 +1820,7 @@ DecoupledBPUWithFTB::tryEnqFetchTarget()
          ftq_enq_state.pc, end);
     }
     
-    assert(ftq_enq_state.pc <= end || (end < predictWidth && (ftq_enq_state.pc + predictWidth < predictWidth)));
+    assert(ftq_enq_state.pc <= end || (end < 0x20 && (ftq_enq_state.pc + 0x20 < 0x20)));
 
     // create a new target entry
     FtqEntry ftq_entry;
@@ -2232,7 +1836,7 @@ DecoupledBPUWithFTB::tryEnqFetchTarget()
         bool jaHit = stream_to_enq.jaHit;
         if (jaHit) {
             int &currentSentBlock = stream_to_enq.currentSentBlock;
-            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * predictWidth;
+            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * 0x20;
             currentSentBlock++;
         }
     }
@@ -2269,7 +1873,7 @@ DecoupledBPUWithFTB::tryEnqFetchTarget()
 }
 
 void
-DecoupledBPUWithFTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> &history)
+DecoupledBPUWithBTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> &history)
 {
     if (shamt == 0) {
         return;
@@ -2279,7 +1883,7 @@ DecoupledBPUWithFTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> 
 }
 
 void
-DecoupledBPUWithFTB::makeLoopPredictions(FetchStream &entry, bool &endLoop, bool &isDouble, bool &loopConf,
+DecoupledBPUWithBTB::makeLoopPredictions(FetchStream &entry, bool &endLoop, bool &isDouble, bool &loopConf,
     std::vector<LoopRedirectInfo> &lpRedirectInfos, std::vector<bool> &fixNotExits,
     std::vector<LoopRedirectInfo> &unseenLpRedirectInfos, bool &taken)
 {
@@ -2287,77 +1891,76 @@ DecoupledBPUWithFTB::makeLoopPredictions(FetchStream &entry, bool &endLoop, bool
     // TODO: What if loop branch is predicted not taken?
     // Ans: assume it is loop exit indeed and 
     //      use it to sychronize loop specCnt
-    if (finalPred.valid) {
-        int i = 0;
-        for (auto &slot: finalPred.ftbEntry.slots) {
-            if (slot.isCond && (finalPred.getTakenBranchIdx() >= i || finalPred.getTakenBranchIdx() == -1)) {
-                assert(finalPred.condTakens.size() > i);
-                bool this_cond_pred_taken = finalPred.condTakens[i];
-                std::tie(endLoop, lpRedirectInfos[i], isDouble, loopConf) = lp.shouldEndLoop(this_cond_pred_taken, slot.pc, false);
-                // for bpu predicted taken branch we need to check
-                // whether it is an undetected loop exit
-                if (lpRedirectInfos[i].e.valid) {
-                    if (loopConf) {
-                        // we should only modify the direction of the loop branch, because
-                        // a latter branch (outside loop branch) may have other situation
-                        finalPred.condTakens[i] = !endLoop;
-                        if (endLoop) {
-                            DPRINTF(DecoupleBP || debugFlagOn, "Loop predictor says end loop at %#lx\n", slot.pc);
-                            dbpFtbStats.predLoopPredictorExit++;
-                            entry.isExit = true;
-                        } else {
-                            if (!this_cond_pred_taken) {
-                                dbpFtbStats.predLoopPredictorConfFixNotExit++;
-                                fixNotExits[i] = true;
-                                DPRINTF(DecoupleBP || debugFlagOn, "Loop predictor says do not end loop at %#lx\n", slot.pc);
-                            }
-                        }
-                        // if (this_cond_pred_taken) {
-                        //     if (endLoop) {
-                        //         finalPred.condTakens[i] = false;
-                        //     }
-                        // }
-                    } else {
-                        if (endLoop) {
-                            dbpFtbStats.predLoopPredictorUnconfNotExit++;
-                        }
-                    }
-                }
+//     if (finalPred.valid) {
+//         int i = 0;
+//         for (auto &slot: finalPred.btbEntry.slots) {
+//             if (slot.isCond && (finalPred.getTakenBranchIdx() >= i || finalPred.getTakenBranchIdx() == -1)) {
+//                 assert(finalPred.condTakens.size() > i);
+//                 bool this_cond_pred_taken = finalPred.condTakens[i];
+//                 std::tie(endLoop, lpRedirectInfos[i], isDouble, loopConf) = lp.shouldEndLoop(this_cond_pred_taken, slot.pc, false);
+//                 // for bpu predicted taken branch we need to check
+//                 // whether it is an undetected loop exit
+//                 if (lpRedirectInfos[i].e.valid) {
+//                     if (loopConf) {
+//                         // we should only modify the direction of the loop branch, because
+//                         // a latter branch (outside loop branch) may have other situation
+//                         finalPred.condTakens[i] = !endLoop;
+//                         if (endLoop) {
+//                             DPRINTF(DecoupleBP || debugFlagOn, "Loop predictor says end loop at %#lx\n", slot.pc);
+//                             dbpBtbStats.predLoopPredictorExit++;
+//                             entry.isExit = true;
+//                         } else {
+//                             if (!this_cond_pred_taken) {
+//                                 dbpBtbStats.predLoopPredictorConfFixNotExit++;
+//                                 fixNotExits[i] = true;
+//                                 DPRINTF(DecoupleBP || debugFlagOn, "Loop predictor says do not end loop at %#lx\n", slot.pc);
+//                             }
+//                         }
+//                         // if (this_cond_pred_taken) {
+//                         //     if (endLoop) {
+//                         //         finalPred.condTakens[i] = false;
+//                         //     }
+//                         // }
+//                     } else {
+//                         if (endLoop) {
+//                             dbpBtbStats.predLoopPredictorUnconfNotExit++;
+//                         }
+//                     }
+//                 }
 
-            }
-            i++;
-        }
-        taken = finalPred.isTaken();
-    }
-    // check if current prediction block has an unseen loop branch
-    Addr end = finalPred.getEnd();
-    for (Addr pc = entry.startPC; pc < end; pc += 2) {
-        bool inFTB = finalPred.ftbEntry.getSlot(pc).valid;
-        if (inFTB) {
-            continue;
-        }
-        LoopRedirectInfo unseenLpInfo;
-        std::tie(endLoop, unseenLpInfo, isDouble, loopConf) = lp.shouldEndLoop(false, pc, false);
-        if (unseenLpInfo.e.valid) {
-            dbpFtbStats.predFTBUnseenLoopBranchInLp++;
-            if (endLoop) {
-                dbpFtbStats.predFTBUnseenLoopBranchExitInLp++;
-            }
-            unseenLpRedirectInfos.push_back(unseenLpInfo);
-        }
-    }
+//             }
+//             i++;
+//         }
+//         taken = finalPred.isTaken();
+//     }
+//     // check if current prediction block has an unseen loop branch
+//     Addr end = finalPred.getEnd();
+//     for (Addr pc = entry.startPC; pc < end; pc += 2) {
+//         bool inBTB = finalPred.btbEntry.getSlot(pc).valid;
+//         if (inBTB) {
+//             continue;
+//         }
+//         LoopRedirectInfo unseenLpInfo;
+//         std::tie(endLoop, unseenLpInfo, isDouble, loopConf) = lp.shouldEndLoop(false, pc, false);
+//         if (unseenLpInfo.e.valid) {
+//             dbpBtbStats.predBTBUnseenLoopBranchInLp++;
+//             if (endLoop) {
+//                 dbpBtbStats.predBTBUnseenLoopBranchExitInLp++;
+//             }
+//             unseenLpRedirectInfos.push_back(unseenLpInfo);
+//         }
+//     }
 }
 
 // this function enqueues fsq and update s0PC and s0History
 // use loop predictor and loop buffer here
 void
-DecoupledBPUWithFTB::generateAndSetNewFetchStream()
+DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
 {
     DPRINTF(DecoupleBP, "Try to make new prediction\n");
     FetchStream entry_new;
     auto &entry = entry_new;
     entry.startPC = s0PC;
-    entry.predMetas.resize(numComponents);
     defer _(nullptr, std::bind([this]{ debugFlagOn = false; }));
     if (s0PC == ObservingPC) {
         debugFlagOn = true;
@@ -2365,6 +1968,9 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
     if (finalPred.controlAddr() == ObservingPC || finalPred.controlAddr() == ObservingPC2) {
         debugFlagOn = true;
     }
+    // DPRINTF(DecoupleBP || debugFlagOn, "Make pred with %s, pred valid: %i, taken: %i\n",
+    //          create_new_stream ? "new stream" : "last missing stream",
+    //          finalPred.valid, finalPred.isTaken());
 
     // if loop buffer is not activated, use normal prediction from branch predictors
     bool endLoop, isDouble, loopConf;
@@ -2377,38 +1983,38 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
         entry.isExit = false;
 
         bool taken = finalPred.isTaken();
-        bool predReasonable = finalPred.isReasonable();
-        if (predReasonable) {
-            if (enableLoopPredictor) {
-                makeLoopPredictions(entry, endLoop, isDouble, loopConf, lpRedirectInfos,
-                    fixNotExits, unseenLpRedirectInfos, taken);
-            }
-            Addr fallThroughAddr = finalPred.getFallThrough();
-            entry.isHit = finalPred.valid;
-            entry.falseHit = false;
-            entry.predFTBEntry = finalPred.ftbEntry;
-            entry.predTaken = taken;
-            entry.predEndPC = fallThroughAddr;
-            // update s0PC
-            Addr nextPC = finalPred.getTarget();
-            if (taken) {
-                entry.predBranchInfo = finalPred.getTakenSlot().getBranchInfo();
-                entry.predBranchInfo.target = nextPC; // use the final target which may be not from ftb
-            }
-            s0PC = nextPC;
-        } else {
-            DPRINTF(DecoupleBP || debugFlagOn, "Prediction is not reasonable, printing ftb entry\n");
-            ftb->printFTBEntry(finalPred.ftbEntry);
-            dbpFtbStats.predFalseHit++;
-            // prediction is not reasonable, use fall through
-            entry.isHit = false;
-            entry.falseHit = true;
-            entry.predTaken = false;
-            entry.predEndPC = entry.startPC + predictWidth;
-            entry.predFTBEntry = FTBEntry();
-            s0PC = entry.startPC + predictWidth;
-            // TODO: when false hit, act like a miss, do not update history
+        // bool predReasonable = finalPred.isReasonable();
+        // if (predReasonable) {
+        if (enableLoopPredictor) {
+            makeLoopPredictions(entry, endLoop, isDouble, loopConf, lpRedirectInfos,
+                fixNotExits, unseenLpRedirectInfos, taken);
         }
+        Addr fallThroughAddr = finalPred.getFallThrough();
+        entry.isHit = finalPred.btbEntries.size() > 0; // TODO: fix isHit and falseHit
+        entry.falseHit = false;
+        entry.predBTBEntries = finalPred.btbEntries;
+        entry.predTaken = taken;
+        entry.predEndPC = fallThroughAddr;
+        // update s0PC
+        Addr nextPC = finalPred.getTarget();
+        if (taken) {
+            entry.predBranchInfo = finalPred.getTakenEntry().getBranchInfo();
+            entry.predBranchInfo.target = nextPC; // use the final target which may be not from btb
+        }
+        s0PC = nextPC;
+        // } else {
+        //     DPRINTF(DecoupleBP || debugFlagOn, "Prediction is not reasonable, printing btb entry\n");
+        //     btb->printBTBEntry(finalPred.btbEntry);
+        //     dbpBtbStats.predFalseHit++;
+        //     // prediction is not reasonable, use fall through
+        //     entry.isHit = false;
+        //     entry.falseHit = true;
+        //     entry.predTaken = false;
+        //     entry.predEndPC = entry.startPC + 32;
+        //     entry.predBTBEntry = BTBEntry();
+        //     s0PC = entry.startPC + 32; // TODO: parameterize
+        //     // TODO: when false hit, act like a miss, do not update history
+        // }
 
         // jump ahead lookups
         if (enableJumpAheadPredictor) {
@@ -2417,24 +2023,24 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
             JAEntry jaEntry;
             Addr jaTarget;
             std::tie(jaHit, jaConf, jaEntry, jaTarget) = jap.lookup(entry.startPC);
-            // ensure this block does not hit ftb
-            if (!finalPred.valid) {
-                if (jaHit && jaConf) {
-                    entry.jaHit = true;
-                    entry.predEndPC = jaTarget;
-                    entry.jaEntry = jaEntry;
-                    entry.currentSentBlock = 0;
-                    s0PC = jaTarget;
-                    dbpFtbStats.predJATotalSkippedBlocks += jaEntry.jumpAheadBlockNum - 1;
-                    dbpFtbStats.predJASkippedBlockNum.sample(jaEntry.jumpAheadBlockNum - 1, 1);
-                }
-            }
+            // ensure this block does not hit btb
+            // TODO: fix this
+            // if (!finalPred.valid) {
+            //     if (jaHit && jaConf) {
+            //         entry.jaHit = true;
+            //         entry.predEndPC = jaTarget;
+            //         entry.jaEntry = jaEntry;
+            //         entry.currentSentBlock = 0;
+            //         s0PC = jaTarget;
+            //         dbpBtbStats.predJATotalSkippedBlocks += jaEntry.jumpAheadBlockNum - 1;
+            //         dbpBtbStats.predJASkippedBlockNum.sample(jaEntry.jumpAheadBlockNum - 1, 1);
+            //     }
+            // }
         }
 
 
         entry.history = s0History;
         entry.predTick = finalPred.predTick;
-        entry.predCycle = finalPred.predCycle;
         entry.predSource = finalPred.predSource;
 
         // update (folded) histories for components
@@ -2445,7 +2051,9 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
         // update ghr
         int shamt;
         std::tie(shamt, taken) = finalPred.getHistInfo();
+        boost::to_string(s0History, buf1);
         histShiftIn(shamt, taken, s0History);
+        boost::to_string(s0History, buf2);
 
         historyManager.addSpeculativeHist(entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
         tage->checkFoldedHist(s0History, "speculative update");
@@ -2458,44 +2066,23 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
         assert(enableLoopPredictor);
         // loop buffer is activated, use loop buffer to make prediction
         // determine whether this stream entry has double iterations
-        entry = lb.streamBeforeLoop;
-        bool mayBeDouble = lb.activeLoopMayBeDouble();
-        // this is a condition read from lp while activating lb
-        bool loopBranchConf = lb.currentLoopBranchConf();
-        bool twoOrMoreItersRemaining = false;
-        std::tie(endLoop, lpRedirectInfos[0], twoOrMoreItersRemaining, loopConf) = lp.shouldEndLoop(
-            true, lb.getActiveLoopBranch(), mayBeDouble
+        std::tie(endLoop, lpRedirectInfos[0], isDouble, loopConf) = lp.shouldEndLoop(
+            true, lb.getActiveLoopBranch(), lb.activeLoopMayBeDouble()
         );
-        bool confExit = false;
-        bool provideDoubleBlock = false;
-        // loop branch confident in lp when activating lb
-        // let lp decide whether to end loop
-        if (loopBranchConf) {
-            bool lpConfNow = loopConf;
-            confExit = lpConfNow && endLoop;
-            provideDoubleBlock = twoOrMoreItersRemaining || !lpConfNow;
-            entry.isExit = confExit;
-            entry.predTaken = twoOrMoreItersRemaining || !confExit;
-        } else {
-            // loop branch not confident in lp when activating lb
-            // do not proactively deactivate loop buffer
-
-            // provide double block if possible
-            provideDoubleBlock = mayBeDouble;
-            // do not exit until squash
-            entry.isExit = false;
-            entry.predTaken = true;
-        }
-        entry.isDouble = provideDoubleBlock;
+        entry = lb.streamBeforeLoop;
         entry.startPC = s0PC;
+        bool conf = loopConf;
+        bool confExit = conf && endLoop;
         entry.fromLoopBuffer = true;
+        entry.isDouble = isDouble;
+        entry.isExit = confExit;
         entry.isHit = true;
         entry.falseHit = false;
+        entry.predTaken = isDouble || !confExit;
         entry.predEndPC = lb.streamBeforeLoop.predBranchInfo.getEnd();
         // use s0History from streamBeforeLoop
         // entry.history = s0History;
         entry.predTick = curTick();
-        entry.predCycle = curCycle();
         entry.predSource = numStages;
 
         // TODO: use what kind of mechanism to handle ghr?
@@ -2519,15 +2106,15 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
         }
 
 
-        if (endLoop && !loopConf) {
-            dbpFtbStats.predLoopPredictorUnconfNotExit++;
+        if (endLoop && !conf) {
+            dbpBtbStats.predLoopPredictorUnconfNotExit++;
         }
         if (confExit) {
-            dbpFtbStats.predLoopPredictorExit++;
+            dbpBtbStats.predLoopPredictorExit++;
         }
-        dbpFtbStats.predBlockInLoopBuffer++;
-        if (provideDoubleBlock) {
-            dbpFtbStats.predDoubleBlockInLoopBuffer++;
+        dbpBtbStats.predBlockInLoopBuffer++;
+        if (isDouble) {
+            dbpBtbStats.predDoubleBlockInLoopBuffer++;
         }
     }
     entry.loopRedirectInfos = lpRedirectInfos;
@@ -2542,36 +2129,27 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
     DPRINTF(LoopBuffer, "now stream before loop:\n");
     printStream(lb.streamBeforeLoop);
 
-    streamToEnqueue = entry;
-}
 
 
-void
-DecoupledBPUWithFTB::enqueueFetchStream()
-{
-    auto [insert_it, inserted] = fetchStreamQueue.emplace(fsqId, streamToEnqueue);
+
+    auto [insert_it, inserted] = fetchStreamQueue.emplace(fsqId, entry);
     assert(inserted);
 
     dumpFsq("after insert new stream");
     DPRINTF(DecoupleBP || debugFlagOn, "Insert fetch stream %lu\n", fsqId);
 
     fsqId++;
-    printStream(streamToEnqueue);
+    printStream(entry);
 
-    dbpFtbStats.fsqEntryEnqueued++;
+    dbpBtbStats.fsqEntryEnqueued++;
 }
 
 void
-DecoupledBPUWithFTB::checkHistory(const boost::dynamic_bitset<> &history)
-{/*
+DecoupledBPUWithBTB::checkHistory(const boost::dynamic_bitset<> &history)
+{
     unsigned ideal_size = 0;
     boost::dynamic_bitset<> ideal_hash_hist(historyBits, 0);
-    int ideal_sp = ras->getNonSpecSp();
-    std::vector<RAS::RASEntry> ideal_stack(ras->getNonSpecStack());
     for (const auto entry: historyManager.getSpeculativeHist()) {
-        if (entry.shamt == 0 && !entry.is_call && !entry.is_return) {
-            continue;
-        }
         if (entry.shamt != 0) {
             ideal_size += entry.shamt;
             DPRINTF(DecoupleBPVerbose, "pc: %#lx, shamt: %d, cond_taken: %d\n", entry.pc,
@@ -2579,49 +2157,31 @@ DecoupledBPUWithFTB::checkHistory(const boost::dynamic_bitset<> &history)
             ideal_hash_hist <<= entry.shamt;
             ideal_hash_hist[0] = entry.cond_taken;
         }
-        if (entry.is_call || entry.is_return) {
-            DPRINTF(DecoupleBPVerbose, "pc: %#lx, is_call: %d, is_return: %d, retAddr: %#lx\n",
-                entry.pc, entry.is_call, entry.is_return, entry.retAddr);
-            if (entry.is_call) {
-                ras->push(entry.retAddr, ideal_stack, ideal_sp);
-            }
-            if (entry.is_return) {
-                ras->pop(ideal_stack, ideal_sp);
-            }
-        }
     }
     unsigned comparable_size = std::min(ideal_size, historyBits);
     boost::dynamic_bitset<> sized_real_hist(history);
     ideal_hash_hist.resize(comparable_size);
     sized_real_hist.resize(comparable_size);
 
+    boost::to_string(ideal_hash_hist, buf1);
+    boost::to_string(sized_real_hist, buf2);
     DPRINTF(DecoupleBP,
             "Ideal size:\t%u, real history size:\t%u, comparable size:\t%u\n",
             ideal_size, historyBits, comparable_size);
     DPRINTF(DecoupleBP, "Ideal history:\t%s\nreal history:\t%s\n",
             buf1.c_str(), buf2.c_str());
-    int sp = ras->getSp();
-    DPRINTF(DecoupleBP, "ideal sp:\t%d, real sp:\t%d\n", ideal_sp, sp);
     assert(ideal_hash_hist == sized_real_hist);
-    // assert(ideal_sp == sp);
-    */
 }
 
 void
-DecoupledBPUWithFTB::resetPC(Addr new_pc)
+DecoupledBPUWithBTB::resetPC(Addr new_pc)
 {
     s0PC = new_pc;
     fetchTargetQueue.resetPC(new_pc);
 }
 
-Cycles
-DecoupledBPUWithFTB::curCycle()
-{
-    return cpu->curCycle();
-}
-
 Addr
-DecoupledBPUWithFTB::getPreservedReturnAddr(const DynInstPtr &dynInst)
+DecoupledBPUWithBTB::getPreservedReturnAddr(const DynInstPtr &dynInst)
 {
     DPRINTF(DecoupleBP, "acquiring reutrn address for inst pc %#lx from decode\n", dynInst->pcState().instAddr());
     auto fsqid = dynInst->getFsqId();
@@ -2631,7 +2191,7 @@ DecoupledBPUWithFTB::getPreservedReturnAddr(const DynInstPtr &dynInst)
     return retAddr;
 }
 
-}  // namespace ftb_pred
+}  // namespace btb_pred
 
 }  // namespace branch_prediction
 

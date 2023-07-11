@@ -1,13 +1,13 @@
-#include "cpu/pred/ftb/uras.hh"
+#include "cpu/pred/btb/uras.hh"
 
 namespace gem5 {
 
 namespace branch_prediction {
 
-namespace ftb_pred {
+namespace btb_pred {
 
-FTBuRAS::FTBuRAS(const Params &p)
-    : TimedBaseFTBPredictor(p),
+BTBuRAS::BTBuRAS(const Params &p)
+    : TimedBaseBTBPredictor(p),
     numEntries(p.numEntries),
     ctrWidth(p.ctrWidth)
 {
@@ -26,12 +26,10 @@ FTBuRAS::FTBuRAS(const Params &p)
         entry.ctr = 0;
         entry.retAddr = 0x80000000L;
     }
-    hasDB = true;
-    dbName = std::string("ras");
 }
 
 void
-FTBuRAS::setTrace()
+BTBuRAS::setTrace()
 {
     if (enableDB) {
         // record every modification to the spec-stack
@@ -72,8 +70,8 @@ FTBuRAS::setTrace()
 }
 
 void
-FTBuRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
-                  std::vector<FullFTBPrediction> &stagePreds)
+BTBuRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
+                  std::vector<FullBTBPrediction> &stagePreds)
 {
     auto &stack = specStack;
     auto &sp = specSp;
@@ -87,14 +85,14 @@ FTBuRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
 }
 
 std::shared_ptr<void>
-FTBuRAS::getPredictionMeta()
+BTBuRAS::getPredictionMeta()
 {
-    std::shared_ptr<void> meta_void_ptr = std::make_shared<FTBuRASMeta>(meta);
+    std::shared_ptr<void> meta_void_ptr = std::make_shared<uRASMeta>(meta);
     return meta_void_ptr;
 }
 
 void
-FTBuRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred)
+BTBuRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred)
 {
     auto &stack = specStack;
     auto &sp = specSp;
@@ -126,13 +124,13 @@ FTBuRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPredictio
 }
 
 void
-FTBuRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
+BTBuRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
 {
     auto &stack = specStack;
     auto &sp = specSp;
     printStack("before recoverHist", stack, sp);
     // recover sp and tos first
-    auto meta_ptr = std::static_pointer_cast<FTBuRASMeta>(entry.predMetas[getComponentIdx()]);
+    auto meta_ptr = std::static_pointer_cast<uRASMeta>(entry.predMetas[getComponentIdx()]);
     auto takenSlot = entry.exeBranchInfo;
     if (enableDB) {
         SpecRASTrace rec(When::REDIRECT, RAS_OP::RECOVER, entry.startPC, takenSlot.pc, 0, sp, stack[sp].retAddr, stack[sp].ctr);
@@ -165,14 +163,14 @@ FTBuRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &
 }
 
 void
-FTBuRAS::update(const FetchStream &entry)
+BTBuRAS::update(const FetchStream &entry)
 {
     auto &stack = nonSpecStack;
     auto &sp = nonSpecSp;
     printStack("before update", stack, sp);
     auto takenSlot = entry.exeBranchInfo;
     if (entry.exeTaken && (takenSlot.isReturn || takenSlot.isCall)) {
-        auto meta_ptr = std::static_pointer_cast<FTBuRASMeta>(entry.predMetas[getComponentIdx()]);
+        auto meta_ptr = std::static_pointer_cast<uRASMeta>(entry.predMetas[getComponentIdx()]);
         auto pred_sp = meta_ptr->sp;
         auto pred_tos = meta_ptr->tos;
         auto miss = entry.squashType == SQUASH_CTRL && entry.squashPC == entry.exeBranchInfo.pc;
@@ -198,7 +196,7 @@ FTBuRAS::update(const FetchStream &entry)
 }
 
 void
-FTBuRAS::push(Addr retAddr, std::vector<FTBuRASEntry> &stack, int &sp)
+BTBuRAS::push(Addr retAddr, std::vector<uRASEntry> &stack, int &sp)
 {
     auto &tos = stack[sp];
     if (tos.retAddr == retAddr && tos.ctr < maxCtr) {
@@ -212,7 +210,7 @@ FTBuRAS::push(Addr retAddr, std::vector<FTBuRASEntry> &stack, int &sp)
 }
 
 void
-FTBuRAS::pop(std::vector<FTBuRASEntry> &stack, int &sp)
+BTBuRAS::pop(std::vector<uRASEntry> &stack, int &sp)
 {
     auto &tos = stack[sp];
     if (tos.ctr > 0) {
@@ -223,13 +221,13 @@ FTBuRAS::pop(std::vector<FTBuRASEntry> &stack, int &sp)
 }
 
 void
-FTBuRAS::ptrInc(int &ptr)
+BTBuRAS::ptrInc(int &ptr)
 {
     ptr = (ptr + 1) % numEntries;
 }
 
 void
-FTBuRAS::ptrDec(int &ptr)
+BTBuRAS::ptrDec(int &ptr)
 {
     if (ptr > 0) {
         ptr--;
@@ -239,7 +237,7 @@ FTBuRAS::ptrDec(int &ptr)
     }
 }
 
-}  // namespace ftb_pred
+}  // namespace btb_pred
 
 }  // namespace branch_prediction
 

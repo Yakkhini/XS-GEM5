@@ -1,5 +1,5 @@
-#ifndef __CPU_PRED_FTB_FOLDED_HIST_HH__
-#define __CPU_PRED_FTB_FOLDED_HIST_HH__
+#ifndef __CPU_PRED_BTB_FOLDED_HIST_HH__
+#define __CPU_PRED_BTB_FOLDED_HIST_HH__
 
 #include <boost/dynamic_bitset.hpp>
 
@@ -11,7 +11,7 @@ namespace gem5 {
 
 namespace branch_prediction {
 
-namespace ftb_pred {
+namespace btb_pred {
 
 class FoldedHist {
     private:
@@ -41,9 +41,9 @@ class FoldedHist {
     
 };
 
-}  // namespace ftb_pred
+}  // namespace btb_pred
 
 }  // namespace branch_prediction
 
 }  // namespace gem5
-#endif  // __CPU_PRED_FTB_FOLDED_HIST_HH__
+#endif  // __CPU_PRED_BTB_FOLDED_HIST_HH__

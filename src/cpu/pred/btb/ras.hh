@@ -1,25 +1,25 @@
-#ifndef __CPU_PRED_FTB_RAS_HH__
-#define __CPU_PRED_FTB_RAS_HH__
+#ifndef __CPU_PRED_BTB_RAS_HH__
+#define __CPU_PRED_BTB_RAS_HH__
 
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
-#include "cpu/pred/ftb/stream_struct.hh"
-#include "cpu/pred/ftb/timed_base_pred.hh"
+#include "cpu/pred/btb/stream_struct.hh"
+#include "cpu/pred/btb/timed_base_pred.hh"
 #include "debug/RAS.hh"
-#include "params/FTBRAS.hh"
+#include "params/BTBRAS.hh"
 
 namespace gem5 {
 
 namespace branch_prediction {
 
-namespace ftb_pred {
+namespace btb_pred {
 
-class FTBRAS : public TimedBaseFTBPredictor
+class BTBRAS : public TimedBaseBTBPredictor
 {
     public:
     
-        typedef FTBRASParams Params;
-        FTBRAS(const Params &p);
+        typedef BTBRASParams Params;
+        BTBRAS(const Params &p);
 
         typedef struct RASEssential
         {
@@ -65,11 +65,13 @@ class FTBRAS : public TimedBaseFTBPredictor
         }RASMeta;
 
         void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
-                          std::vector<FullFTBPrediction> &stagePreds) override;
+                          std::vector<FullBTBPrediction> &stagePreds) override;
         
         std::shared_ptr<void> getPredictionMeta() override;
 
-        void specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred) override;
+        void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
+
+        unsigned getDelay() override {return 1;}
 
         void recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken) override;
 
@@ -183,9 +185,9 @@ class FTBRAS : public TimedBaseFTBPredictor
 
 };
 
-}  // namespace ftb_pred
+}  // namespace btb_pred
 
 }  // namespace branch_prediction
 
 }  // namespace gem5
-#endif  // __CPU_PRED_FTB_RAS_HH__
+#endif  // __CPU_PRED_BTB_RAS_HH__

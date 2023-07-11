@@ -9,7 +9,7 @@
 #include "base/trace.hh"
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/pred/ftb/stream_common.hh"
-#include "debug/FTBTAGE.hh"
+#include "debug/TAGE.hh"
 
 namespace gem5 {
 
@@ -38,7 +38,7 @@ FTBTAGE::FTBTAGE(const Params& p)
             numPredictors);
     }
 
-    DPRINTF(FTBTAGE, "FTBTAGE constructor\n");
+    DPRINTF(TAGE, "FTBTAGE constructor\n");
     tageTable.resize(numPredictors);
     tableIndexBits.resize(numPredictors);
     tableIndexMasks.resize(numPredictors);
@@ -140,7 +140,7 @@ FTBTAGE::lookupHelper(Addr startAddr,
                       std::vector<int> &main_table_indices,
                       std::vector<bool> &use_alt_preds, std::vector<bitset> &usefulMasks)
 {
-    // DPRINTF(FTBTAGE, "lookupHelper startAddr: %#lx\n", startAddr);
+    // DPRINTF(TAGE, "lookupHelper startAddr: %#lx\n", startAddr);
     for (auto &t : main_tables) { t = -1; }
     for (auto &t : main_table_indices) { t = -1; }
 
@@ -168,7 +168,7 @@ FTBTAGE::lookupHelper(Addr startAddr,
             usefulMasks[b].resize(numPredictors-i);
             usefulMasks[b] <<= 1;
             usefulMasks[b][0] = way.useful;
-            DPRINTF(FTBTAGE, "table %d, index %d, lookup tag %d, tag %d, useful %d\n",
+            DPRINTF(TAGE, "table %d, index %d, lookup tag %d, tag %d, useful %d\n",
                 i, tmp_index, tmp_tag, way.tag, way.useful);
         }
 
@@ -187,7 +187,7 @@ FTBTAGE::lookupHelper(Addr startAddr,
             use_alt_preds[b] = true;
             provided[b] = false;
         }
-        DPRINTF(FTBTAGE, "lookup startAddr %#lx cond %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
+        DPRINTF(TAGE, "lookup startAddr %#lx cond %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
                     startAddr, b, provider_counts, main_tables[b], main_table_indices[b], use_alt_preds[b]);
     }
     return provided;
@@ -195,7 +195,7 @@ FTBTAGE::lookupHelper(Addr startAddr,
 
 void
 FTBTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<FullFTBPrediction> &stagePreds) {
-    // DPRINTF(FTBTAGE, "putPCHistory startAddr: %#lx\n", stream_start);
+    // DPRINTF(TAGE, "putPCHistory startAddr: %#lx\n", stream_start);
     std::vector<TageEntry> entries;
     entries.resize(numBr);
 
@@ -259,7 +259,7 @@ FTBTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Full
     meta.tagFoldedHist = tagFoldedHist;
     meta.altTagFoldedHist = altTagFoldedHist;
     meta.indexFoldedHist = indexFoldedHist;
-    // DPRINTF(FTBTAGE, "putPCHistory end\n");
+    // DPRINTF(TAGE, "putPCHistory end\n");
 }
 
 std::shared_ptr<void>
@@ -273,7 +273,7 @@ FTBTAGE::update(const FetchStream &entry)
 {
 
     Addr startAddr = entry.getRealStartPC();
-    DPRINTF(FTBTAGE, "update startAddr: %#lx\n", startAddr);
+    DPRINTF(TAGE, "update startAddr: %#lx\n", startAddr);
     std::vector<bool> need_to_update;
     need_to_update.resize(numBr, false);
     auto ftb_entry = entry.updateFTBEntry;
@@ -301,7 +301,7 @@ FTBTAGE::update(const FetchStream &entry)
         // only update branches with both taken/not taken behaviors observed
         need_to_update[i] = !slot.alwaysTaken;
     }
-    // DPRINTF(FTBTAGE, "need to update size %d\n", need_to_update.size());
+    // DPRINTF(TAGE, "need to update size %d\n", need_to_update.size());
 
     // get tage predictions from meta
     auto meta = std::static_pointer_cast<TageMeta>(entry.predMetas[getComponentIdx()]);
@@ -314,16 +314,16 @@ FTBTAGE::update(const FetchStream &entry)
     auto updateAltTagFoldedHist = meta->altTagFoldedHist;
     auto updateIndexFoldedHist = meta->indexFoldedHist;
     for (int b = 0; b < numBr; b++) {
-        DPRINTF(FTBTAGE, "try to update cond %d \n", b);
+        DPRINTF(TAGE, "try to update cond %d \n", b);
         if (!need_to_update[b]) {
-            DPRINTF(FTBTAGE, "no need to update, skipping\n");
+            DPRINTF(TAGE, "no need to update, skipping\n");
             // we could also use break
             // because we assume that the branches are in order
             // if the first branch is not executed (need to update), the following branches
             // will not be executed either, thus we don't need to update them
             continue;
         }
-        // DPRINTF(FTBTAGE, "Update cond %d, pc %#lx, predTaken %d, actualTaken %d,"
+        // DPRINTF(TAGE, "Update cond %d, pc %#lx, predTaken %d, actualTaken %d,"
         //     " main found %d, main table %d, main table index %d, tag %#lx, main counter %d, main counter now %d,"
         //     " use alt %d, alt table index %d, alt counter %d, alt counter now  %d, useful mask %#x, ")
 
@@ -341,14 +341,14 @@ FTBTAGE::update(const FetchStream &entry)
 
         // update useful bit, counter and predTaken for main entry
         if (mainFound) { // updateProvided
-            DPRINTF(FTBTAGE, "prediction provided by table %d, idx %d, updating corresponding entry\n",
+            DPRINTF(TAGE, "prediction provided by table %d, idx %d, updating corresponding entry\n",
                 pred.table, pred.index);
             auto &way = tageTable[pred.table][pred.index][phyBrIdx];
 
             if (mainTaken != altTaken) { // updateAltDiffers
                 way.useful = this_cond_actually_taken == mainTaken; // updateProviderCorrect
             }
-            DPRINTF(FTBTAGE, "useful bit set to %d\n", way.useful);
+            DPRINTF(TAGE, "useful bit set to %d\n", way.useful);
 
             updateCounter(this_cond_actually_taken, 3, way.counter);
         }
@@ -356,13 +356,13 @@ FTBTAGE::update(const FetchStream &entry)
         // update base table counter
         if (pred.useAlt) {
             unsigned base_idx = getBaseTableIndex(startAddr);
-            DPRINTF(FTBTAGE, "prediction provided by base table idx %d, updating corresponding entry\n", base_idx);
+            DPRINTF(TAGE, "prediction provided by base table idx %d, updating corresponding entry\n", base_idx);
             updateCounter(this_cond_actually_taken, 2, baseTable.at(base_idx)[phyBrIdx]);
         }
 
         // update use_alt_counters
         if (pred.mainFound && mainWeak && mainTaken != altTaken) {
-            DPRINTF(FTBTAGE, "use_alt_on_provider_weak, alt %s, updating use_alt_counter\n",
+            DPRINTF(TAGE, "use_alt_on_provider_weak, alt %s, updating use_alt_counter\n",
                 altTaken == this_cond_actually_taken ? "correct" : "incorrect");
             auto &use_alt_counter = useAlt.at(getUseAltIdx(startAddr))[b];
             if (altTaken == this_cond_actually_taken) {
@@ -410,7 +410,7 @@ FTBTAGE::update(const FetchStream &entry)
             }
         }
 
-        DPRINTF(FTBTAGE, "squashType %d, squashPC %#lx, slot pc %#lx\n", entry.squashType, entry.squashPC, ftb_entry.slots[b].pc);
+        DPRINTF(TAGE, "squashType %d, squashPC %#lx, slot pc %#lx\n", entry.squashType, entry.squashPC, ftb_entry.slots[b].pc);
         bool this_cond_mispred = entry.squashType == SquashType::SQUASH_CTRL && entry.squashPC == ftb_entry.slots[b].pc;
         if (this_cond_mispred) {
             stat->updateMispred++; // TODO: count tage predictions instead of overall predictions
@@ -422,7 +422,7 @@ FTBTAGE::update(const FetchStream &entry)
         // update useful reset counter
         bool use_alt_on_main_found_correct = pred.useAlt && pred.mainFound && mainTaken == this_cond_actually_taken;
         bool needToAllocate = this_cond_mispred && !use_alt_on_main_found_correct;
-        DPRINTF(FTBTAGE, "this_cond_mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
+        DPRINTF(TAGE, "this_cond_mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
             this_cond_mispred, use_alt_on_main_found_correct, needToAllocate);
 
         int num_tables_can_allocate = (~pred.usefulMask).count();
@@ -438,7 +438,7 @@ FTBTAGE::update(const FetchStream &entry)
                     usefulResetCnt[b] = 128;
                 }
                 // usefulResetCnt[b] = (usefulResetCnt[b] + changeVal >= 128) ? 128 : (usefulResetCnt[b] + changeVal);
-                DPRINTF(FTBTAGEUseful, "incUsefulResetCounter %d, changeVal %d, usefulResetCnt %d\n", b, changeVal, usefulResetCnt[b]);
+                DPRINTF(TAGEUseful, "incUsefulResetCounter %d, changeVal %d, usefulResetCnt %d\n", b, changeVal, usefulResetCnt[b]);
             } else if (decUsefulResetCounter) {
                 stat->updateResetUCtrDec.sample(changeVal, 1);
                 usefulResetCnt[b] -= changeVal;
@@ -446,11 +446,11 @@ FTBTAGE::update(const FetchStream &entry)
                     usefulResetCnt[b] = 0;
                 }
                 // usefulResetCnt[b] = (usefulResetCnt[b] - changeVal <= 0) ? 0 : (usefulResetCnt[b] - changeVal);
-                DPRINTF(FTBTAGEUseful, "decUsefulResetCounter %d, changeVal %d, usefulResetCnt %d\n", b, changeVal, usefulResetCnt[b]);
+                DPRINTF(TAGEUseful, "decUsefulResetCounter %d, changeVal %d, usefulResetCnt %d\n", b, changeVal, usefulResetCnt[b]);
             }
             if (usefulResetCnt[b] == 128) {
                 stat->updateResetU++;
-                DPRINTF(FTBTAGEUseful, "reset useful bit of all entries\n");
+                DPRINTF(TAGEUseful, "reset useful bit of all entries\n");
                 for (auto &table : tageTable) {
                     for (auto &entries : table) {
                         for (auto &entry : entries) {
@@ -476,7 +476,7 @@ FTBTAGE::update(const FetchStream &entry)
 
             bool allocateValid = flipped_usefulMask.any();
             if (allocateValid) {
-                DPRINTF(FTBTAGE, "allocate new entry\n");
+                DPRINTF(TAGE, "allocate new entry\n");
                 stat->updateAllocSuccess++;
                 allocSuccess = true;
                 unsigned startTable = pred.table + 1;
@@ -487,7 +487,7 @@ FTBTAGE::update(const FetchStream &entry)
                     auto &entry = tageTable[ti][newIndex][phyBrIdx];
 
                     if (allocate[ti - startTable]) {
-                        DPRINTF(FTBTAGE, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
+                        DPRINTF(TAGE, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
                             ti, newIndex, newTag, newCounter);
                         entry = TageEntry(newTag, newCounter);
                         break; // allocate only 1 entry
@@ -520,7 +520,7 @@ FTBTAGE::update(const FetchStream &entry)
     if (enableSC) {
         sc.update(startAddr, scMeta, need_to_update, actualTakens);
     }
-    DPRINTF(FTBTAGE, "end update\n");
+    DPRINTF(TAGE, "end update\n");
 }
 
 void
@@ -616,15 +616,15 @@ FTBTAGE::getUseAltIdx(Addr pc) {
 void
 FTBTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
 {
-    DPRINTF(FTBTAGE, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, history);
+    DPRINTF(TAGE, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, history);
     if (shamt == 0) {
-        DPRINTF(FTBTAGE, "shamt is 0, returning\n");
+        DPRINTF(TAGE, "shamt is 0, returning\n");
         return;
     }
 
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 3; type++) {
-            DPRINTF(FTBTAGE, "t: %d, type: %d\n", t, type);
+            DPRINTF(TAGE, "t: %d, type: %d\n", t, type);
 
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.update(history, shamt, taken);
@@ -667,7 +667,7 @@ FTBTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 3; type++) {
 
-            // DPRINTF(FTBTAGE, "t: %d, type: %d\n", t, type);
+            // DPRINTF(TAGE, "t: %d, type: %d\n", t, type);
             std::string buf2, buf3;
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.check(hist);

@@ -1,14 +1,14 @@
 #include "cpu/o3/dyn_inst.hh"
-#include "cpu/pred/ftb/ras.hh"
+#include "cpu/pred/btb/ras.hh"
 
 namespace gem5 {
 
 namespace branch_prediction {
 
-namespace ftb_pred {
+namespace btb_pred {
 
-FTBRAS::FTBRAS(const Params &p)
-    : TimedBaseFTBPredictor(p),
+BTBRAS::BTBRAS(const Params &p)
+    : TimedBaseBTBPredictor(p),
     numEntries(p.numEntries),
     ctrWidth(p.ctrWidth),
     numInflightEntries(p.numInflightEntries)
@@ -36,7 +36,7 @@ FTBRAS::FTBRAS(const Params &p)
 }
 
 void
-FTBRAS::checkCorrectness() {
+BTBRAS::checkCorrectness() {
     /*
     auto tosr = TOSR;
     int checkssp = ssp;
@@ -55,8 +55,8 @@ FTBRAS::checkCorrectness() {
 }
 
 void
-FTBRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
-                  std::vector<FullFTBPrediction> &stagePreds)
+BTBRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
+                  std::vector<FullBTBPrediction> &stagePreds)
 {
     assert(getDelay() < stagePreds.size());
     DPRINTFR(RAS, "putPC startAddr %x", startAddr);
@@ -65,53 +65,53 @@ FTBRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
         stagePreds[i].returnTarget = getTop_meta().retAddr; // stack[sp].retAddr;
     }
     /*
-    if (stagePreds.back().ftbEntry.slots[0].isCall || stagePreds.back().ftbEntry.slots[0].isReturn || stagePreds.back().ftbEntry.slots[1].isCall || stagePreds.back().ftbEntry.slots[1].isReturn) {
+    if (stagePreds.back().btbEntry.slots[0].isCall || stagePreds.back().btbEntry.slots[0].isReturn || stagePreds.back().btbEntry.slots[1].isCall || stagePreds.back().btbEntry.slots[1].isReturn) {
         printStack("putPCHistory");
     }
     */
 }
 
 std::shared_ptr<void>
-FTBRAS::getPredictionMeta()
+BTBRAS::getPredictionMeta()
 {
     std::shared_ptr<void> meta_void_ptr = std::make_shared<RASMeta>(meta);
     return meta_void_ptr;
 }
 
 void
-FTBRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred)
+BTBRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred)
 {
     // do push & pops on prediction
     // pred.returnTarget = stack[sp].retAddr;
-    auto takenSlot = pred.getTakenSlot();
+    auto takenEntry = pred.getTakenEntry();
     DPRINTFR(RAS, "Do specUpdate for PC %x pred target %x ", pred.bbStart, pred.returnTarget);
 
-    if (takenSlot.isCall) {
-        Addr retAddr = takenSlot.pc + takenSlot.size;
+    if (takenEntry.isCall) {
+        Addr retAddr = takenEntry.pc + takenEntry.size;
         push(retAddr);
     }
-    if (takenSlot.isReturn) {
+    if (takenEntry.isReturn) {
         // do pop
         pop();
     }
-    if (takenSlot.isCall) {
-        DPRINTFR(RAS, "IsCall spec PC %x\n", takenSlot.pc);
+    if (takenEntry.isCall) {
+        DPRINTFR(RAS, "IsCall spec PC %x\n", takenEntry.pc);
     }
-    if (takenSlot.isReturn) {
-        DPRINTFR(RAS, "IsRet spec PC %x\n", takenSlot.pc);
+    if (takenEntry.isReturn) {
+        DPRINTFR(RAS, "IsRet spec PC %x\n", takenEntry.pc);
     }
     
-    if (takenSlot.isCall || takenSlot.isReturn)
+    if (takenEntry.isCall || takenEntry.isReturn)
         printStack("after specUpdateHist");
     DPRINTFR(RAS, "meta TOSR %d TOSW %d\n", meta.TOSR, meta.TOSW);
 }
 
 void
-FTBRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
+BTBRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
 {
-    auto takenSlot = entry.exeBranchInfo;
+    auto takenEntry = entry.exeBranchInfo;
     /*
-    if (takenSlot.isCall || takenSlot.isReturn) {
+    if (takenEntry.isCall || takenEntry.isReturn) {
         printStack("before recoverHist");
     }*/
     // recover sp and tos first
@@ -122,14 +122,14 @@ FTBRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &e
     TOSW = meta_ptr->TOSW;
     ssp = meta_ptr->ssp;
     sctr = meta_ptr->sctr;
-    Addr retAddr = takenSlot.pc + takenSlot.size;
+    Addr retAddr = takenEntry.pc + takenEntry.size;
 
     // do push & pops on control squash
     if (entry.exeTaken) {
-        if (takenSlot.isCall) {
+        if (takenEntry.isCall) {
             push(retAddr);
         }
-        if (takenSlot.isReturn) {
+        if (takenEntry.isReturn) {
             pop();
             //TOSW = (TOSR + 1) % numInflightEntries;
         }
@@ -137,9 +137,9 @@ FTBRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &e
 
     
     if (entry.exeTaken) {
-        DPRINTF(RAS, "isCall %d, isRet %d\n", takenSlot.isCall, takenSlot.isReturn);
-        if (takenSlot.isReturn) {
-            DPRINTF(RAS, "IsRet expect target %llx, preded %llx, pred taken %d pred target %llx\n", takenSlot.target, meta_ptr->target, entry.predTaken, entry.predBranchInfo.target);
+        DPRINTF(RAS, "isCall %d, isRet %d\n", takenEntry.isCall, takenEntry.isReturn);
+        if (takenEntry.isReturn) {
+            DPRINTF(RAS, "IsRet expect target %llx, preded %llx, pred taken %d pred target %llx\n", takenEntry.target, meta_ptr->target, entry.predTaken, entry.predBranchInfo.target);
         }
         printStack("after recoverHist");
     }
@@ -147,34 +147,34 @@ FTBRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &e
 }
 
 void
-FTBRAS::update(const FetchStream &entry)
+BTBRAS::update(const FetchStream &entry)
 {
     auto meta_ptr = std::static_pointer_cast<RASMeta>(entry.predMetas[getComponentIdx()]);
-    auto takenSlot = entry.exeBranchInfo;
+    auto takenEntry = entry.exeBranchInfo;
     if (entry.exeTaken) {
         if (meta_ptr->ssp != nsp || meta_ptr->sctr != stack[nsp].data.ctr) {
             DPRINTF(RAS, "ssp and nsp mismatch, recovering, ssp = %d, sctr = %d, nsp = %d, nctr = %d\n", meta_ptr->ssp, meta_ptr->sctr, nsp, stack[nsp].data.ctr);
             nsp = meta_ptr->ssp;
         } else
             DPRINTF(RAS, "ssp and nsp match, ssp = %d, sctr = %d, nsp = %d, nctr = %d\n", meta_ptr->ssp, meta_ptr->sctr, nsp, stack[nsp].data.ctr);
-        if (takenSlot.isCall) {
-            DPRINTF(RAS, "real update call FTB hit %d meta TOSR %d TOSW %d\n entry PC %x", entry.isHit, meta_ptr->TOSR, meta_ptr->TOSW, entry.startPC);
-            Addr retAddr = takenSlot.pc + takenSlot.size;
+        if (takenEntry.isCall) {
+            DPRINTF(RAS, "real update call BTB hit %d meta TOSR %d TOSW %d\n entry PC %x", entry.isHit, meta_ptr->TOSR, meta_ptr->TOSW, entry.startPC);
+            Addr retAddr = takenEntry.pc + takenEntry.size;
             push_stack(retAddr);
             BOS = inflightPtrPlus1(meta_ptr->TOSW);
         }
-        if (takenSlot.isReturn) {
+        if (takenEntry.isReturn) {
             DPRINTF(RAS, "update ret entry PC %x\n", entry.startPC);
             pop_stack();
         }
     }
-    if (takenSlot.isCall || takenSlot.isReturn) {
+    if (takenEntry.isCall || takenEntry.isReturn) {
         printStack("after update(commit)");
     }
 }
 
 void
-FTBRAS::push_stack(Addr retAddr)
+BTBRAS::push_stack(Addr retAddr)
 {
     auto tos = stack[nsp];
     if (tos.data.retAddr == retAddr && tos.data.ctr < maxCtr) {
@@ -189,7 +189,7 @@ FTBRAS::push_stack(Addr retAddr)
 }
 
 void
-FTBRAS::push(Addr retAddr)
+BTBRAS::push(Addr retAddr)
 {
     DPRINTF(RAS, "doing push ");
     // update ssp and sctr first
@@ -214,7 +214,7 @@ FTBRAS::push(Addr retAddr)
 }
 
 void
-FTBRAS::pop_stack()
+BTBRAS::pop_stack()
 {
     //if (ndepth) {
     auto tos = stack[nsp];
@@ -231,7 +231,7 @@ FTBRAS::pop_stack()
 }
 
 void
-FTBRAS::pop()
+BTBRAS::pop()
 {
     // DPRINTFR(RAS, "doing pop ndepth = %d", ndepth);
 
@@ -263,13 +263,13 @@ FTBRAS::pop()
 }
 
 void
-FTBRAS::ptrInc(int &ptr)
+BTBRAS::ptrInc(int &ptr)
 {
     ptr = (ptr + 1) % numEntries;
 }
 
 void
-FTBRAS::ptrDec(int &ptr)
+BTBRAS::ptrDec(int &ptr)
 {
     if (ptr > 0) {
         ptr--;
@@ -280,13 +280,13 @@ FTBRAS::ptrDec(int &ptr)
 }
 
 void
-FTBRAS::inflightPtrInc(int &ptr)
+BTBRAS::inflightPtrInc(int &ptr)
 {
     ptr = (ptr + 1) % numInflightEntries;
 }
 
 void
-FTBRAS::inflightPtrDec(int &ptr)
+BTBRAS::inflightPtrDec(int &ptr)
 {
     if (ptr > 0) {
         ptr--;
@@ -297,12 +297,12 @@ FTBRAS::inflightPtrDec(int &ptr)
 }
 
 int
-FTBRAS::inflightPtrPlus1(int ptr) {
+BTBRAS::inflightPtrPlus1(int ptr) {
     return (ptr + 1) % numInflightEntries;
 }
 
 bool
-FTBRAS::inflightInRange(int &ptr)
+BTBRAS::inflightInRange(int &ptr)
 {
     if (TOSW > BOS) {
         return ptr >= BOS && ptr < TOSW;
@@ -314,8 +314,8 @@ FTBRAS::inflightInRange(int &ptr)
     }
 }
 
-FTBRAS::RASEssential
-FTBRAS::getTop()
+BTBRAS::RASEssential
+BTBRAS::getTop()
 {
     // results may come from two sources: inflight queue and committed stack
     if (inflightInRange(TOSR)) {
@@ -340,8 +340,8 @@ FTBRAS::getTop()
     }
 }
 
-FTBRAS::RASEssential
-FTBRAS::getTop_meta() {
+BTBRAS::RASEssential
+BTBRAS::getTop_meta() {
     // results may come from two sources: inflight queue and committed stack
     if (inflightInRange(TOSR)) {
         // result come from inflight queue
@@ -377,18 +377,19 @@ FTBRAS::getTop_meta() {
 }
 
 void
-FTBRAS::commitBranch(const FetchStream &stream, const DynInstPtr &inst)
+BTBRAS::commitBranch(const FetchStream &stream, const DynInstPtr &inst)
 {
 }
 
 Addr
-FTBRAS::getTopAddrFromMetas(const FetchStream &stream)
+BTBRAS::getTopAddrFromMetas(const FetchStream &stream)
 {
     auto meta_ptr = std::static_pointer_cast<RASMeta>(stream.predMetas[getComponentIdx()]);
     return meta_ptr->target;
 }
 
-}  // namespace ftb_pred
+
+}  // namespace btb_pred
 
 }  // namespace branch_prediction
 
