@@ -41,38 +41,49 @@ class BTBITTAGE : public TimedBaseBTBPredictor
             Addr target;
             short counter;
             bool useful;
+            Addr pc; // TODO: should use lowest bits only
 
-            TageEntry() : valid(false), tag(0), target(0), counter(0), useful(false) {}
+            TageEntry() : valid(false), tag(0), target(0), counter(0), useful(false), pc(0) {}
 
-            TageEntry(Addr tag, Addr target, short counter) :
-                        valid(true), tag(tag), target(target), counter(counter), useful(false) {}
+            TageEntry(Addr tag, Addr target, short counter, Addr pc) :
+                        valid(true), tag(tag), target(target), counter(counter), useful(false), pc(pc) {}
+            bool taken() {
+                return counter >= 2;
+            }
+    };
 
+    struct TageTableInfo
+    {
+        public:
+            bool found;
+            TageEntry entry;
+            unsigned table;
+            Addr index;
+            Addr tag;
+            TageTableInfo() : found(false), table(0), index(0), tag(0) {}
+            TageTableInfo(bool found, TageEntry entry, unsigned table, Addr index, Addr tag) :
+                        found(found), entry(entry), table(table), index(index), tag(tag) {}
+            bool taken() { return entry.taken(); }
     };
 
     struct TagePrediction
     {
         public:
-            bool mainFound;
-            bool altFound;
-            TageEntry mainEntry;
-            TageEntry altEntry;
-            unsigned main_table;
-            unsigned alt_table;
-            Addr main_index;
-            Addr alt_index;
+            Addr btb_pc;
+            TageTableInfo mainInfo;
+            TageTableInfo altInfo;
+
             bool useAlt;
-            bool useBase;
-            bitset usefulMask;
+            // bitset usefulMask;
+            // bool taken;
+            Addr target;
 
-            TagePrediction() : mainFound(false), altFound(false), mainEntry(TageEntry()), altEntry(TageEntry()),
-                                 main_table(0), alt_table(0), main_index(0), alt_index(0), useAlt(false), useBase(false) {}
+            TagePrediction() : btb_pc(0), useAlt(false), target(0) {}
 
-            TagePrediction(bool mainFound, bool altFound, TageEntry mainEntry, TageEntry altEntry,
-                            unsigned main_table, unsigned alt_table, Addr main_index, Addr alt_index,
-                            bool useAlt, bool useBase, bitset usefulMask) :
-                            mainFound(mainFound), altFound(altFound), mainEntry(mainEntry), altEntry(altEntry),
-                            main_table(main_table), alt_table(alt_table), main_index(main_index), alt_index(alt_index),
-                            useAlt(useAlt), useBase(useBase), usefulMask(usefulMask) {}
+            TagePrediction(Addr btb_pc, TageTableInfo mainInfo, TageTableInfo altInfo,
+                            bool useAlt, Addr target) :
+                            btb_pc(btb_pc), mainInfo(mainInfo), altInfo(altInfo),
+                            useAlt(useAlt), target(target) {}
 
     };
 
@@ -107,17 +118,23 @@ class BTBITTAGE : public TimedBaseBTBPredictor
 
     
     // return provided
-    std::pair<bool, bool> lookupHelper(Addr stream_start, TageEntry &main_entry, int &main_table, int &main_table_index,
-                                       TageEntry &alt_entry, int &alt_table, int &alt_table_index, bool &use_alt_pred,
-                                       bool &use_base_table, bitset &usefulMask);
+    std::map<Addr, Addr> lookupHelper(Addr stream_start, const std::vector<BTBEntry> &btbEntries);
 
+    // use blockPC
     Addr getTageIndex(Addr pc, int table);
 
+    // use blockPC
     Addr getTageIndex(Addr pc, int table, bitset &foldedHist);
 
+    // use blockPC
     Addr getTageTag(Addr pc, int table);
 
+    // use blockPC
     Addr getTageTag(Addr pc, int table, bitset &foldedHist, bitset &altFoldedHist);
+
+    Addr getOffset(Addr pc) {
+        return (pc & (blockSize - 1)) >> 1;
+    }
 
     void doUpdateHist(const bitset &history, int shamt, bool taken);
 
@@ -162,16 +179,18 @@ class BTBITTAGE : public TimedBaseBTBPredictor
     int usefulResetCnt;
 
     typedef struct TageMeta {
-        TagePrediction pred;
+        std::map<Addr, TagePrediction> preds;
+        bitset usefulMask;
         std::vector<FoldedHist> tagFoldedHist;
         std::vector<FoldedHist> altTagFoldedHist;
         std::vector<FoldedHist> indexFoldedHist;
-        TageMeta(TagePrediction pred, std::vector<FoldedHist> tagFoldedHist,
+        TageMeta(std::map<Addr, TagePrediction> preds, bitset usefulMask, std::vector<FoldedHist> tagFoldedHist,
             std::vector<FoldedHist> altTagFoldedHist, std::vector<FoldedHist> indexFoldedHist) :
-            pred(pred), tagFoldedHist(tagFoldedHist), altTagFoldedHist(altTagFoldedHist), indexFoldedHist(indexFoldedHist) {}
+            preds(preds), usefulMask(usefulMask), tagFoldedHist(tagFoldedHist), altTagFoldedHist(altTagFoldedHist), indexFoldedHist(indexFoldedHist) {}
         TageMeta() {}
         TageMeta(const TageMeta &other) {
-            pred = other.pred;
+            preds = other.preds;
+            usefulMask = other.usefulMask;
             tagFoldedHist = other.tagFoldedHist;
             altTagFoldedHist = other.altTagFoldedHist;
             indexFoldedHist = other.indexFoldedHist;

@@ -28,8 +28,7 @@ tableTagBits(p.TTagBitSizes),
 tablePcShifts(p.TTagPcShifts),
 histLengths(p.histLengths),
 maxHistLen(p.maxHistLen),
-numTablesToAlloc(p.numTablesToAlloc),
-numBr(p.numBr)
+numTablesToAlloc(p.numTablesToAlloc)
 {
     DPRINTF(ITTAGE || debugFlag, "BTBITTAGE constructor numBr=%d\n", numBr);
     tageTable.resize(numPredictors);
@@ -52,9 +51,9 @@ numBr(p.numBr)
 
         assert(tablePcShifts.size() >= numPredictors);
 
-        tagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i], (int)numBr));
-        altTagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i]-1, (int)numBr));
-        indexFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableIndexBits[i], (int)numBr));
+        tagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i], (int)8));
+        altTagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i]-1, (int)8));
+        indexFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableIndexBits[i], (int)8));
     }
     // useAlt.resize(128);
     // for (unsigned i = 0; i < useAlt.size(); ++i) {
@@ -71,67 +70,103 @@ BTBITTAGE::tickStart()
 void
 BTBITTAGE::tick() {}
 
-std::pair<bool, bool>
-BTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, int &main_table_index,
-                        TageEntry &alt_entry, int &alt_table, int &alt_table_index, bool &use_alt_pred,
-                        bool &use_base_table, bitset &usefulMask)
+std::map<Addr, Addr>
+BTBITTAGE::lookupHelper(Addr startAddr, const std::vector<BTBEntry> &btbEntries)
 {
+    // clear old metas
+    meta.preds.clear();
+    // assign history for meta
+    meta.tagFoldedHist = tagFoldedHist;
+    meta.altTagFoldedHist = altTagFoldedHist;
+    meta.indexFoldedHist = indexFoldedHist;
+
     DPRINTF(ITTAGE || debugFlag, "lookupHelper startAddr: %#lx\n", startAddr);
-    main_table = -1;
-    alt_table = -1;
-    main_table_index = -1;
-    alt_table_index = -1;
+    std::vector<TageEntry> entries;
+    std::vector<Addr> indices, tags;
+    bitset useful_mask(numPredictors, false);
+    // all btb entries should use the same lookup result
+    // but each btb entry can use prediction from different tables
+    for (int i = 0; i < numPredictors; ++i) {
+        Addr index = getTageIndex(startAddr, i);
+        Addr tag = getTageTag(startAddr, i);
+        auto &entry = tageTable[i][index];
+        entries.push_back(entry);
+        indices.push_back(index);
+        tags.push_back(tag);
+        useful_mask[i] = entry.useful;
+        DPRINTF(ITTAGE, "lookup table %d[%d]: valid %d, tag %d, ctr %d, useful %d\n",
+            i, index, entry.valid, entry.tag, entry.counter, entry.useful);
+    }
+    meta.usefulMask = useful_mask;
 
-    bool provided = false;
-    bool alt_provided = false;
-    // make main prediction
-    int provider_counts = 0;
-    for (int i = numPredictors - 1; i >= 0; --i) {
-        Addr tmp_index = getTageIndex(startAddr, i);
-        Addr tmp_tag = getTageTag(startAddr, i);
-        auto &way = tageTable[i][tmp_index];
-        bool match = way.valid && matchTag(tmp_tag, way.tag);
-        if (match) {
-            ++provider_counts;
-            DPRINTF(ITTAGE || debugFlag, "matches table %d index %d tag %d\n", i, tmp_index, tmp_tag);
-            if (!provided) {
-                main_entry = way;
-                main_table = i;
-                main_table_index = tmp_index;
-                provided = true;
-            } else {
-                alt_entry = way;
-                alt_table = i;
-                alt_table_index = tmp_index;
-                alt_provided = true;
-                break;
+    std::vector<TagePrediction> preds;
+    std::map<Addr, Addr> indirect_targets;
+    for (auto &btb_entry : btbEntries) {
+        if (btb_entry.isIndirect && !btb_entry.isReturn && btb_entry.valid) {
+            DPRINTF(ITTAGE, "lookupHelper btbEntry: %#lx, always taken %d\n", btb_entry.pc, btb_entry.alwaysTaken);
+            bool provided = false;
+            bool alt_provided = false;
+
+            TageTableInfo main_info, alt_info;
+
+            for (int i = numPredictors - 1; i >= 0; --i) {
+                auto &way = entries[i];
+                // TODO: count alias hit (offset match but pc differs)
+                bool match = way.valid && tags[i] == way.tag && btb_entry.pc == way.pc;
+                DPRINTF(ITTAGE, "hit %d, table %d, index %d, lookup tag %d, tag %d, useful %d, btb_pc %#lx, entry_pc %#lx\n",
+                    match, i, indices[i], tags[i], way.tag, way.useful, btb_entry.pc, way.pc);
+
+                if (match) {
+                    if (!provided) {
+                        main_info = TageTableInfo(true, way, i, indices[i], tags[i]);
+                        provided = true;
+                    } else if (!alt_provided) {
+                        alt_info = TageTableInfo(true, way, i, indices[i], tags[i]);
+                        alt_provided = true;
+                        break;
+                    }
+                }
             }
-        }
-        if (!provided) {
-            usefulMask.resize(numPredictors-i);
-            usefulMask <<= 1;
-            usefulMask[0] = way.useful;
-        }
-        DPRINTF(ITTAGE || debugFlag, "table %d, index %d, lookup tag %d, tag %d, useful %d\n",
-            i, tmp_index, tmp_tag, way.tag, way.useful);
-    }
 
-    if (provider_counts > 0) {
-        use_alt_pred = main_entry.counter == 0 && alt_provided;
-        use_base_table = main_entry.counter == 0 && !alt_provided;
-        if (!(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1))) {
-            debugFlag = true;
+            Addr main_target = main_info.entry.target;
+            Addr alt_target = alt_info.entry.target;
+
+            Addr base_target = btb_entry.target;
+            bool base_as_alt = false;
+
+
+            Addr alt_pred = alt_provided ? alt_target : base_target;
+            bool taken = false;
+            Addr target;
+
+            // TODO: dynamic control whether to use alt prediction
+            bool main_weak = main_info.entry.counter == 0;
+            bool use_alt_provider = main_weak && alt_provided;
+            bool use_base = !provided || (provided && main_weak && !alt_provided);
+            bool use_alt = use_alt_provider || use_base;
+            if (provided && !main_weak) {
+                taken = main_info.taken();
+                target = main_target;
+            } else if (alt_provided && use_alt_provider) {
+                taken = alt_info.taken();
+                target = alt_target;
+            } else if (use_base) {
+                taken = true;
+                target = base_target;
+            } else {
+                target = base_target;
+                warn("no target found\n");
+            }
+            if (taken) {
+                indirect_targets[btb_entry.pc] = target;   
+            }
+            DPRINTF(ITTAGE, "tage predict %#lx target %#lx\n", btb_entry.pc, target);
+
+            TagePrediction pred(btb_entry.pc, main_info, alt_info, use_alt, main_target);
+            meta.preds[btb_entry.pc] = pred;
         }
-        DPRINTF(ITTAGE || debugFlag, "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
-                provided, provider_counts, main_table, main_table_index, use_alt_pred);
-        assert(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1));
-    } else {
-        use_alt_pred = false;
-        use_base_table = true;
     }
-    DPRINTF(ITTAGE || debugFlag, "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
-                provided, provider_counts, main_table, main_table_index, use_alt_pred);
-    return std::make_pair(provided, alt_provided);
+    return indirect_targets;
 }
 
 void
@@ -140,55 +175,11 @@ BTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
         debugFlag = true;
     }
     DPRINTF(ITTAGE || debugFlag, "putPCHistory startAddr: %#lx\n", stream_start);
-    TageEntry main_entry, alt_entry;
-    main_entry.valid = false;
-    alt_entry.valid = false;
-    int main_table, alt_table;
-    int main_table_index, alt_table_index;
-    bool use_alt_pred, use_base_table;
-    bitset usefulMask;
-
-    bool taken = false;
-    bool main_found, alt_found;
-    // get prediction and save it
-    std::tie(main_found, alt_found) = lookupHelper(stream_start, main_entry, main_table, main_table_index,
-                                                   alt_entry, alt_table, alt_table_index, use_alt_pred, use_base_table, usefulMask);
-
-    TagePrediction pred(main_found, alt_found, main_entry, alt_entry, main_table,
-                        alt_table, main_table_index, alt_table_index, use_alt_pred,
-                        use_base_table, usefulMask);
-    
-    DPRINTF(ITTAGE || debugFlag, "main_found %d, alt_found %d, main_table %d, alt_table %d, main_index %d, alt_index %d\n",
-        main_found, alt_found, main_table, alt_table, main_table_index, alt_table_index);
-    
-    assert(getDelay() < stagePreds.size());
-    assert(getDelay() >= 1);
-    Addr base_target = stagePreds[getDelay()-1].indirectTarget;
-    for (int s = getDelay(); s < stagePreds.size(); ++s) { // need modify
-        Addr useTarget;
-        DPRINTF(ITTAGE || debugFlag, "indirect target=%#lx\n", useTarget);
-        if (main_found && !use_alt_pred && !use_base_table) {
-            taken = main_entry.counter >= 2;
-            useTarget = main_entry.target;
-        } else if (alt_found && use_alt_pred) {
-            taken = alt_entry.counter >= 2;
-            useTarget = alt_entry.target;
-        } else if (use_base_table) {
-            taken = true;
-            useTarget = base_target;
-        } else {
-            useTarget = base_target;
-            warn("no target found\n");
-        }
-        if (taken) {
-            stagePreds[s].indirectTarget = useTarget;
-        }
+    for (int s = getDelay(); s < stagePreds.size(); s++) {
+        auto &stage_pred = stagePreds[s];
+        auto indirect_targets = lookupHelper(stream_start, stage_pred.btbEntries);
+        stage_pred.indirectTargets = indirect_targets;
     }
-
-    meta.pred = pred;
-    meta.tagFoldedHist = tagFoldedHist;
-    meta.altTagFoldedHist = altTagFoldedHist;
-    meta.indexFoldedHist = indexFoldedHist;
     DPRINTF(ITTAGE || debugFlag, "putPCHistory end\n");
     debugFlag = false;
 }
@@ -200,124 +191,92 @@ BTBITTAGE::getPredictionMeta() {
 }
 
 void
-BTBITTAGE::update(const FetchStream &entry)
+BTBITTAGE::update(const FetchStream &stream)
 {
-    if (debugPC == entry.startPC || debugPC2 == entry.startPC) {
+    if (debugPC == stream.startPC || debugPC2 == stream.startPC) {
         debugFlag = true;
     }
-    Addr startAddr = entry.getRealStartPC();
+    Addr startAddr = stream.getRealStartPC();
     DPRINTF(ITTAGE || debugFlag, "update startAddr: %#lx\n", startAddr);
-    auto btb_entry = entry.updateNewBTBEntry;
+    // update at the basis of btb entries
+    auto all_entries_to_update = stream.updateBTBEntries;
+    // only update conditional branches that is not always taken
+    auto remove_it = std::remove_if(all_entries_to_update.begin(), all_entries_to_update.end(),
+        [](const BTBEntry &e) { return !(e.isIndirect && !e.isReturn); });
+    all_entries_to_update.erase(remove_it, all_entries_to_update.end());
+
+    // check if pred btb miss branch need to be updated
+    auto &potential_new_entry = stream.updateNewBTBEntry;
+    if (!stream.updateIsOldEntry && !(potential_new_entry.isIndirect && !potential_new_entry.isReturn)) {
+        all_entries_to_update.push_back(potential_new_entry);
+    }
 
     // get tage predictions from meta
     // TODO: use component idx
-    auto meta = std::static_pointer_cast<TageMeta>(entry.predMetas[getComponentIdx()]);
-    auto pred = meta->pred;
+    auto meta = std::static_pointer_cast<TageMeta>(stream.predMetas[getComponentIdx()]);
+    auto preds = meta->preds;
     auto updateTagFoldedHist = meta->tagFoldedHist;
     auto updateAltTagFoldedHist = meta->altTagFoldedHist;
     auto updateIndexFoldedHist = meta->indexFoldedHist;
     
-    BTBSlot indirect_slot;
-    for (auto slot : btb_entry.slots) {
-        if (slot.isIndirect) {
-            indirect_slot = slot;
-            break;
+    // update each branch
+    for (auto &btb_entry : all_entries_to_update) {
+        bool this_indirect_actual_taken = stream.exeTaken && stream.exeBranchInfo == btb_entry;
+        auto pred_it = preds.find(btb_entry.pc);
+        TagePrediction pred;
+        if (pred_it != preds.end()) {
+            pred = pred_it->second;
         }
-    }
-    // if the non-return indirect branch is actually executed, then we should update it
-    bool should_update = entry.exeTaken && entry.exeBranchInfo == indirect_slot &&
-        entry.exeBranchInfo.isIndirect && !entry.exeBranchInfo.isReturn;
-    bool mispred = entry.squashType == SquashType::SQUASH_CTRL && entry.squashPC == indirect_slot.pc;
-    if (should_update) {
-        DPRINTF(ITTAGE || debugFlag, "try to update indirect pc %#lx \n", indirect_slot.pc);
+        bool mispred = stream.squashType == SQUASH_CTRL && stream.squashPC == btb_entry.pc;
+        Addr exe_target = stream.exeBranchInfo.target;
+        auto &main_info = pred.mainInfo;
+        bool &main_found = main_info.found;
+        auto &main_counter = main_info.entry.counter;
+        bool main_taken = main_info.taken();
+        bool main_weak  = main_counter == 0;
+        Addr main_target = main_info.entry.target;
 
-        bool mainFound = pred.mainFound;
-        Addr mainTarget = pred.mainEntry.target;
-
-        // update useful bit, counter and predTaken for main entry
-        if (mainFound) { // updateProvided
-            DPRINTF(ITTAGE || debugFlag, "prediction provided by table %d, idx %d, updating corresponding entry\n",
-                pred.main_table, pred.main_index);
-            assert(pred.main_table < numPredictors && pred.main_index < tableSizes[pred.main_table]);
-            auto &way = tageTable[pred.main_table][pred.main_index];
-
-            // if (mainTarget != altTarget) { // updateAltDiffers
-            //     way.useful = entry.exeBranchInfo.target == mainTarget; // updateProviderCorrect
-            // }
-            DPRINTF(ITTAGE || debugFlag, "useful bit set to %d\n", way.useful);
-
-            updateCounter(entry.exeBranchInfo.target == mainTarget, 2, way.counter); // need modify
+        bool &used_alt = pred.useAlt;
+        auto &alt_info = pred.altInfo;
+        // update provider
+        if (main_found) {
+            DPRINTF(ITTAGE, "prediction provided by table %d, idx %d, updating corresponding entry\n",
+                main_info.table, main_info.index);
+            auto &way = tageTable[main_info.table][main_info.index];
+            updateCounter(exe_target == main_target, 2, way.counter); // need modify
             if (way.counter == 0) {
-                way.target = entry.exeBranchInfo.target;
+                way.target = exe_target;
             }
-            bool altTaken = (pred.altFound && pred.altEntry.counter >= 2) || !pred.altFound;
-            bool altDiffers = altTaken != (pred.mainEntry.counter >= 2);
-            if (altDiffers) {
-                way.useful = entry.exeBranchInfo.target == mainTarget;
+            bool alt_taken = (alt_info.found && alt_info.taken()) || !pred.altInfo.found;
+            bool alt_diff = alt_taken != main_taken;
+            if (alt_diff) {
+                way.useful = exe_target == main_target;
             }
 
-            if (pred.useAlt && mispred) {
-                DPRINTF(ITTAGE, "prediction provided by alt table %d, idx %d, updating corresponding entry\n",
-                    pred.alt_table, pred.alt_index);
-                assert(pred.alt_table < numPredictors && pred.alt_index < tableSizes[pred.alt_table]);
-                auto &alt_way = tageTable[pred.alt_table][pred.alt_index];
+            if (used_alt && mispred) {
+                auto &alt_way = tageTable[pred.altInfo.table][pred.altInfo.index];
                 updateCounter(false, 2, alt_way.counter);
                 if (alt_way.counter == 0) {
-                    alt_way.target = entry.exeBranchInfo.target;
+                    alt_way.target = exe_target;
                 }
             }
+            DPRINTF(ITTAGE, "useful bit set to %d\n", way.useful);
         }
 
-        // update base table counter
-        // if (pred.useAlt) {
-        //     unsigned base_idx = getBaseTableIndex(startAddr);
-        //     DPRINTF(ITTAGE || debugFlag, "prediction provided by base table idx %d, updating corresponding entry\n", base_idx);
-        //     baseTable.at(base_idx)[b].first = entry.exeBranchInfo.target;
-        //     updateCounter(entry.exeBranchInfo.target == altTarget, 2, baseTable.at(base_idx)[b].second); // need mofigy
-        // }
-
-        // update use_alt_counters
-        // if (pred.mainFound && (pred.counter == 0 || pred.counter == -1) &&
-        //         mainTarget != altTarget) {
-        //     auto &use_alt_counter = useAlt.at(getUseAltIdx(startAddr))[b];
-        //     if (altTarget == entry.exeBranchInfo.target) {
-        //         satIncrement(7, use_alt_counter);
-        //     } else {
-        //         satDecrement(-8, use_alt_counter);
-        //     }
-        //     DPRINTF(ITTAGE || debugFlag, "updating use_alt_counter %d\n", use_alt_counter);
-        // }
-
-        if (mispred) {
-            DPRINTF(ITTAGE || debugFlag, "miss target=%#lx, correct target=%#lx\n", entry.predBranchInfo.target, entry.exeBranchInfo.target);
-        } else {
-            DPRINTF(ITTAGE || debugFlag, "hit target=%#lx, correct target=%#lx\n", entry.predBranchInfo.target, entry.exeBranchInfo.target);
-        }
-        // update useful reset counter
-        bool use_alt_on_main_found_correct = (pred.useAlt || pred.useBase) && pred.mainFound && mainTarget == entry.exeBranchInfo.target;
+        bool use_alt_on_main_found_correct = used_alt && main_found && main_target == exe_target;
         bool needToAllocate = mispred && !use_alt_on_main_found_correct;
         DPRINTF(ITTAGE || debugFlag, "mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
             mispred, use_alt_on_main_found_correct, needToAllocate);
 
-        int num_tables_can_allocate = (~pred.usefulMask).count();
-        // int total_tables_to_allocate = pred.usefulMask.size();
-        // bool incUsefulResetCounter = num_tables_can_allocate < (total_tables_to_allocate - num_tables_can_allocate);
-        // bool decUsefulResetCounter = num_tables_can_allocate > (total_tables_to_allocate - num_tables_can_allocate);
-        // int changeVal = std::abs(num_tables_can_allocate - (total_tables_to_allocate - num_tables_can_allocate));
+        auto useful_mask = meta->usefulMask;
+        int alloc_table_num = numPredictors - (main_info.found ? main_info.table + 1 : 0);
+        if (main_found) {
+            useful_mask >>= main_info.table + 1;
+            useful_mask.resize(alloc_table_num);
+        }
+        int num_tables_can_allocate = (~useful_mask).count();
         bool canAllocate = num_tables_can_allocate > 0;
         if (needToAllocate) {
-            // if (incUsefulResetCounter) { // need modify: clear the useful bit of all entries
-            //     usefulResetCnt[b] += changeVal;
-            //     if (usefulResetCnt[b] >= 128)
-            //         usefulResetCnt[b] = 128;
-            //     DPRINTF(ITTAGE || debugFlag, "incUsefulResetCounter, changeVal %d, usefulResetCnt %d\n", changeVal, usefulResetCnt[b]);
-            // } else if (decUsefulResetCounter) {
-            //     usefulResetCnt[b] -= changeVal;
-            //     if (usefulResetCnt[b] <= 0)
-            //         usefulResetCnt[b] = 0;
-            //     DPRINTF(ITTAGE || debugFlag, "decUsefulResetCounter, changeVal %d, usefulResetCnt %d\n", changeVal, usefulResetCnt[b]);
-            // }
-
             if (canAllocate) {
                 usefulResetCnt -= 1;
                 if (usefulResetCnt <= 0) {
@@ -344,15 +303,15 @@ BTBITTAGE::update(const FetchStream &entry)
 
         if (needToAllocate) {
             // allocate new entry
-            unsigned maskMaxNum = std::pow(2, (numPredictors - (pred.main_table + 1)));
+            unsigned maskMaxNum = std::pow(2, alloc_table_num);
             unsigned mask = allocLFSR.get() % maskMaxNum;
-            bitset allocateLFSR(numPredictors - (pred.main_table + 1), mask);
+            bitset allocateLFSR(alloc_table_num, mask);
             std::string buf;
             boost::to_string(allocateLFSR, buf);
             DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
-            auto flipped_usefulMask = pred.usefulMask.flip();
+            auto flipped_usefulMask = useful_mask.flip();
             boost::to_string(flipped_usefulMask, buf);
-            DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", buf, pred.usefulMask.size());
+            DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", buf, useful_mask.size());
             bitset masked = allocateLFSR & flipped_usefulMask;
             boost::to_string(masked, buf);
             DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", buf, masked.size());
@@ -363,7 +322,7 @@ BTBITTAGE::update(const FetchStream &entry)
             bool allocateValid = flipped_usefulMask.any();
             if (needToAllocate && allocateValid) {
                 DPRINTF(ITTAGE || debugFlag, "allocate new entry\n");
-                unsigned startTable = pred.main_table + 1;
+                unsigned startTable = main_found ? main_info.table + 1 : 0;
 
                 for (int ti = startTable; ti < numPredictors; ti++) {
                     Addr newIndex = getTageIndex(startAddr, ti, updateIndexFoldedHist[ti].get());
@@ -374,13 +333,14 @@ BTBITTAGE::update(const FetchStream &entry)
                     if (allocate[ti - startTable]) {
                         DPRINTF(ITTAGE || debugFlag, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
                             ti, newIndex, newTag, 2);
-                        newEntry = TageEntry(newTag, entry.exeBranchInfo.target, 2);
+                        newEntry = TageEntry(newTag, exe_target, 2, btb_entry.pc);
                         break; // allocate only 1 entry
                     }
                 }
             }
         }
     }
+
     DPRINTF(ITTAGE || debugFlag, "end update\n");
     debugFlag = false;
 }
@@ -399,7 +359,7 @@ BTBITTAGE::updateCounter(bool taken, unsigned width, short &counter) {
 Addr
 BTBITTAGE::getTageTag(Addr pc, int t, bitset &foldedHist, bitset &altFoldedHist)
 {
-    bitset buf(tableTagBits[t], pc >> tablePcShifts[t]);  // lower bits of PC
+    bitset buf(tableTagBits[t], pc >> floorLog2(blockSize));  // lower bits of PC
     bitset altTagBuf(altFoldedHist);
     altTagBuf.resize(tableTagBits[t]);
     altTagBuf <<= 1;
@@ -417,7 +377,7 @@ BTBITTAGE::getTageTag(Addr pc, int t)
 Addr
 BTBITTAGE::getTageIndex(Addr pc, int t, bitset &foldedHist)
 {
-    bitset buf(tableIndexBits[t], pc >> tablePcShifts[t]);  // lower bits of PC
+    bitset buf(tableIndexBits[t], pc >> floorLog2(blockSize));  // lower bits of PC
     buf ^= foldedHist;
     return buf.to_ulong();
 }

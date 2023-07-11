@@ -16,7 +16,7 @@
 #include "cpu/pred/btb/fetch_target_queue.hh"
 #include "cpu/pred/btb/btb.hh"
 #include "cpu/pred/btb/btb_tage.hh"
-// #include "cpu/pred/btb/btb_ittage.hh"
+#include "cpu/pred/btb/btb_ittage.hh"
 #include "cpu/pred/btb/jump_ahead_predictor.hh"
 #include "cpu/pred/btb/loop_predictor.hh"
 #include "cpu/pred/btb/loop_buffer.hh"
@@ -225,7 +225,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     DefaultBTB *ubtb{};
     DefaultBTB *btb{};
     BTBTAGE *tage{};
-    // BTBITTAGE *ittage{};
+    BTBITTAGE *ittage{};
     
     btb_pred::BTBRAS *ras{};
     // btb_pred::BTBuRAS *uras{};

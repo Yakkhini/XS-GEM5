@@ -35,7 +35,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       ubtb(p.ubtb),
       btb(p.btb),
       tage(p.tage),
-    //   ittage(p.ittage),
+      ittage(p.ittage),
       ras(p.ras),
     //   uras(p.uras),
       bpDBSwitches(p.bpDBSwitches),
@@ -98,7 +98,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     components.push_back(btb);
     components.push_back(tage);
     components.push_back(ras);
-    // components.push_back(ittage);
+    components.push_back(ittage);
     numComponents = components.size();
     for (int i = 0; i < numComponents; i++) {
         components[i]->setComponentIdx(i);
@@ -233,7 +233,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
                 return gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(a) >
                 gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(b);
             });
-            for (int i = 0; i < outputTopN; i++) {
+            for (int i = 0; i < outputTopN && i < temp.size(); i++) {
                 *out_handle->stream() << " " << std::hex << temp[i].first.first; // pc
                 *out_handle->stream() << " " << std::dec << temp[i].first.second; // type
                 *out_handle->stream() << " " << std::dec << getMispredCount(temp[i]); // mispred count
@@ -271,7 +271,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
                 gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB::getMispredCount(b);
             });
             *out_handle->stream() << std::hex;
-            for (int i = 0; i < outputTopN; i++) {
+            for (int i = 0; i < outputTopN && i < temp.size(); i++) {
                 *out_handle->stream() << " " << std::hex << temp[i].first.first; // pc
                 *out_handle->stream() << " " << std::dec << temp[i].first.second; // type
                 *out_handle->stream() << " " << std::dec << getMispredCount(temp[i]); // mispred count

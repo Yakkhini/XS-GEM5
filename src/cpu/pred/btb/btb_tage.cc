@@ -186,7 +186,7 @@ BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntri
             bool taken = use_alt ? alt_pred : main_taken;
             DPRINTF(TAGE, "tage predict %#lx taken %d\n", btb_entry.pc, taken);
 
-            TagePrediction pred(btb_entry.pc, main_info, alt_info, use_alt, main_taken);
+            TagePrediction pred(btb_entry.pc, main_info, alt_info, use_alt, taken);
             meta.preds[btb_entry.pc] = pred;
             tageStats.updateStatsWithTagePrediction(pred, true);
             cond_takens[btb_entry.pc] = taken || btb_entry.alwaysTaken;

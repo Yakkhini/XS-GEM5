@@ -1008,6 +1008,20 @@ class BTBTAGE(TimedBaseBTBPredictor):
     maxHistLen = Param.Unsigned(970, "The length of history passed from DBP")
     numTablesToAlloc = Param.Unsigned(1,"The number of table to allocated each time")
 
+class BTBITTAGE(TimedBaseBTBPredictor):
+    type = 'BTBITTAGE'
+    cxx_class = 'gem5::branch_prediction::btb_pred::BTBITTAGE'
+    cxx_header = "cpu/pred/btb/btb_ittage.hh"
+
+    numPredictors = Param.Unsigned(5, "Number of TAGE predictors")
+    tableSizes = VectorParam.Unsigned([256]*2 + [512]*3, "the ITTAGE T0~Tn length")
+    TTagBitSizes = VectorParam.Unsigned([9]*5, "the T0~Tn entry's tag bit size")
+    TTagPcShifts = VectorParam.Unsigned([1] * 5, "when the T0~Tn entry's tag generating, PC right shift")
+
+    histLengths = VectorParam.Unsigned([4, 8, 13, 16, 32], "the BTB TAGE T0~Tn history length")
+    maxHistLen = Param.Unsigned(970, "The length of history passed from DBP")
+    numTablesToAlloc = Param.Unsigned(1,"The number of table to allocated each time")
+
 class DecoupledBPUWithBTB(BranchPredictor):
     type = 'DecoupledBPUWithBTB'
     cxx_class = 'gem5::branch_prediction::btb_pred::DecoupledBPUWithBTB'
@@ -1024,7 +1038,7 @@ class DecoupledBPUWithBTB(BranchPredictor):
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")
     btb = Param.DefaultBTB(DefaultBTB(blockSize=32), "BTB")
     tage = Param.BTBTAGE(BTBTAGE(blockSize=32), "TAGE predictor")
-    # ittage = Param.FTBITTAGE(FTBITTAGE(), "ITTAGE predictor")
+    ittage = Param.BTBITTAGE(BTBITTAGE(blockSize=32), "ITTAGE predictor")
     ubtb = Param.DefaultBTB(UBTB(blockSize=32), "UBTB predictor")
     ras = Param.BTBRAS(BTBRAS(), "RAS")
     # uras = Param.uRAS(uRAS(), "uRAS")
