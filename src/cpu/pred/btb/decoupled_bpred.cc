@@ -1223,6 +1223,7 @@ void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
             if (it == totalBTBEntries.end()) {
                 auto &btb_entry = stream.updateNewBTBEntry;
                 totalBTBEntries[stream.startPC] = std::make_pair(btb_entry, 1);
+                dbpBtbStats.btbEntriesWithDifferentStart++;
             } else {
                 it->second.second++;
                 it->second.first = stream.updateNewBTBEntry;
