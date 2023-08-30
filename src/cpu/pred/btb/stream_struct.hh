@@ -539,7 +539,9 @@ typedef struct FullBTBPrediction
             if (this_taken_entry.valid && other_taken_entry.valid) {
                 return this->controlAddr() == other.controlAddr() &&
                        this->getTarget() == other.getTarget() &&
-                       this->getEnd() == other.getEnd();
+                    //    this->getEnd() == other.getEnd();
+                       this->getEnd() == other.getEnd() &&
+                       this->getHistInfo() == other.getHistInfo();
             } else {
                 return true;
             }
