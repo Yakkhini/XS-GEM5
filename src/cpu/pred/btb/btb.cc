@@ -218,7 +218,8 @@ DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
 {
     DPRINTF(BTB, "generating new btb entry\n");
     // generate btb entry
-    auto &predBTBEntries = stream.predBTBEntries;
+    auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]);
+    auto &predBTBEntries = meta->hit_entries;
     bool pred_branch_hit = false;
     BTBEntry entry_to_write = BTBEntry();
     for (auto &e: predBTBEntries) {
@@ -274,6 +275,7 @@ DefaultBTB::update(const FetchStream &stream)
         }
     }
     if (!pred_branch_hit && stream.exeTaken) {
+        DPRINTF(BTB, "update miss detected, pc %#lx, predTick %llu\n", stream.exeBranchInfo.pc, stream.predTick);
         btbStats.updateMiss++;
     }
     bool pred_l0_branch_hit = false;
@@ -288,7 +290,7 @@ DefaultBTB::update(const FetchStream &stream)
         if (l0_hit_l1_miss) {
             DPRINTF(BTB, "BTB: skipping entry write because of l0 hit\n");
             incNonL0Stat(btbStats.updateUseL0OnL1Miss);
-            return;
+            // return;
         }
     }
     Addr startPC = stream.getRealStartPC();
@@ -297,7 +299,7 @@ DefaultBTB::update(const FetchStream &stream)
 
 
     auto all_entries_to_update = old_entries_to_update;
-    if (!stream.updateIsOldEntry) {
+    if (!stream.updateIsOldEntry || isL0()) {
         all_entries_to_update.push_back(stream.updateNewBTBEntry);
     }
     DPRINTF(BTB, "all_entries_to_update.size(): %d\n", all_entries_to_update.size());
