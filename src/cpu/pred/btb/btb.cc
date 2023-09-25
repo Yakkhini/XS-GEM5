@@ -81,6 +81,13 @@ DefaultBTB::DefaultBTB(const Params &p)
     tagShiftAmt = idxShiftAmt + floorLog2(numSets);
     DPRINTF(BTB, "numEntries %d, numSets %d, numWays %d, tagBits %d, tagShiftAmt %d, idxMask %#lx, tagMask %#lx\n",
         numEntries, numSets, numWays, tagBits, tagShiftAmt, idxMask, tagMask);
+
+    hasDB = true;
+    switch (numDelay) {
+        case 0: dbName = std::string("btb_0"); break;
+        case 1: dbName = std::string("btb_1"); break;
+        default: dbName = std::string("btb"); break;
+    }
 }
 
 void
@@ -91,6 +98,27 @@ DefaultBTB::tickStart()
 
 void
 DefaultBTB::tick() {}
+
+void
+DefaultBTB::setTrace()
+{
+    if (enableDB) {
+        std::vector<std::pair<std::string, DataType>> fields_vec = {
+            std::make_pair("pc", UINT64),
+            std::make_pair("brType", UINT64),
+            std::make_pair("target", UINT64),
+            std::make_pair("idx", UINT64),
+            std::make_pair("mode", UINT64),
+            std::make_pair("hit", UINT64)
+        };
+        switch (numDelay) {
+            case 0: btbTrace = _db->addAndGetTrace("BTBTrace_0", fields_vec); break;
+            case 1: btbTrace = _db->addAndGetTrace("BTBTrace_1", fields_vec); break;
+            default: btbTrace = _db->addAndGetTrace("BTBTrace", fields_vec); break;
+        }
+        btbTrace->init_table();
+    }
+}
 
 void
 DefaultBTB::putPCHistory(Addr startAddr,
@@ -336,15 +364,33 @@ DefaultBTB::update(const FetchStream &stream)
         // write into btb
         if (found) {
             *it = ticked_entry_to_write;
+            if (enableDB) {
+                BTBTrace rec;
+                rec.set(ticked_entry_to_write.pc, ticked_entry_to_write.getType(),
+                    ticked_entry_to_write.target, btb_idx, Mode::WRITE, 1);
+                btbTrace->write_record(rec);
+            }
         } else {
             DPRINTF(BTB, "trying to replace entry in set %#lx\n", btb_idx);
             dumpMruList(mruList[btb_idx]);
             // put the oldest entry in this set to the back of heap
             std::pop_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
             const auto& entry_in_btb_now = mruList[btb_idx].back();
+            if (enableDB) {
+                BTBTrace rec;
+                rec.set(entry_in_btb_now->pc, entry_in_btb_now->getType(),
+                    entry_in_btb_now->target, btb_idx, Mode::EVICT, 0);
+                btbTrace->write_record(rec);
+            }
             DPRINTF(BTB, "BTB: Replacing entry with tag %#lx, pc %#lx in set %#lx\n",
                 entry_in_btb_now->tag, entry_in_btb_now->pc, btb_idx);
             *entry_in_btb_now = ticked_entry_to_write;
+            if (enableDB) {
+                BTBTrace rec;
+                rec.set(entry_in_btb_now->pc, entry_in_btb_now->getType(),
+                    entry_in_btb_now->target, btb_idx, Mode::WRITE, 0);
+                btbTrace->write_record(rec);
+            }
             dumpMruList(mruList[btb_idx]);
         }
         std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());

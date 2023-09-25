@@ -117,6 +117,10 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
     void commitBranch(const FetchStream &stream, const DynInstPtr &inst) override;
 
+    void setTrace() override;
+
+    TraceManager *btbTrace;
+
     /**
      * @brief derive new btb entry from old ones and set updateNewBTBEntry field in stream
      *        only in L1BTB will this function be called when update
@@ -240,6 +244,10 @@ class DefaultBTB : public TimedBaseBTBPredictor
     }BTBMeta;
 
     BTBMeta meta;
+
+    enum Mode {
+        READ, WRITE, EVICT
+    };
 
     struct BTBStats : public statistics::Group {
         statistics::Scalar newEntry;

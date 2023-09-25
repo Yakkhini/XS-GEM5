@@ -720,6 +720,19 @@ struct LoopTrace : public Record {
     }
 };
 
+struct BTBTrace : public Record {
+    // mode: read, write, evict
+    void set(uint64_t pc, uint64_t brType, uint64_t target, uint64_t idx, uint64_t mode, uint64_t hit) {
+        _tick = curTick();
+        _uint64_data["pc"] = pc;
+        _uint64_data["brType"] = brType;
+        _uint64_data["target"] = target;
+        _uint64_data["idx"] = idx;
+        _uint64_data["mode"] = mode;
+        _uint64_data["hit"] = hit;
+    }
+};
+
 }  // namespace btb_pred
 
 }  // namespace branch_prediction
