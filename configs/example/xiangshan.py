@@ -113,15 +113,25 @@ def build_test_system(np, args):
         args.enable_loop_buffer = True
 
     for i in range(np):
-        if args.bp_type is None or args.bp_type == 'DecoupledBPUWithFTB':
+        if args.bp_type is None or args.bp_type == 'DecoupledBPUWithFTB' or args.bp_type == 'DecoupledBPUWithBTB':
             enable_bp_db = len(args.enable_bp_db) > 1
             if enable_bp_db:
                 bp_db_switches = args.enable_bp_db[1] + ['basic']
                 print("BP db switches:", bp_db_switches)
             else:
                 bp_db_switches = []
+            # for DecoupledBPUWithBTB, loop predictor and jump ahead predictor are not supported
+            if args.bp_type == 'DecoupledBPUWithBTB':
+                if args.enable_loop_predictor or args.enable_loop_buffer:
+                    print("loop predictor and loop buffer not supported for DecoupledBPUWithBTB")
+                    args.enable_loop_predictor = False
+                    args.enable_loop_buffer = False
+                if args.enable_jump_ahead_predictor:
+                    print("jump ahead predictor not supported for DecoupledBPUWithBTB")
+                    args.enable_jump_ahead_predictor = False
 
-            test_sys.cpu[i].branchPred = DecoupledBPUWithFTB(
+            BPClass = DecoupledBPUWithBTB() if args.bp_type == 'DecoupledBPUWithBTB' else DecoupledBPUWithFTB()
+            test_sys.cpu[i].branchPred = BPClass(
                                             bpDBSwitches=bp_db_switches,
                                             enableLoopBuffer=args.enable_loop_buffer,
                                             enableLoopPredictor=args.enable_loop_predictor,

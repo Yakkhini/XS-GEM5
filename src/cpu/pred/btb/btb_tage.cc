@@ -26,6 +26,7 @@ tablePcShifts(p.TTagPcShifts),
 histLengths(p.histLengths),
 maxHistLen(p.maxHistLen),
 numTablesToAlloc(p.numTablesToAlloc),
+enableSC(p.enableSC),
 tageStats(this, p.numPredictors)
 {
     DPRINTF(TAGE, "BTBTAGE constructor\n");
