@@ -965,7 +965,8 @@ class TimedBaseBTBPredictor(SimObject):
     cxx_header = "cpu/pred/btb/timed_base_pred.hh"
     
     # TODO: parametrize numBr and numDelay
-    blockSize = Param.Unsigned(32, "Block size in bytes")
+    blockSize = Param.Unsigned(Parent.blockSize, "Block size in bytes")
+    numDelay = Param.Unsigned(1000, "Number of bubbles to put on a prediction")
 
 class DefaultBTB(TimedBaseBTBPredictor):
     type = 'DefaultBTB'
@@ -977,7 +978,7 @@ class DefaultBTB(TimedBaseBTBPredictor):
     instShiftAmt = Param.Unsigned(1, "Amount to shift PC to get inst bits")
     numThreads = Param.Unsigned(1, "Number of threads")
     numWays = Param.Unsigned(8, "Number of ways per set")
-    numDelay = Param.Unsigned(1, "Number of bubbles to put on a prediction")
+    numDelay = 1
     
 class UBTB(DefaultBTB):
     numEntries = 32
@@ -993,6 +994,7 @@ class BTBRAS(TimedBaseBTBPredictor):
     numEntries = Param.Unsigned(32, "Number of entries in the RAS")
     ctrWidth = Param.Unsigned(8, "Width of the counter")
     numInflightEntries = Param.Unsigned(384, "Number of inflight entries")
+    numDelay = 1
 
 class BTBTAGE(TimedBaseBTBPredictor):
     type = 'BTBTAGE'
@@ -1008,6 +1010,7 @@ class BTBTAGE(TimedBaseBTBPredictor):
     histLengths = VectorParam.Unsigned([8, 13, 32, 119], "the FTB TAGE T0~Tn history length")
     maxHistLen = Param.Unsigned(970, "The length of history passed from DBP")
     numTablesToAlloc = Param.Unsigned(1,"The number of table to allocated each time")
+    numDelay = 1
 
 class BTBITTAGE(TimedBaseBTBPredictor):
     type = 'BTBITTAGE'
@@ -1022,6 +1025,7 @@ class BTBITTAGE(TimedBaseBTBPredictor):
     histLengths = VectorParam.Unsigned([4, 8, 13, 16, 32], "the BTB TAGE T0~Tn history length")
     maxHistLen = Param.Unsigned(970, "The length of history passed from DBP")
     numTablesToAlloc = Param.Unsigned(1,"The number of table to allocated each time")
+    numDelay = 2
 
 class DecoupledBPUWithBTB(BranchPredictor):
     type = 'DecoupledBPUWithBTB'
@@ -1035,14 +1039,12 @@ class DecoupledBPUWithBTB(BranchPredictor):
     
     blockSize = Param.Unsigned(32, "Maximum range in bytes that a single prediction can cover")
     alignToBlockSize = Param.Bool(True, "Whether the prediction ends at the end of blockSize boundaries")
-    # numBr = Param.Unsigned(2, "Number of maximum branches per entry")
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")
-    btb = Param.DefaultBTB(DefaultBTB(blockSize=32), "BTB")
-    tage = Param.BTBTAGE(BTBTAGE(blockSize=32), "TAGE predictor")
-    ittage = Param.BTBITTAGE(BTBITTAGE(blockSize=32), "ITTAGE predictor")
-    ubtb = Param.DefaultBTB(UBTB(blockSize=32), "UBTB predictor")
+    ubtb = Param.DefaultBTB(UBTB(), "UBTB predictor")
+    btb = Param.DefaultBTB(DefaultBTB(), "BTB")
+    tage = Param.BTBTAGE(BTBTAGE(), "TAGE predictor")
+    ittage = Param.BTBITTAGE(BTBITTAGE(), "ITTAGE predictor")
     ras = Param.BTBRAS(BTBRAS(), "RAS")
-    # uras = Param.uRAS(uRAS(), "uRAS")
     
     bpDBSwitches = VectorParam.String([], "Enable which traces in the form of database")
     enableLoopBuffer = Param.Bool(False, "Enable loop buffer to supply inst for loops")

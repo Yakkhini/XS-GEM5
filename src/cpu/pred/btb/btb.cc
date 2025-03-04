@@ -49,7 +49,6 @@ DefaultBTB::DefaultBTB(const Params &p)
     idxShiftAmt(floorLog2(p.blockSize)),
     log2NumThreads(floorLog2(p.numThreads)),
     numWays(p.numWays),
-    numDelay(p.numDelay),
     btbStats(this)
 {
     assert(numEntries % numWays == 0);
@@ -83,7 +82,7 @@ DefaultBTB::DefaultBTB(const Params &p)
         numEntries, numSets, numWays, tagBits, tagShiftAmt, idxMask, tagMask);
 
     hasDB = true;
-    switch (numDelay) {
+    switch (getDelay()) {
         case 0: dbName = std::string("btb_0"); break;
         case 1: dbName = std::string("btb_1"); break;
         default: dbName = std::string("btb"); break;
@@ -111,7 +110,7 @@ DefaultBTB::setTrace()
             std::make_pair("mode", UINT64),
             std::make_pair("hit", UINT64)
         };
-        switch (numDelay) {
+        switch (getDelay()) {
             case 0: btbTrace = _db->addAndGetTrace("BTBTrace_0", fields_vec); break;
             case 1: btbTrace = _db->addAndGetTrace("BTBTrace_1", fields_vec); break;
             default: btbTrace = _db->addAndGetTrace("BTBTrace", fields_vec); break;

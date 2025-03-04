@@ -91,8 +91,6 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
     void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
 
-    unsigned getDelay() override {return numDelay;}
-
     /** Creates a BTB with the given number of entries, number of bits per
      *  tag, and instruction offset amount.
      *  @param numEntries Number of entries for the BTB.
@@ -230,8 +228,6 @@ class DefaultBTB : public TimedBaseBTBPredictor
     unsigned numWays;
 
     unsigned numSets;
-
-    unsigned numDelay;
 
     typedef struct BTBMeta {
         std::vector<BTBEntry> hit_entries;

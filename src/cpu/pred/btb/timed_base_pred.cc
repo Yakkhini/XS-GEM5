@@ -11,7 +11,8 @@ namespace btb_pred
 
 TimedBaseBTBPredictor::TimedBaseBTBPredictor(const Params &p)
     : SimObject(p),
-      blockSize(p.blockSize)
+      blockSize(p.blockSize),
+      numDelay(p.numDelay)
 {
 }
 
