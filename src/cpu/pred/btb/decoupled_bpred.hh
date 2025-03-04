@@ -49,6 +49,15 @@ namespace btb_pred
 using DynInstPtr = o3::DynInstPtr;
 using CPU = o3::CPU;
 
+/**
+ * @class HistoryManager
+ * @brief Manages branch prediction history including speculative updates and recovery
+ * 
+ * This class tracks branch prediction history and handles:
+ * - Speculative history updates for predicted branches
+ * - History recovery on misprediction
+ * - History commit when branches are resolved
+ */
 class HistoryManager
 {
   public:
@@ -178,6 +187,16 @@ class HistoryManager
     }
 };
 
+/**
+ * @class DecoupledBPUWithBTB
+ * @brief A decoupled branch predictor implementation using BTB-based design
+ * 
+ * This predictor implements a decoupled front-end with:
+ * - Multiple prediction stages (UBTB -> BTB/TAGE/ITTAGE)
+ * - Fetch Target Queue (FTQ) for managing predicted targets
+ * - Fetch Stream Queue (FSQ) for managing instruction streams
+ * - Support for loop prediction and jump-ahead prediction
+ */
 class DecoupledBPUWithBTB : public BPredUnit
 {
     using defer = std::shared_ptr<void>;
@@ -259,13 +278,13 @@ class DecoupledBPUWithBTB : public BPredUnit
     unsigned numComponents{};
     unsigned numStages{};
 
-    bool sentPCHist{false};
-    bool receivedPred{false};
+    bool sentPCHist{false};     ///< PC/history sent this cycle
+    bool receivedPred{false};   ///< Prediction received this cycle
 
-    Addr s0PC;
+    Addr s0PC;                  ///< Current PC
     // Addr s0StreamStartPC;
-    boost::dynamic_bitset<> s0History;
-    FullBTBPrediction finalPred;
+    boost::dynamic_bitset<> s0History;  ///< History bits
+    FullBTBPrediction finalPred;      ///< Final prediction
 
     boost::dynamic_bitset<> commitHistory;
 
@@ -351,6 +370,14 @@ class DecoupledBPUWithBTB : public BPredUnit
         return fetchStreamQueue.size() >= fetchStreamQueueSize;
     }
 
+    /**
+     * @brief Generate final prediction from all stages
+     * 
+     * Collects predictions from all stages and:
+     * - Selects most accurate prediction
+     * - Generates necessary bubbles
+     * - Updates prediction state
+     */
     void generateFinalPredAndCreateBubbles();
 
     void clearPreds() {
@@ -386,19 +413,31 @@ class DecoupledBPUWithBTB : public BPredUnit
         DPRINTF(DecoupleBP, "returnTarget %#lx\n", pred.returnTarget);
     }
 
+    /**
+     * @brief Statistics collection for branch prediction
+     * 
+     * Tracks detailed statistics about:
+     * - Branch types and mispredictions
+     * - Predictor component usage
+     * - Queue utilization
+     * - Loop and jump-ahead prediction performance
+     */
     struct DBPBTBStats : public statistics::Group {
-        statistics::Scalar condNum;
-        statistics::Scalar uncondNum;
-        statistics::Scalar returnNum;
-        statistics::Scalar otherNum;
+        // Branch type statistics
+        statistics::Scalar condNum;      ///< Number of conditional branches
+        statistics::Scalar uncondNum;    ///< Number of unconditional branches
+        statistics::Scalar returnNum;    ///< Number of return instructions
+        statistics::Scalar otherNum;     ///< Number of other control instructions
 
-        statistics::Scalar condMiss;
-        statistics::Scalar uncondMiss;
-        statistics::Scalar returnMiss;
-        statistics::Scalar otherMiss;
+        // Misprediction statistics
+        statistics::Scalar condMiss;     ///< Conditional branch mispredictions
+        statistics::Scalar uncondMiss;   ///< Unconditional branch mispredictions
+        statistics::Scalar returnMiss;   ///< Return mispredictions
+        statistics::Scalar otherMiss;    ///< Other control mispredictions
 
-        statistics::Scalar staticBranchNum;
-        statistics::Scalar staticBranchNumEverTaken;
+        // Branch coverage statistics
+        statistics::Scalar staticBranchNum;           ///< Total static branches seen
+        statistics::Scalar staticBranchNumEverTaken;  ///< Static branches ever taken
 
         statistics::Vector predsOfEachStage;
         statistics::Vector commitPredsFromEachStage;
@@ -474,6 +513,15 @@ class DecoupledBPUWithBTB : public BPredUnit
     } dbpBtbStats;
 
   public:
+    /**
+     * @brief Main prediction cycle function
+     * 
+     * This function handles:
+     * - FSQ/FTQ management
+     * - Prediction generation
+     * - Loop buffer management
+     * - Statistics collection
+     */
     void tick();
 
     bool trySupplyFetchWithTarget(Addr fetch_demand_pc, bool &fetchTargetInLoop);
@@ -568,7 +616,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     {
     }
 
-    bool lookup(ThreadID tid, Addr instPC, void *&bp_history) { return false; }
+    bool lookup(ThreadID tid, Addr instPC, void *&bp_history) override { return false; }
 
     void checkHistory(const boost::dynamic_bitset<> &history);
 
@@ -586,11 +634,14 @@ class DecoupledBPUWithBTB : public BPredUnit
     std::map<Addr, int> currentPhaseTakenBranches;
     std::map<Addr, int> currentSubPhaseTakenBranches;
 
+    /**
+     * @brief Types of control flow instruction mispredictions
+     */
     enum MispredType {
-        DIR_WRONG,
-        TARGET_WRONG,
-        NO_PRED,
-        FAKE_LAST
+        DIR_WRONG,      ///< Direction prediction was wrong
+        TARGET_WRONG,   ///< Target address prediction was wrong  
+        NO_PRED,        ///< No prediction was made
+        FAKE_LAST       ///< Sentinel value
     };
     using MispredReasonMap = std::map<MispredType, int>;
     //                         mispred cnt

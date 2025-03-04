@@ -37,6 +37,14 @@ enum SquashType {
 };
 
 
+/**
+ * @brief Branch information structure containing branch properties and targets
+ * 
+ * Stores essential information about a branch instruction including:
+ * - PC and target address
+ * - Branch type (conditional, indirect, call, return)
+ * - Instruction size
+ */
 typedef struct BranchInfo {
     Addr pc;
     Addr target;
@@ -112,6 +120,15 @@ typedef struct BranchInfo {
 }BranchInfo;
 
 
+/**
+ * @brief Branch Target Buffer entry extending BranchInfo with prediction metadata
+ * 
+ * Contains branch information plus prediction state:
+ * - Valid bit
+ * - Always taken bit
+ * - Counter for prediction
+ * - Tag for BTB lookup
+ */
 typedef struct BTBEntry : BranchInfo
 {
     bool valid;
@@ -142,85 +159,6 @@ typedef struct LFSR64 {
     }
 }LFSR64;
 
-// typedef struct BTBEntry
-// {
-//     /** The entry's tag. */
-//     Addr tag = 0;
-
-//     /** The entry's branch info. */
-//     std::vector<BTBSlot> slots;
-
-//     /** The entry's fallthrough address. */
-//     Addr fallThruAddr;
-
-//     /** The entry's thread id. */
-//     ThreadID tid;
-
-//     /** Whether or not the entry is valid. */
-//     bool valid = false;
-//     BTBEntry(): fallThruAddr(0), tid(0), valid(false) {}
-
-//     int getNumCondInEntryBefore(Addr pc) {
-//         int num = 0;
-//         for (auto &slot : this->slots) {
-//             if (slot.condValid() && slot.pc < pc) {
-//                 num++;
-//             }
-//         }
-//         return num;
-//     }
-
-//     int getTotalNumConds() {
-//         int num = 0;
-//         for (auto &slot : this->slots) {
-//             if (slot.condValid()) {
-//                 num++;
-//             }
-//         }
-//         return num;
-//     }
-
-//     // check if the entry is reasonable with given startPC
-//     // every branch slot and fallThru should be in the range of (startPC, startPC+34]
-//     // every 
-//     bool isReasonable(Addr start) {
-//         Addr min = start;
-//         Addr max = start+34;
-//         bool reasonable = true;
-//         for (auto &slot : slots) {
-//             if (slot.pc < min || slot.pc > max) {
-//                 reasonable = false;
-//             }
-//         }
-//         if (fallThruAddr <= min || fallThruAddr > max) {
-//             reasonable = false;
-//         }
-//         return reasonable;
-//     }
-
-//     BTBSlot getSlot(Addr pc) {
-//         for (auto &slot : this->slots) {
-//             if (slot.pc == pc) {
-//                 return slot;
-//             }
-//         }
-//         return BTBSlot();
-//     }
-
-//     bool operator == (const BTBEntry &other) const
-//     {
-//         // startPC and slots pc
-//         if (this->tag != other.tag || this->slots.size() != other.slots.size()) {
-//             return false;
-//         }
-//         for (int i = 0; i < this->slots.size(); i++) {
-//             if (this->slots[i] != other.slots[i]) {
-//                 return false;
-//             }
-//         }
-//         return true;
-//     }
-// }BTBEntry;
 
 struct BlockDecodeInfo {
     std::vector<bool> condMask;
@@ -259,6 +197,16 @@ typedef struct JAEntry {
 
 // NOTE: now this corresponds to an ftq entry in
 //       XiangShan nanhu architecture
+/**
+ * @brief Fetch Stream representing a sequence of instructions with prediction info
+ * 
+ * Key structure for decoupled frontend that contains:
+ * - Stream boundaries (start PC, end PC)
+ * - Prediction information (branch info, targets)
+ * - Execution results for verification
+ * - Loop and jump-ahead prediction state
+ * - Statistics for profiling
+ */
 typedef struct FetchStream
 {
     Addr startPC;
@@ -426,6 +374,15 @@ typedef struct FetchStream
 
 }FetchStream;
 
+/**
+ * @brief Full branch prediction combining predictions from all predictors
+ * 
+ * Aggregates predictions from:
+ * - BTB entries for targets
+ * - Direction predictors for conditional branches
+ * - Indirect predictors for indirect branches
+ * - RAS for return instructions
+ */
 typedef struct FullBTBPrediction
 {
     Addr bbStart;
@@ -600,7 +557,15 @@ typedef struct FullBTBPrediction
 
 }FullBTBPrediction;
 
-// each entry corresponds to a 32Byte unaligned block
+/**
+ * @brief Fetch Target Queue entry representing a fetch block
+ * 
+ * Contains information needed for instruction fetch:
+ * - Address range (start PC, end PC)
+ * - Branch information (taken PC, target)
+ * - Loop information for loop buffer
+ * - Stream tracking (FSQ ID)
+ */
 struct FtqEntry
 {
     Addr startPC;

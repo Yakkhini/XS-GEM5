@@ -525,14 +525,18 @@ DecoupledBPUWithBTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &ins
 void
 DecoupledBPUWithBTB::tick()
 {
+    // Monitor FSQ size for statistics
     dbpBtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
     if (streamQueueFull()) {
         dbpBtbStats.fsqFullCannotEnq++;
     }
 
+    // Generate final prediction if we have received PC and history but no prediction yet
     if (!receivedPred && numOverrideBubbles == 0 && sentPCHist) {
         generateFinalPredAndCreateBubbles();
     }
+
+    // Try to enqueue new predictions if not squashing
     if (!squashing) {
         DPRINTF(DecoupleBP, "DecoupledBPUWithBTB::tick()\n");
         DPRINTF(Override, "DecoupledBPUWithBTB::tick()\n");
@@ -544,12 +548,14 @@ DecoupledBPUWithBTB::tick()
         DPRINTF(Override, "Squashing, skip this cycle, receivedPred is %d.\n", receivedPred);
     }
 
+    // Decrement override bubbles counter
     if (numOverrideBubbles > 0) {
         numOverrideBubbles--;
     }
 
     sentPCHist = false;
 
+    // Request new prediction if FSQ not full and not using loop buffer
     if (!receivedPred && !streamQueueFull()) {
         if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
             if (s0PC == ObservingPC) {
@@ -557,10 +563,11 @@ DecoupledBPUWithBTB::tick()
             }   
             DPRINTF(DecoupleBP, "Requesting prediction for stream start=%#lx\n", s0PC);
             DPRINTF(Override, "Requesting prediction for stream start=%#lx\n", s0PC);
-            // put startAddr in preds
+            // Initialize prediction state for each stage
             for (int i = 0; i < numStages; i++) {
                 predsOfEachStage[i].bbStart = s0PC;
             }
+            // Query each predictor component with current PC and history
             for (int i = 0; i < numComponents; i++) {
                 components[i]->putPCHistory(s0PC, s0History, predsOfEachStage);
             }
@@ -785,6 +792,7 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
 {
     dbpBtbStats.controlSquash++;
 
+    // Get branch type information
     bool is_conditional = static_inst->isCondCtrl();
     bool is_indirect = static_inst->isIndirectCtrl();
     // bool is_call = static_inst->isCall() && !static_inst->isNonSpeculative();
@@ -795,7 +803,7 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
 
     squashing = true;
 
-    // check sanity
+    // Find the stream being squashed
     auto squashing_stream_it = fetchStreamQueue.find(stream_id);
 
     if (squashing_stream_it == fetchStreamQueue.end()) {
@@ -822,7 +830,7 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     // recover pc
     s0PC = real_target;
 
-
+    // Create branch info for squash
     auto squashBranchInfo = BranchInfo(control_pc.instAddr(), real_target, static_inst, control_inst_size);
     if (stream.isExit) {
         dbpBtbStats.controlSquashOnLoopPredictorPredExit++;
