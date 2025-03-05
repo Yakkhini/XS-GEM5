@@ -321,8 +321,8 @@ typedef struct FetchStream
         if (jaHit && squashType == SQUASH_CTRL) {
             Addr realStart = startPC;
             Addr squashBranchPC = exeBranchInfo.pc;
-            while (realStart + 0x20 <= squashBranchPC) {
-                realStart += 0x20;
+            while (realStart + blockSize <= squashBranchPC) {
+                realStart += blockSize;
             }
             return realStart;
         } else {
@@ -429,7 +429,7 @@ typedef struct FullBTBPrediction
     }
 
     Addr getFallThrough() {
-        return (bbStart + 32) & ~mask(floorLog2(32));
+        return (bbStart + blockSize) & ~mask(floorLog2(blockSize));
     }
 
     Addr getTarget() {

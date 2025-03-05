@@ -35,6 +35,22 @@ DecoupledBPUWithBTB是一个解耦的分支预测器设计，主要包含以下�
 - update： 用commit stream更新预测器内容，是准确更新
 - commitBranch: 当前FetchBlock这条分支提交时候，统计数据
 
+```
+# 画出预测器继承关系, 几个预测器继承自TimedBaseBTBPredictor
+DecoupledBPUWithBTB继承自BPredUnit
+
+TimedBaseBTBPredictor
+    ↓   ↓     ↓     ↓       ↓
+UBTB   BTB   TAGE   ITTAGE   RAS
+
+
+BPredUnit
+    ↓ 
+DecoupledBPUWithBTB
+```
+
+
+
 每个预测器有numDelay成员，表示在第几级流水线延迟，
 其中UBTB = 0, ITTAGE = 2, 其他预测器 = 1
 表示UBTB能背靠背、无延迟的给出预测结果，其他预测器需要1级延迟，ITTAGE需要2级延迟，分别产生1个or2个预测空泡

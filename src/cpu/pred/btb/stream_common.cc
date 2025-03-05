@@ -8,6 +8,8 @@ namespace btb_pred {
 
 unsigned streamChunkSize{0x40};
 
+unsigned blockSize{0x20};   // global variable, set in decoupled_bpred.cc
+
 unsigned fetchTargetSize{0x40};
 unsigned fetchTargetMask = fetchTargetSize - 1;
 

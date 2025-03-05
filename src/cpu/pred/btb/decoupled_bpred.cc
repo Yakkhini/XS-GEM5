@@ -28,7 +28,6 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       enableJumpAheadPredictor(p.enableJumpAheadPredictor),
       fetchTargetQueue(p.ftq_size),
       fetchStreamQueueSize(p.fsq_size),
-    //   numBr(p.numBr),
       blockSize(p.blockSize),
       alignToBlockSize(p.alignToBlockSize),
       historyBits(p.maxHistLen),
@@ -43,6 +42,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       historyManager(8), // TODO: fix this
       dbpBtbStats(this, p.numStages, p.fsq_size)
 {
+    btb_pred::blockSize = p.blockSize;  // set global variable, used in stream_struct.hh
     numBr = 8; //TODO: remove numBr
     if (bpDBSwitches.size() > 0) {
         
@@ -1829,7 +1829,7 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
          ftq_enq_state.pc, end);
     }
     
-    assert(ftq_enq_state.pc <= end || (end < 0x20 && (ftq_enq_state.pc + 0x20 < 0x20)));
+    assert(ftq_enq_state.pc <= end || (end < blockSize && (ftq_enq_state.pc + blockSize < blockSize)));
 
     // create a new target entry
     FtqEntry ftq_entry;
@@ -1845,7 +1845,7 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
         bool jaHit = stream_to_enq.jaHit;
         if (jaHit) {
             int &currentSentBlock = stream_to_enq.currentSentBlock;
-            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * 0x20;
+            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * blockSize;
             currentSentBlock++;
         }
     }

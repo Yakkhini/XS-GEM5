@@ -15,6 +15,8 @@ extern unsigned streamChunkSize;
 extern unsigned fetchTargetSize;
 extern unsigned fetchTargetMask;
 
+extern unsigned blockSize;
+
 Addr computeLastChunkStart(Addr taken_control_pc, Addr stream_start_pc);
 
 }  // namespace btb_pred
