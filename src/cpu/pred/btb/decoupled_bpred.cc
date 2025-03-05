@@ -43,6 +43,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       dbpBtbStats(this, p.numStages, p.fsq_size)
 {
     btb_pred::blockSize = p.blockSize;  // set global variable, used in stream_struct.hh
+    btb_pred::alignToBlockSize = p.alignToBlockSize;
     numBr = 8; //TODO: remove numBr
     if (bpDBSwitches.size() > 0) {
         

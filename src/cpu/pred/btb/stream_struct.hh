@@ -429,7 +429,11 @@ typedef struct FullBTBPrediction
     }
 
     Addr getFallThrough() {
-        return (bbStart + blockSize) & ~mask(floorLog2(blockSize));
+        if (alignToBlockSize) { // endAddr is aligned to blockSize
+            return (bbStart + blockSize) & ~mask(floorLog2(blockSize));
+        } else {
+            return bbStart + blockSize;
+        }
     }
 
     Addr getTarget() {

@@ -355,18 +355,26 @@ def setKmhV3IdealParams(args, system):
         # use centralized load/store issue queue, for hmmer
 
         # ideal decoupled frontend
-        if args.bp_type is None or args.bp_type == 'DecoupledBPUWithFTB':
-            cpu.branchPred.enableTwoTaken = True
-            cpu.branchPred.numBr = 8    # numBr must be a power of 2, see getShuffledBrIndex()
-            cpu.branchPred.predictWidth = 64
+        if args.bp_type == 'DecoupledBPUWithFTB' or args.bp_type == 'DecoupledBPUWithBTB':
+            if args.bp_type == 'DecoupledBPUWithFTB':
+                cpu.branchPred.enableTwoTaken = False
+                cpu.branchPred.numBr = 8    # numBr must be a power of 2, see getShuffledBrIndex()
+                cpu.branchPred.predictWidth = 64
+                cpu.branchPred.uftb.numEntries = 1024
+                cpu.branchPred.btb.numEntries = 16384
+                cpu.branchPred.tage.baseTableSize = 16384
+                cpu.branchPred.tage.tableSizes = [2048] * 14
+            else:
+                cpu.branchPred.blockSize = 64               # blockSize equals to predictWidth in DecoupledBPUWithFTB
+                cpu.branchPred.alignToBlockSize = False     # TODO: ubtb not aligned, btb aligned 16byte
+                cpu.branchPred.ubtb.numEntries = 1024
+                cpu.branchPred.btb.numEntries = 16384
+                # TODO: BTB TAGE do not bave base table, do not support SC
+                cpu.branchPred.tage.tableSizes = [4096] * 14  # BTB TAGE may need larger table
             cpu.branchPred.tage.enableSC = False # TODO(bug): When numBr changes, enabling SC will trigger an assert
             cpu.branchPred.ftq_size = 256
             cpu.branchPred.fsq_size = 256
-            cpu.branchPred.uftb.numEntries = 1024
-            cpu.branchPred.ftb.numEntries = 16384
             cpu.branchPred.tage.numPredictors = 14
-            cpu.branchPred.tage.baseTableSize = 16384
-            cpu.branchPred.tage.tableSizes = [2048] * 14
             cpu.branchPred.tage.TTagBitSizes = [13] * 14
             cpu.branchPred.tage.TTagPcShifts = [1] * 14
             cpu.branchPred.tage.histLengths = [4, 7, 12, 16, 21, 29, 38, 51, 68, 90, 120, 160, 283, 499]

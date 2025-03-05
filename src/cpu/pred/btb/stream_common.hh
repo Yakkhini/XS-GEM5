@@ -16,7 +16,7 @@ extern unsigned fetchTargetSize;
 extern unsigned fetchTargetMask;
 
 extern unsigned blockSize;
-
+extern bool alignToBlockSize;
 Addr computeLastChunkStart(Addr taken_control_pc, Addr stream_start_pc);
 
 }  // namespace btb_pred

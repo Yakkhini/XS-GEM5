@@ -1037,6 +1037,7 @@ class DecoupledBPUWithBTB(BranchPredictor):
     fsq_size = Param.Unsigned(64, "Fetch stream queue size")
     maxHistLen = Param.Unsigned(970, "The length of history")
     
+    # blockSize equals to predictWidth in DecoupledBPUWithFTB
     blockSize = Param.Unsigned(32, "Maximum range in bytes that a single prediction can cover")
     alignToBlockSize = Param.Bool(True, "Whether the prediction ends at the end of blockSize boundaries")
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")

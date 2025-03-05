@@ -46,11 +46,16 @@ DefaultBTB::DefaultBTB(const Params &p)
     : TimedBaseBTBPredictor(p),
     numEntries(p.numEntries),
     tagBits(p.tagBits),
-    idxShiftAmt(floorLog2(p.blockSize)),
     log2NumThreads(floorLog2(p.numThreads)),
     numWays(p.numWays),
     btbStats(this)
 {
+    if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
+        idxShiftAmt = floorLog2(blockSize);
+    } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
+        idxShiftAmt = 1;
+    }
+
     assert(numEntries % numWays == 0);
     numSets = numEntries / numWays;
 
