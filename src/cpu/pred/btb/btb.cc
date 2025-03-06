@@ -42,14 +42,22 @@ namespace branch_prediction
 namespace btb_pred
 {
 
+/*
+ * BTB Constructor
+ * Initializes:
+ * - BTB structure (sets and ways)
+ * - MRU tracking for each set
+ * - Address calculation parameters (index/tag masks and shifts)
+ */
 DefaultBTB::DefaultBTB(const Params &p)
     : TimedBaseBTBPredictor(p),
     numEntries(p.numEntries),
+    numWays(p.numWays),
     tagBits(p.tagBits),
     log2NumThreads(floorLog2(p.numThreads)),
-    numWays(p.numWays),
     btbStats(this)
 {
+    // Calculate shift amounts for index calculation
     if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);
     } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
@@ -63,6 +71,7 @@ DefaultBTB::DefaultBTB(const Params &p)
         fatal("BTB entries is not a power of 2!");
     }
 
+    // Initialize BTB structure and MRU tracking
     btb.resize(numSets);
     mruList.resize(numSets);
     for (unsigned i = 0; i < numSets; ++i) {
@@ -81,8 +90,8 @@ DefaultBTB::DefaultBTB(const Params &p)
     idxMask = numSets - 1;
 
     tagMask = (1UL << tagBits) - 1;
-
     tagShiftAmt = idxShiftAmt + floorLog2(numSets);
+
     DPRINTF(BTB, "numEntries %d, numSets %d, numWays %d, tagBits %d, tagShiftAmt %d, idxMask %#lx, tagMask %#lx\n",
         numEntries, numSets, numWays, tagBits, tagShiftAmt, idxMask, tagMask);
 
@@ -124,14 +133,39 @@ DefaultBTB::setTrace()
     }
 }
 
+/*
+ * Main prediction function for BTB
+ * 
+ * This function:
+ * 1. Looks up BTB entries for the fetch block
+ * 2. Processes and filters the entries:
+ *    - Sorts them by PC order
+ *    - Removes entries before the start PC
+ * 3. Fills predictions for each pipeline stage:
+ *    - BTB entries for branch information
+ *    - Conditional branch predictions
+ *    - Indirect branch targets
+ * 4. Updates metadata for later stages
+ * 
+ * Multi-level BTB handling:
+ * - L0 BTB entries are saved for L1 BTB's reference
+ * - L1 BTB can use L0's prediction on a miss
+ * 
+ * @param startAddr: Start address of the fetch block
+ * @param history: Branch history register (for future use)
+ * @param stagePreds: Vector of predictions for each pipeline stage
+ */
 void
 DefaultBTB::putPCHistory(Addr startAddr,
                          const boost::dynamic_bitset<> &history,
                          std::vector<FullBTBPrediction> &stagePreds)
 {
+    // Lookup all matching entries in BTB
     auto find_entries = lookup(startAddr);
     int hitNum = find_entries.size();
     bool hit = hitNum > 0;
+    
+    // Update prediction statistics
     if (hit) {
         DPRINTF(BTB, "BTB: lookup hit, dumping hit entry\n");
         btbStats.predHit += hitNum;
@@ -142,19 +176,24 @@ DefaultBTB::putPCHistory(Addr startAddr,
         btbStats.predMiss++;
         DPRINTF(BTB, "BTB: lookup miss\n");
     }
+    
     assert(getDelay() < stagePreds.size());
-    // sort entries by inst order
+    
+    // Process BTB entries:
+    // 1. Sort by instruction order
     std::sort(find_entries.begin(), find_entries.end(), [](const BTBEntry &a, const BTBEntry &b) {
             return a.pc < b.pc;
     });
     dumpTickedBTBEntries(find_entries);
-    // remove entries that are before startPC
+    
+    // 2. Remove entries before the start PC (not in current fetch block)
     auto it = std::remove_if(find_entries.begin(), find_entries.end(), [startAddr](const BTBEntry &e) {
             return e.pc < startAddr;
     });
     find_entries.erase(it, find_entries.end());
     dumpTickedBTBEntries(find_entries);
-    // assign prediction for s2 and later stages
+    
+    // Fill predictions for each pipeline stage
     for (int s = getDelay(); s < stagePreds.size(); ++s) {
         // if (!isL0() && !hit && stagePreds[s].valid) {
         //     DPRINTF(BTB, "BTB: ubtb hit and btb miss, use ubtb result");
@@ -162,6 +201,8 @@ DefaultBTB::putPCHistory(Addr startAddr,
         //     break;
         // }
         DPRINTF(BTB, "BTB: assigning prediction for stage %d\n", s);
+        
+        // Copy BTB entries to stage prediction
         stagePreds[s].btbEntries.clear();
         for (auto e: find_entries) {
             stagePreds[s].btbEntries.push_back(BTBEntry(e));
@@ -169,12 +210,14 @@ DefaultBTB::putPCHistory(Addr startAddr,
         checkAscending(stagePreds[s].btbEntries);
         dumpBTBEntries(stagePreds[s].btbEntries);
 
+        // Set predictions for each branch
         for (auto &e : find_entries) {
             assert(e.valid);
-            // other branches are defaultly predicted not taken
             if (e.isCond) {
+                // Predict taken if always taken or counter is non-negative
                 stagePreds[s].condTakens[e.pc] = e.alwaysTaken || (e.ctr >= 0);
             } else if (e.isIndirect) {
+                // Set predicted target for indirect branches
                 DPRINTF(BTB, "setting indirect target for pc %#lx to %#lx\n", e.pc, e.target);
                 stagePreds[s].indirectTargets[e.pc] = e.target;
             }
@@ -183,13 +226,17 @@ DefaultBTB::putPCHistory(Addr startAddr,
         stagePreds[s].predTick = curTick();
     }
 
+    // Update metadata for later stages
     meta.l0_hit_entries.clear();
     meta.hit_entries.clear();
+    
+    // Save L0 BTB entries for L1 BTB's reference
     if (getDelay() >= 1) {
-        // l0 should be zero-bubble
+        // L0 should be zero-bubble
         meta.l0_hit_entries = stagePreds[0].btbEntries;
     }
 
+    // Save current BTB entries for later use
     for (auto e: find_entries) {
         meta.hit_entries.push_back(BTBEntry(e));
     }
@@ -220,9 +267,14 @@ DefaultBTB::getTag(Addr instPC)
     return (instPC >> tagShiftAmt) & tagMask;
 }
 
-// @todo Create some sort of return struct that has both whether or not the
-// address is valid, and also the address.  For now will just use addr = 0 to
-// represent invalid entry.
+/*
+ * Main lookup function
+ * Returns all BTB entries that match the given PC
+ * Steps:
+ * 1. Calculate index and tag from PC
+ * 2. Check all ways in the set for matching entries
+ * 3. Update MRU information for hits
+ */
 std::vector<DefaultBTB::TickedBTBEntry>
 DefaultBTB::lookup(Addr block_pc)
 {
@@ -238,20 +290,35 @@ DefaultBTB::lookup(Addr block_pc)
     for (auto &way : btb[btb_idx]) {
         if (way.valid && way.tag == btb_tag) {
             res.push_back(way);
-            way.tick = curTick();
+            way.tick = curTick();  // Update timestamp for MRU
             std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
         }
     }
     return res;
 }
 
+/*
+ * Generate a new BTB entry or update an existing one based on execution results
+ * 
+ * This function is called during BTB update to:
+ * 1. Check if the executed branch was predicted (hit in BTB)
+ * 2. If hit, prepare to update the existing entry
+ * 3. If miss and branch was taken:
+ *    - Create a new entry
+ *    - For conditional branches, initialize as always taken with counter = 1
+ * 4. Set the tag and update stream metadata for later use in update()
+ * 
+ * Note: This is only called in L1 BTB during update
+ */
 void
 DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
 {
     DPRINTF(BTB, "generating new btb entry\n");
-    // generate btb entry
+    // Get prediction metadata from previous stages
     auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]);
     auto &predBTBEntries = meta->hit_entries;
+    
+    // Check if this branch was predicted (exists in BTB)
     bool pred_branch_hit = false;
     BTBEntry entry_to_write = BTBEntry();
     for (auto &e: predBTBEntries) {
@@ -262,25 +329,37 @@ DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
         }
     }
     bool is_old_entry = pred_branch_hit;
-    // modify this specific btb entry that is responsible for the stream (in exeBranchInfo)
+
+    // If branch was not predicted but was actually taken in execution, create new entry
     if (!pred_branch_hit && stream.exeTaken) {
         BTBEntry new_entry = BTBEntry(stream.exeBranchInfo);
         new_entry.valid = true;
+        // For conditional branches, initialize as always taken
         if (new_entry.isCond) {
             new_entry.alwaysTaken = true;
-            new_entry.ctr = 1;
+            new_entry.ctr = 1;  // Start with positive prediction
         }
         entry_to_write = new_entry;
         is_old_entry = false;
     } else {
-        // old entries are modified in update
+        // Existing entries will be updated in update()
     }
+
+    // Set tag and update stream metadata for use in update()
     entry_to_write.tag = getTag(entry_to_write.pc);
     stream.updateNewBTBEntry = entry_to_write;
     stream.updateIsOldEntry = is_old_entry;
-
 }
 
+/*
+ * Update BTB with execution results
+ * Steps:
+ * 1. Get old entries that were hit during prediction
+ * 2. Remove entries that were not actually executed
+ * 3. Update statistics
+ * 4. Update existing entries or create new ones
+ * 5. Update MRU information
+ */
 void
 DefaultBTB::update(const FetchStream &stream)
 {
@@ -310,6 +389,8 @@ DefaultBTB::update(const FetchStream &stream)
         DPRINTF(BTB, "update miss detected, pc %#lx, predTick %llu\n", stream.exeBranchInfo.pc, stream.predTick);
         btbStats.updateMiss++;
     }
+
+    // Check if L0 BTB had a hit but L1 BTB missed
     bool pred_l0_branch_hit = false;
     for (auto &e : meta->l0_hit_entries) {
         if (stream.exeBranchInfo == e) {
@@ -325,11 +406,13 @@ DefaultBTB::update(const FetchStream &stream)
             // return;
         }
     }
+
+    // Get index and tag for the block
     Addr startPC = stream.getRealStartPC();
     Addr btb_idx = getIndex(startPC);
     Addr btb_tag = getTag(startPC);
 
-
+    // Collect all entries that need to be updated
     auto all_entries_to_update = old_entries_to_update;
     if (!stream.updateIsOldEntry || isL0()) {
         all_entries_to_update.push_back(stream.updateNewBTBEntry);
@@ -337,6 +420,7 @@ DefaultBTB::update(const FetchStream &stream)
     DPRINTF(BTB, "all_entries_to_update.size(): %d\n", all_entries_to_update.size());
     dumpBTBEntries(all_entries_to_update);
 
+    // Update each entry
     for (auto &e : all_entries_to_update) {
         DPRINTF(BTB, "BTB: Updating BTB entry index %#lx tag %#lx, branch_pc %#lx\n", btb_idx, e.tag, e.pc);
         // check if it is in btb now
@@ -367,6 +451,7 @@ DefaultBTB::update(const FetchStream &stream)
         ticked_entry_to_write.tag = btb_tag;
         // write into btb
         if (found) {
+            // Update existing entry
             *it = ticked_entry_to_write;
             if (enableDB) {
                 BTBTrace rec;
@@ -375,6 +460,7 @@ DefaultBTB::update(const FetchStream &stream)
                 btbTrace->write_record(rec);
             }
         } else {
+            // Replace oldest entry in the set
             DPRINTF(BTB, "trying to replace entry in set %#lx\n", btb_idx);
             dumpMruList(mruList[btb_idx]);
             // put the oldest entry in this set to the back of heap
@@ -402,10 +488,6 @@ DefaultBTB::update(const FetchStream &stream)
     assert(btb_idx < numSets);
     assert(btb[btb_idx].size() <= numWays);
     assert(mruList[btb_idx].size() <= numWays);
-
-    // btb[btb_idx].valid = true;
-    // set(btb[btb_idx].target, target);
-    // btb[btb_idx].tag = getTag(block_pc);
 }
 
 void

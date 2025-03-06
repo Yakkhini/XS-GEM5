@@ -26,6 +26,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Branch Target Buffer (BTB) Implementation
+ * 
+ * The BTB is a cache-like structure that stores information about branches:
+ * - Branch type (conditional, unconditional, indirect, call, return)
+ * - Branch target address
+ * - Branch prediction information (counter for conditional branches)
+ * 
+ * Key Features:
+ * - N-way set associative organization
+ * - MRU (Most Recently Used) replacement policy
+ * - Support for multiple branch types
+ * - Support for multiple prediction stages (L0/L1 BTB)
+ */
+
 #ifndef __CPU_PRED_BTB_BTB_HH__
 #define __CPU_PRED_BTB_BTB_HH__
 
@@ -59,19 +74,36 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
     DefaultBTB(const Params& p);
 
+    /*
+     * BTB Entry with timestamp for MRU replacement
+     * Inherits from BTBEntry which contains:
+     * - valid: whether this entry is valid
+     * - pc: branch instruction address
+     * - target: branch target address
+     * - size: branch instruction size
+     * - isCond/isIndirect/isCall/isReturn: branch type flags
+     * - alwaysTaken: whether this conditional branch is always taken
+     * - ctr: 2-bit counter for conditional branch prediction
+     */
     typedef struct TickedBTBEntry : public BTBEntry
     {
-        uint64_t tick;
+        uint64_t tick;  // timestamp for MRU replacement
         TickedBTBEntry(const BTBEntry &entry, uint64_t tick)
             : BTBEntry(entry), tick(tick) {}
         TickedBTBEntry() : tick(0) {}
     }TickedBTBEntry;
 
+    // A BTB set is a vector of entries (ways)
     using BTBSet = std::vector<TickedBTBEntry>;
     using BTBSetIter = typename BTBSet::iterator;
+    // MRU heap for each set
     using BTBHeap = std::vector<BTBSetIter>;
 
-
+    /*
+     * Comparator for MRU heap
+     * Returns true if a's timestamp is larger than b's
+     * This creates a min-heap where the oldest entry is at the top
+     */
     struct older
     {
         bool operator()(const BTBSetIter &a, const BTBSetIter &b) const
@@ -84,6 +116,17 @@ class DefaultBTB : public TimedBaseBTBPredictor
     
     void tick() override;
 
+    /*
+     * Main prediction function
+     * @param startAddr: start address of the fetch block
+     * @param history: branch history register
+     * @param stagePreds: predictions for each pipeline stage
+     * 
+     * This function:
+     * 1. Looks up BTB entries for the fetch block
+     * 2. Updates prediction statistics
+     * 3. Fills predictions for each pipeline stage
+     */
     void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
                       std::vector<FullBTBPrediction> &stagePreds) override;
 
@@ -110,6 +153,10 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
 
     /** Updates the BTB with the branch info of a block and execution result.
+     *  This function:
+     *  1. Updates existing entries with new information
+     *  2. Adds new entries if necessary
+     *  3. Updates MRU information
      */
     void update(const FetchStream &stream) override;
 
@@ -177,57 +224,69 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
   private:
     /** Returns the index into the BTB, based on the branch's PC.
+     *  The index is calculated as: (pc >> idxShiftAmt) & idxMask
+     *  where idxShiftAmt is:
+     *  - log2(blockSize) if aligned to blockSize
+     *  - 1 if not aligned to blockSize
      *  @param inst_PC The branch to look up.
      *  @return Returns the index into the BTB.
      */
     inline Addr getIndex(Addr instPC);
 
     /** Returns the tag bits of a given address.
+     *  The tag is calculated as: (pc >> tagShiftAmt) & tagMask
+     *  where tagShiftAmt = idxShiftAmt + log2(numSets)
      *  @param inst_PC The branch's address.
      *  @return Returns the tag bits.
      */
     inline Addr getTag(Addr instPC);
 
+    /** Helper function to check if this is L0 BTB
+     *  L0 BTB has zero delay (getDelay() == 0)
+     */
     bool isL0() { return getDelay() == 0; }
 
+    /** Update the 2-bit saturating counter for conditional branches
+     *  Counter range: [-2, 1]
+     *  - Increment on taken (max 1)
+     *  - Decrement on not taken (min -2)
+     */
     void updateCtr(int &ctr, bool taken) {
         if (taken && ctr < 1) {ctr++;}
         if (!taken && ctr > -2) {ctr--;}
     }
 
-    /** The actual BTB. */
-
+    /** The BTB structure:
+     *  - Organized as numSets sets
+     *  - Each set has numWays ways
+     *  - Total size = numSets * numWays = numEntries
+     */
     std::vector<BTBSet> btb;
 
+    /** MRU tracking:
+     *  - One heap per set
+     *  - Each heap tracks the MRU order of entries in that set
+     *  - Oldest entry is at the top of heap
+     */
     std::vector<BTBHeap> mruList;
 
+    /** BTB configuration parameters */
+    unsigned numEntries;    // Total number of entries
+    unsigned numWays;       // Number of ways per set
+    unsigned numSets;       // Number of sets (numEntries/numWays)
 
-    /** The number of entries in the BTB. */
-    unsigned numEntries;
+    /** Address calculation masks and shifts */
+    Addr idxMask;          // Mask for extracting index bits
+    unsigned tagBits;      // Number of tag bits
+    Addr tagMask;          // Mask for extracting tag bits
+    unsigned idxShiftAmt;  // Amount to shift PC for index
+    unsigned tagShiftAmt;  // Amount to shift PC for tag
 
-    /** The index mask. */
-    Addr idxMask;
+    /** Thread handling */
+    unsigned log2NumThreads;  // Log2 of number of threads for hashing
 
-    /** The number of tag bits per entry. */
-    unsigned tagBits;
-
-    /** The tag mask. */
-    Addr tagMask;
-
-    /** Number of bits to shift PC when calculating index. */
-    unsigned idxShiftAmt;
-
-    /** Number of bits to shift PC when calculating tag. */
-    unsigned tagShiftAmt;
-
-    /** Log2 NumThreads used for hashing threadid */
-    unsigned log2NumThreads;
-
-    unsigned numBr;
-
-    unsigned numWays;
-
-    unsigned numSets;
+    /** Branch counter */
+    unsigned numBr;  // Number of branches seen
 
     typedef struct BTBMeta {
         std::vector<BTBEntry> hit_entries;
