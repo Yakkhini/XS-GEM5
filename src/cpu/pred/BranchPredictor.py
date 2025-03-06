@@ -996,6 +996,15 @@ class BTBRAS(TimedBaseBTBPredictor):
     numInflightEntries = Param.Unsigned(384, "Number of inflight entries")
     numDelay = 1
 
+class BTBuRAS(TimedBaseBTBPredictor):
+    type = 'BTBuRAS'
+    cxx_class = 'gem5::branch_prediction::btb_pred::BTBuRAS'
+    cxx_header = 'cpu/pred/btb/uras.hh'
+    
+    numEntries = Param.Unsigned(4, "Number of entries in the RAS")
+    ctrWidth = Param.Unsigned(2, "Width of the counter")
+    numDelay = 0
+
 class BTBTAGE(TimedBaseBTBPredictor):
     type = 'BTBTAGE'
     cxx_class = 'gem5::branch_prediction::btb_pred::BTBTAGE'

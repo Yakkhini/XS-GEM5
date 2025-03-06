@@ -1,0 +1,11 @@
+Import('*')
+
+# Add the test source files
+GTest('uras.test', 'uras_test.cc')
+    # , '../uras.cc')
+    #  '../../../../sim/debug.cc',  # For debug flags
+    #  '../../../../sim/sim_object.cc',  # For SimObject
+    #  '../../../../base/debug.cc')  # For debug system
+
+# Add the test to UNITTESTS target
+env.Append(UNITTESTS=['uras.test']) 

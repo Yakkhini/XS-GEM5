@@ -9,9 +9,9 @@
 #include "cpu/pred/general_arch_db.hh"
 #include "cpu/pred/btb/stream_common.hh"
 #include "cpu/static_inst.hh"
-#include "debug/DecoupleBP.hh"
-#include "debug/BTB.hh"
-#include "debug/Override.hh"
+// #include "debug/DecoupleBP.hh"
+// #include "debug/BTB.hh"
+// #include "debug/Override.hh"
 // #include "cpu/pred/btb/btb.hh"
 
 namespace gem5 {
@@ -439,8 +439,8 @@ typedef struct FullBTBPrediction
     Addr getTarget() {
         Addr target;
         const auto &entry = getTakenEntry();
-        DPRINTF(DecoupleBP, "getTarget: pc %lx, target %#lx, cond %d, indirect %d, return %d\n",
-            entry.pc, entry.target, entry.isCond, entry.isIndirect, entry.isReturn);
+        // DPRINTF(DecoupleBP, "getTarget: pc %lx, target %#lx, cond %d, indirect %d, return %d\n",
+        //     entry.pc, entry.target, entry.isCond, entry.isIndirect, entry.isReturn);
         if (entry.valid) {
             target = entry.target;
             if (entry.isIndirect) {

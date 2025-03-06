@@ -14,11 +14,16 @@ namespace branch_prediction {
 
 namespace btb_pred {
 
+// Forward declare test class as friend
+class URASTest;
+
 class BTBuRAS : public TimedBaseBTBPredictor
 {
+    friend class URASTest;  // Allow test class to access private members
+
     public:
     
-        typedef uRASParams Params;
+        typedef BTBuRASParams Params;
         BTBuRAS(const Params &p);
 
         typedef struct uRASEntry

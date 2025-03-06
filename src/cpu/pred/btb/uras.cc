@@ -98,7 +98,7 @@ BTBuRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPredictio
     auto &sp = specSp;
     // do push & pops on prediction
     pred.returnTarget = stack[sp].retAddr;
-    auto takenSlot = pred.getTakenSlot();
+    auto takenSlot = pred.getTakenEntry();
     if (takenSlot.isCall) {
         Addr retAddr = takenSlot.pc + takenSlot.size;
         if (enableDB) {
