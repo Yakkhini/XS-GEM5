@@ -370,6 +370,15 @@ for variant_path in variant_paths:
     env = main.Clone()
     env['BUILDDIR'] = variant_path
 
+    # Enable compilation database generation for this variant
+    env.Tool('compilation_db')
+    env['COMPILATIONDB_USE_ABSPATH'] = True
+    # Create compilation database in the variant directory
+    cdb_path = os.path.join(variant_path, 'compile_commands.json')
+    print(f"Creating compilation database at: {cdb_path}")
+    cdb = env.CompilationDatabase(cdb_path)
+    print(f"Compilation database target created: {cdb}")
+
     gem5_build = os.path.join(build_root, variant_path, 'gem5.build')
     env['GEM5BUILD'] = gem5_build
     Execute(Mkdir(gem5_build))
