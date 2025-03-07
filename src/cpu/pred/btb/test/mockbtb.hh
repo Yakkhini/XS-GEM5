@@ -173,6 +173,69 @@ class MockDefaultBTB
         TickedBTBEntry() : tick(0) {}
     }TickedBTBEntry;
 
+    typedef struct BTBMeta {
+        std::vector<BTBEntry> hit_entries;  // hit entries in L1 BTB
+        std::vector<BTBEntry> l0_hit_entries; // hit entries in L0 BTB
+        BTBMeta() {
+            std::vector<BTBEntry> es;
+            hit_entries = es;
+            l0_hit_entries = es;
+        }
+    }BTBMeta;
+
+    BTBMeta meta; // metadata for BTB, set in putPCHistory, used in update
+
+    /** Process BTB entries for prediction
+     *  @param entries Vector of BTB entries to process
+     *  @param startAddr Start address of the fetch block
+     *  @return Vector of processed entries in program order
+     */
+    std::vector<TickedBTBEntry> processEntries(const std::vector<TickedBTBEntry>& entries, 
+                                              Addr startAddr);
+
+    /** Fill predictions for pipeline stages
+     *  @param entries Processed BTB entries
+     *  @param stagePreds Vector of predictions for each stage
+     */
+    void fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
+                             std::vector<FullBTBPrediction>& stagePreds);
+
+    /** Update prediction metadata
+     *  @param entries Processed BTB entries
+     */
+    void updatePredictionMeta(const std::vector<TickedBTBEntry>& entries,
+                               std::vector<FullBTBPrediction>& stagePreds);
+
+    /** Process prediction metadata and old entries
+     *  @param stream Fetch stream containing prediction info
+     *  @return Processed old BTB entries
+     */
+    std::vector<BTBEntry> processOldEntries(const FetchStream &stream);
+
+    /** Check branch prediction hit status
+     *  @param stream Fetch stream containing execution results
+     *  @param meta BTB metadata from prediction
+     *  @return Tuple of (pred_hit, l0_hit)
+     */
+    std::pair<bool, bool> checkPredictionHit(const FetchStream &stream, 
+                                           const BTBMeta* meta);
+
+    /** Collect entries that need to be updated
+     *  @param old_entries Processed old entries
+     *  @param stream Fetch stream with update info
+     *  @return Vector of entries to update
+     */
+    std::vector<BTBEntry> collectEntriesToUpdate(
+        const std::vector<BTBEntry>& old_entries,
+        const FetchStream &stream);
+
+    /** Update or replace BTB entry
+     *  @param btb_idx BTB set index
+     *  @param entry Entry to update/replace
+     *  @param stream Fetch stream with update info
+     */
+    void updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream);
+
     // A BTB set is a vector of entries (ways)
     using BTBSet = std::vector<TickedBTBEntry>;
     using BTBSetIter = typename BTBSet::iterator;
@@ -250,18 +313,6 @@ class MockDefaultBTB
     /** Branch counter */
     unsigned numBr;  // Number of branches seen
 
-    typedef struct BTBMeta {
-        std::vector<BTBEntry> hit_entries;  // hit entries in L1 BTB
-        std::vector<BTBEntry> l0_hit_entries; // hit entries in L0 BTB
-        BTBMeta() {
-            std::vector<BTBEntry> es;
-            hit_entries = es;
-            l0_hit_entries = es;
-        }
-    }BTBMeta;
-
-    BTBMeta meta; // metadata for BTB, set in putPCHistory, used in update
-
     enum Mode {
         READ, WRITE, EVICT
     };
@@ -269,6 +320,8 @@ class MockDefaultBTB
     unsigned numDelay;
 
     unsigned tick{0};
+
+    unsigned getComponentIdx() { return 0; }    // TODO: remove this
 
 };
 

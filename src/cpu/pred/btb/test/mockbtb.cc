@@ -92,54 +92,42 @@ MockDefaultBTB::MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned n
     tagShiftAmt = idxShiftAmt + floorLog2(numSets);
 }
 
-/*
- * Main prediction function for BTB
- * 
- * This function:
- * 1. Looks up BTB entries for the fetch block
- * 2. Processes and filters the entries:
- *    - Sorts them by PC order
- *    - Removes entries before the start PC
- * 3. Fills predictions for each pipeline stage:
- *    - BTB entries for branch information
- *    - Conditional branch predictions
- *    - Indirect branch targets
- * 4. Updates metadata for later stages
- * 
- * Multi-level BTB handling:
- * - L0 BTB entries are saved for L1 BTB's reference
- * - L1 BTB can use L0's prediction on a miss
- * 
- * @param startAddr: Start address of the fetch block
- * @param history: Branch history register (for future use)
- * @param stagePreds: Vector of predictions for each pipeline stage
+/**
+ * Process BTB entries:
+ * 1. Sort entries by PC order
+ * 2. Remove entries before the start PC
+ */
+std::vector<MockDefaultBTB::TickedBTBEntry>
+MockDefaultBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr startAddr)
+{
+    auto processed_entries = entries;
+    
+    // Sort by instruction order
+    std::sort(processed_entries.begin(), processed_entries.end(), 
+             [](const BTBEntry &a, const BTBEntry &b) {
+                 return a.pc < b.pc;
+             });
+    
+    // Remove entries before the start PC
+    auto it = std::remove_if(processed_entries.begin(), processed_entries.end(),
+                           [startAddr](const BTBEntry &e) {
+                               return e.pc < startAddr;
+                           });
+    processed_entries.erase(it, processed_entries.end());
+    
+    return processed_entries;
+}
+
+/**
+ * Fill predictions for each pipeline stage:
+ * 1. Copy BTB entries
+ * 2. Set conditional branch predictions
+ * 3. Set indirect branch targets
  */
 void
-MockDefaultBTB::putPCHistory(Addr startAddr,
-                         const boost::dynamic_bitset<> &history,
-                         std::vector<FullBTBPrediction> &stagePreds)
+MockDefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
+                                    std::vector<FullBTBPrediction>& stagePreds)
 {
-    // Lookup all matching entries in BTB
-    auto find_entries = lookup(startAddr);
-    int hitNum = find_entries.size();
-    bool hit = hitNum > 0;
-    
-    assert(getDelay() < stagePreds.size());
-    
-    // Process BTB entries:
-    // 1. Sort by instruction order
-    std::sort(find_entries.begin(), find_entries.end(), [](const BTBEntry &a, const BTBEntry &b) {
-            return a.pc < b.pc;
-    });
-    
-    // 2. Remove entries before the start PC (not in current fetch block)
-    auto it = std::remove_if(find_entries.begin(), find_entries.end(), [startAddr](const BTBEntry &e) {
-            return e.pc < startAddr;
-    });
-    find_entries.erase(it, find_entries.end());
-    // dumpTickedBTBEntries(find_entries);
-    
-    // Fill predictions for each pipeline stage
     for (int s = getDelay(); s < stagePreds.size(); ++s) {
         // if (!isL0() && !hit && stagePreds[s].valid) {
         //     DPRINTF(BTB, "BTB: ubtb hit and btb miss, use ubtb result");
@@ -150,14 +138,14 @@ MockDefaultBTB::putPCHistory(Addr startAddr,
         
         // Copy BTB entries to stage prediction
         stagePreds[s].btbEntries.clear();
-        for (auto e: find_entries) {
+        for (auto e: entries) {
             stagePreds[s].btbEntries.push_back(BTBEntry(e));
         }
         checkAscending(stagePreds[s].btbEntries);
         // dumpBTBEntries(stagePreds[s].btbEntries);
 
         // Set predictions for each branch
-        for (auto &e : find_entries) {
+        for (auto &e : entries) {
             assert(e.valid);
             if (e.isCond) {
                 if (isL0()) {  // only L0 BTB has saturating counter
@@ -176,8 +164,18 @@ MockDefaultBTB::putPCHistory(Addr startAddr,
 
         stagePreds[s].predTick = curTick();
     }
+}
 
-    // Update metadata for later stages
+/**
+ * Update metadata for later stages:
+ * 1. Clear old metadata
+ * 2. Save L0 BTB entries for L1 BTB's reference
+ * 3. Save current BTB entries
+ */
+void
+MockDefaultBTB::updatePredictionMeta(const std::vector<TickedBTBEntry>& entries,
+                                   std::vector<FullBTBPrediction>& stagePreds)
+{
     meta.l0_hit_entries.clear();
     meta.hit_entries.clear();
     
@@ -187,10 +185,28 @@ MockDefaultBTB::putPCHistory(Addr startAddr,
         meta.l0_hit_entries = stagePreds[0].btbEntries;
     }
 
-    // Save current BTB entries for later use
-    for (auto e: find_entries) {
+    // Save current BTB entries
+    for (auto e: entries) {
         meta.hit_entries.push_back(BTBEntry(e));
     }
+}
+
+void
+MockDefaultBTB::putPCHistory(Addr startAddr,
+                            const boost::dynamic_bitset<> &history,
+                            std::vector<FullBTBPrediction> &stagePreds)
+{
+    // Lookup all matching entries in BTB
+    auto find_entries = lookup(startAddr);
+    
+    // Process BTB entries
+    auto processed_entries = processEntries(find_entries, startAddr);
+    
+    // Fill predictions for each pipeline stage
+    fillStagePredictions(processed_entries, stagePreds);
+    
+    // Update metadata for later stages
+    updatePredictionMeta(processed_entries, stagePreds);
 }
 
 std::shared_ptr<void>
@@ -302,32 +318,38 @@ MockDefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
     stream.updateIsOldEntry = is_old_entry;
 }
 
-/*
- * Update BTB with execution results
- * Steps:
- * 1. Get old entries that were hit during prediction
- * 2. Remove entries that were not actually executed
- * 3. Update statistics
- * 4. Update existing entries or create new ones
- * 5. Update MRU information
+/**
+ * Process old BTB entries from prediction metadata
+ * 1. Get prediction metadata
+ * 2. Remove entries that were not executed
  */
-void
-MockDefaultBTB::update(const FetchStream &stream)
+std::vector<BTBEntry>
+MockDefaultBTB::processOldEntries(const FetchStream &stream)
 {
-    auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[0]);
+    auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]);
     // hit entries whose corresponding insts are acutally executed
     Addr end_inst_pc = stream.updateEndInstPC;
     // DPRINTF(BTB, "end_inst_pc: %#lx\n", end_inst_pc);
-    // remove not executed btb entries
-    auto old_entries_to_update = meta->hit_entries;
-    // DPRINTF(BTB, "old_entries_to_update.size(): %d\n", old_entries_to_update.size());
-    // dumpBTBEntries(old_entries_to_update);
-    auto remove_it = std::remove_if(old_entries_to_update.begin(), old_entries_to_update.end(),
+    // remove not executed btb entries, pc > end_inst_pc
+    auto old_entries = meta->hit_entries;
+    // DPRINTF(BTB, "old_entries.size(): %d\n", old_entries.size());
+    // dumpBTBEntries(old_entries);
+    auto remove_it = std::remove_if(old_entries.begin(), old_entries.end(),
         [end_inst_pc](const BTBEntry &e) { return e.pc > end_inst_pc; });
-    old_entries_to_update.erase(remove_it, old_entries_to_update.end());
-    // DPRINTF(BTB, "after removing not executed insts, old_entries_to_update.size(): %d\n", old_entries_to_update.size());
-    // dumpBTBEntries(old_entries_to_update);
+    old_entries.erase(remove_it, old_entries.end());
+    // DPRINTF(BTB, "after removing not executed insts, old_entries.size(): %d\n", old_entries.size());
+    // dumpBTBEntries(old_entries);
+    
+    return old_entries;
+}
 
+/**
+ * Check if the branch was predicted correctly
+ * Also check L0 BTB prediction status
+ */
+std::pair<bool, bool>
+MockDefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* meta)
+{
     bool pred_branch_hit = false;
     for (auto &e : meta->hit_entries) {
         if (stream.exeBranchInfo == e) {
@@ -355,66 +377,111 @@ MockDefaultBTB::update(const FetchStream &stream)
             // return;
         }
     }
+    return std::make_pair(pred_branch_hit, pred_l0_branch_hit);
+}
 
-    // Get index and tag for the block
+
+/**
+ * Collect all entries that need to be updated
+ * 1. Process old entries
+ * 2. Add new entry if necessary
+ */
+std::vector<BTBEntry>
+MockDefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
+                                     const FetchStream &stream)
+{
+    auto all_entries = old_entries;
+    if (!stream.updateIsOldEntry || isL0()) { // L0 BTB always updates
+        all_entries.push_back(stream.updateNewBTBEntry);
+    }
+    // DPRINTF(BTB, "all_entries_to_update.size(): %d\n", all_entries.size());
+    // dumpBTBEntries(all_entries);
+    return all_entries;
+}
+
+/**
+ * Update or replace BTB entry
+ * 1. Look for matching entry
+ * 2. for cond entry, if found, use the one in btb, since we need the up-to-date counter
+ * 3. for indirect entry, update target if necessary
+ * 4. Update existing entry or replace oldest entry
+ * 5. Update MRU information
+ */
+void
+MockDefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream)
+{
+    // Look for matching entry
+    bool found = false;
+    auto it = btb[btb_idx].begin();
+    for (; it != btb[btb_idx].end(); it++) {
+        if (*it == entry) {
+            found = true;
+            break;
+        }
+    }
+    // if cond entry in btb now, use the one in btb, since we need the up-to-date counter
+    // else use the recorded entry
+    auto entry_to_write = entry.isCond && found ? BTBEntry(*it) : entry;
+    // update saturating counter if necessary
+    if (entry_to_write.isCond) {
+        bool this_cond_taken = stream.exeTaken && stream.getControlPC() == entry_to_write.pc;
+        if (!this_cond_taken) {
+            entry_to_write.alwaysTaken = false;
+        }
+        if (isL0()) {  // only L0 BTB has saturating counter
+            updateCtr(entry_to_write.ctr, this_cond_taken);
+        }
+    }
+    // update indirect target if necessary
+    if (entry_to_write.isIndirect && stream.exeTaken && stream.getControlPC() == entry_to_write.pc) {
+        entry_to_write.target = stream.exeBranchInfo.target;
+    }
+    auto ticked_entry = TickedBTBEntry(entry_to_write, curTick());
+    if (found) {
+        // Update existing entry
+        *it = ticked_entry;
+    } else {
+        // Replace oldest entry in the set
+        std::pop_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
+        const auto& entry_in_btb_now = mruList[btb_idx].back();
+        *entry_in_btb_now = ticked_entry;
+    }
+    std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
+}
+
+void
+MockDefaultBTB::update(const FetchStream &stream)
+{
+    // 1. Process old entries
+    auto old_entries = processOldEntries(stream);
+    
+    // 2. Check prediction hit status, for stats recording
+    auto [pred_hit, l0_hit] = checkPredictionHit(stream, 
+        std::static_pointer_cast<BTBMeta>(stream.predMetas[0]).get());
+    
+    // Record statistics for L0 hit but L1 miss case
+    if (!isL0()) {
+        bool l0_hit_l1_miss = l0_hit && !pred_hit;
+        if (l0_hit_l1_miss) {
+            // DPRINTF(BTB, "BTB: skipping entry write because of l0 hit\n");
+            // incNonL0Stat(btbStats.updateUseL0OnL1Miss);
+        }
+    }
+    
+    // 3. Calculate BTB index and tag
     Addr startPC = stream.getRealStartPC();
     Addr btb_idx = getIndex(startPC);
     Addr btb_tag = getTag(startPC);
-
-    // Collect all entries that need to be updated
-    auto all_entries_to_update = old_entries_to_update; // old entries to update
-    if (!stream.updateIsOldEntry || isL0()) { // mBTB set updateNewBTBEntry, uBTB needs to add!
-        all_entries_to_update.push_back(stream.updateNewBTBEntry); // new entry to update
+    
+    // 4. Collect entries to update
+    auto entries_to_update = collectEntriesToUpdate(old_entries, stream);
+    
+    // 5. Update BTB entries
+    for (auto &entry : entries_to_update) {
+        entry.tag = btb_tag;
+        updateBTBEntry(btb_idx, entry, stream);
     }
-    // DPRINTF(BTB, "all_entries_to_update.size(): %d\n", all_entries_to_update.size());
-    // dumpBTBEntries(all_entries_to_update);
-
-    // Update each entry
-    for (auto &e : all_entries_to_update) {
-        // DPRINTF(BTB, "BTB: Updating BTB entry index %#lx tag %#lx, branch_pc %#lx\n", btb_idx, e.tag, e.pc);
-        // check if it is in btb now
-        bool found = false;
-        auto it = btb[btb_idx].begin();
-        for (; it != btb[btb_idx].end(); it++) {
-            // if pc match, tag and offset should all match
-            if (*it == e) {
-                found = true;
-                break;
-            }
-        }
-        // if cond entry in btb now, use the one in btb, since we need the up-to-date counter
-        // else use the recorded entry
-        auto entry_to_write = e.isCond && found ? BTBEntry(*it) : e;
-        // update saturating counter if necessary
-        if (entry_to_write.isCond) {
-            bool this_cond_taken = stream.exeTaken && stream.getControlPC() == entry_to_write.pc;
-            if (!this_cond_taken) {
-                entry_to_write.alwaysTaken = false;
-            }
-            if (isL0()) {  // only L0 BTB has saturating counter
-                updateCtr(entry_to_write.ctr, this_cond_taken);
-            }
-        }
-        if (entry_to_write.isIndirect && stream.exeTaken && stream.getControlPC() == entry_to_write.pc) {
-            entry_to_write.target = stream.exeBranchInfo.target;
-        }
-        auto ticked_entry_to_write = TickedBTBEntry(entry_to_write, curTick());
-        ticked_entry_to_write.tag = btb_tag;
-        // write into btb
-        if (found) {
-            // Update existing entry
-            *it = ticked_entry_to_write;
-        } else {
-            // Replace oldest entry in the set
-            // DPRINTF(BTB, "trying to replace entry in set %#lx\n", btb_idx);
-            // dumpMruList(mruList[btb_idx]);
-            // put the oldest entry in this set to the back of heap
-            std::pop_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
-            const auto& entry_in_btb_now = mruList[btb_idx].back();
-            *entry_in_btb_now = ticked_entry_to_write;
-        }
-        std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
-    }
+    
     assert(btb_idx < numSets);
     assert(btb[btb_idx].size() <= numWays);
     assert(mruList[btb_idx].size() <= numWays);
