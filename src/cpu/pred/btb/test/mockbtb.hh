@@ -39,20 +39,14 @@
  * - MRU (Most Recently Used) replacement policy
  * - Support for multiple branch types
  * - Support for multiple prediction stages (L0/L1 BTB)
- */
+ */ 
 
-#ifndef __CPU_PRED_BTB_BTB_HH__
-#define __CPU_PRED_BTB_BTB_HH__
-
-#include "arch/generic/pcstate.hh"
-#include "base/logging.hh"
+// #include "base/logging.hh"
 #include "base/types.hh"
-#include "config/the_isa.hh"
 #include "cpu/pred/btb/stream_struct.hh"
-#include "cpu/pred/btb/timed_base_pred.hh"
-#include "debug/BTB.hh"
-#include "debug/BTBStats.hh"
-#include "params/DefaultBTB.hh"
+#include "cpu/pred/btb/stream_common.hh"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 
 namespace gem5
@@ -64,44 +58,26 @@ namespace branch_prediction
 namespace btb_pred
 {
 
-class DefaultBTB : public TimedBaseBTBPredictor
+namespace mockBTB
+{
+
+class MockDefaultBTB
 {
   private:
 
   public:
 
-    typedef DefaultBTBParams Params;
+    MockDefaultBTB();
 
-    DefaultBTB(const Params& p);
-
-    /*
-     * BTB Entry with timestamp for MRU replacement
-     * Inherits from BTBEntry which contains:
-     * - valid: whether this entry is valid
-     * - pc: branch instruction address
-     * - target: branch target address
-     * - size: branch instruction size
-     * - isCond/isIndirect/isCall/isReturn: branch type flags
-     * - alwaysTaken: whether this conditional branch is always taken
-     * - ctr: 2-bit counter for conditional branch prediction
+    /** Creates a BTB with the given number of entries, number of bits per
+     *  tag, and number of ways.
+     *  @param numEntries Number of entries for the BTB.
+     *  @param tagBits Number of bits for each tag in the BTB.
+     *  @param numWays Number of ways for the BTB.
+     *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
      */
-    typedef struct TickedBTBEntry : public BTBEntry
-    {
-        uint64_t tick;  // timestamp for MRU replacement
-        TickedBTBEntry(const BTBEntry &entry, uint64_t tick)
-            : BTBEntry(entry), tick(tick) {}
-        TickedBTBEntry() : tick(0) {}
-    }TickedBTBEntry;
-
-    // A BTB set is a vector of entries (ways)
-    using BTBSet = std::vector<TickedBTBEntry>;
-    using BTBSetIter = typename BTBSet::iterator;
-    // MRU heap for each set
-    using BTBHeap = std::vector<BTBSetIter>;
-    void tickStart() override;
+    MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay);
     
-    void tick() override;
-
     /*
      * Main prediction function
      * @param startAddr: start address of the fetch block
@@ -114,27 +90,16 @@ class DefaultBTB : public TimedBaseBTBPredictor
      * 3. Fills predictions for each pipeline stage
      */
     void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
-                      std::vector<FullBTBPrediction> &stagePreds) override;
+                      std::vector<FullBTBPrediction> &stagePreds);
 
     /** Get prediction BTBMeta
      *  @return Returns the prediction meta
      */
-    std::shared_ptr<void> getPredictionMeta() override;
+    std::shared_ptr<void> getPredictionMeta();
 
     // not used
-    void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
+    void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred);
 
-    /** Creates a BTB with the given number of entries, number of bits per
-     *  tag, and instruction offset amount.
-     *  @param numEntries Number of entries for the BTB.
-     *  @param tagBits Number of bits for each tag in the BTB.
-     *  @param instShiftAmt Offset amount for instructions to ignore alignment.
-     */
-    DefaultBTB(unsigned numEntries, unsigned tagBits,
-               unsigned instShiftAmt, unsigned numThreads);
-
-    void reset();
-    
     /**
      * @brief derive new btb entry from old ones and set updateNewBTBEntry field in stream
      *        only in L1BTB will this function be called before update
@@ -149,46 +114,11 @@ class DefaultBTB : public TimedBaseBTBPredictor
      *  2. Adds new entries if necessary
      *  3. Updates MRU information
      */
-    void update(const FetchStream &stream) override;
+    void update(const FetchStream &stream);
 
-    void commitBranch(const FetchStream &stream, const DynInstPtr &inst) override;
+    unsigned getDelay() { return numDelay; }   // for testing, L0 BTB, L1BTB both need to test
 
-    void setTrace() override;
-
-    TraceManager *btbTrace;
-
-
-    void printBTBEntry(BTBEntry &e, uint64_t tick = 0) {
-        DPRINTF(BTB, "BTB entry: valid %d, pc:%#lx, tag: %#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d, always_taken:%d, tick:%llu\n",
-            e.valid, e.pc, e.tag, e.size, e.target, e.isCond, e.isIndirect, e.isCall, e.isReturn, e.alwaysTaken, tick);
-    }
-
-    void printTickedBTBEntry(TickedBTBEntry &e) {
-        printBTBEntry(e, e.tick);
-    }
-
-    void dumpBTBEntries(std::vector<BTBEntry> &es) {
-        DPRINTF(BTB, "BTB entries:\n");
-        for (auto &entry : es) {
-            printBTBEntry(entry);
-        }
-    }
-
-    void dumpTickedBTBEntries(std::vector<TickedBTBEntry> &es) {
-        DPRINTF(BTB, "BTB entries:\n");
-        for (auto &entry : es) {
-            printTickedBTBEntry(entry);
-        }
-    }
-
-    void dumpMruList(BTBHeap &list) {
-        DPRINTF(BTB, "MRU list:\n");
-        for (auto &it: list) {
-            printTickedBTBEntry(*it);
-        }
-    }
-
-
+    uint64_t curTick() { return tick++; }    // for testing, LRU needs it!
 
   private:
     /** Returns the index into the BTB, based on the branch's PC.
@@ -223,6 +153,31 @@ class DefaultBTB : public TimedBaseBTBPredictor
         if (taken && ctr < 1) {ctr++;}
         if (!taken && ctr > -2) {ctr--;}
     }
+
+    /*
+     * BTB Entry with timestamp for MRU replacement
+     * Inherits from BTBEntry which contains:
+     * - valid: whether this entry is valid
+     * - pc: branch instruction address
+     * - target: branch target address
+     * - size: branch instruction size
+     * - isCond/isIndirect/isCall/isReturn: branch type flags
+     * - alwaysTaken: whether this conditional branch is always taken
+     * - ctr: 2-bit counter for conditional branch prediction
+     */
+    typedef struct TickedBTBEntry : public BTBEntry
+    {
+        uint64_t tick;  // timestamp for MRU replacement
+        TickedBTBEntry(const BTBEntry &entry, uint64_t tick)
+            : BTBEntry(entry), tick(tick) {}
+        TickedBTBEntry() : tick(0) {}
+    }TickedBTBEntry;
+
+    // A BTB set is a vector of entries (ways)
+    using BTBSet = std::vector<TickedBTBEntry>;
+    using BTBSetIter = typename BTBSet::iterator;
+    // MRU heap for each set
+    using BTBHeap = std::vector<BTBSetIter>;
 
     /*
      * Comparator for MRU heap
@@ -311,68 +266,14 @@ class DefaultBTB : public TimedBaseBTBPredictor
         READ, WRITE, EVICT
     };
 
-    struct BTBStats : public statistics::Group {
-        statistics::Scalar newEntry;
-        statistics::Scalar newEntryWithCond;
-        statistics::Scalar newEntryWithUncond;
-        statistics::Scalar oldEntry;
-        statistics::Scalar oldEntryIndirectTargetModified;
-        statistics::Scalar oldEntryWithNewCond;
-        statistics::Scalar oldEntryWithNewUncond;
+    unsigned numDelay;
 
-        statistics::Scalar predMiss;
-        statistics::Scalar predHit;
-        statistics::Scalar updateMiss;
-        statistics::Scalar updateHit;
+    unsigned tick{0};
 
-        statistics::Scalar eraseSlotBehindUncond;
-
-        statistics::Scalar predUseL0OnL1Miss;
-        statistics::Scalar updateUseL0OnL1Miss;
-
-        // per branch statistics
-        statistics::Scalar allBranchHits;
-        statistics::Scalar allBranchHitTakens;
-        statistics::Scalar allBranchHitNotTakens;
-        statistics::Scalar allBranchMisses;
-        statistics::Scalar allBranchMissTakens;
-        statistics::Scalar allBranchMissNotTakens;
-
-        statistics::Scalar condHits;
-        statistics::Scalar condHitTakens;
-        statistics::Scalar condHitNotTakens;
-        statistics::Scalar condMisses;
-        statistics::Scalar condMissTakens;
-        statistics::Scalar condMissNotTakens;
-        statistics::Scalar condPredCorrect;
-        statistics::Scalar condPredWrong;
-
-        statistics::Scalar uncondHits;
-        statistics::Scalar uncondMisses;
-
-        statistics::Scalar indirectHits;
-        statistics::Scalar indirectMisses;
-        statistics::Scalar indirectPredCorrect;
-        statistics::Scalar indirectPredWrong;
-
-        statistics::Scalar callHits;
-        statistics::Scalar callMisses;
-
-        statistics::Scalar returnHits;
-        statistics::Scalar returnMisses;
-
-        BTBStats(statistics::Group* parent);
-    } btbStats;
-
-    void incNonL0Stat(statistics::Scalar &stat) {
-        if (!isL0()) {
-            stat++;
-        }
-    }
 };
 
+} // namespace mockBTB
 } // namespace btb_pred
 } // namespace branch_prediction
 } // namespace gem5
 
-#endif // __CPU_PRED_BTB_BTB_HH__

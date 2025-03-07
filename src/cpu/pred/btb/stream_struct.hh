@@ -231,9 +231,9 @@ typedef struct FetchStream
     // Addr exeEndPC;
     BranchInfo exeBranchInfo;
 
-    BTBEntry updateNewBTBEntry; // the possible new entry
-    bool updateIsOldEntry;
-    bool resolved;
+    BTBEntry updateNewBTBEntry; // the possible new entry, set by L1BTB.getAndSetNewBTBEntry, used by L1BTB/L0BTB.update
+    bool updateIsOldEntry; // whether the BTB entry is old, true: update the old entry, false: use updateNewBTBEntry
+    bool resolved;  // whether the branch is resolved/executed
     // used to decide which branches to update (don't update if not actually executed)
     // set before components update
     Addr updateEndInstPC; 
@@ -391,7 +391,7 @@ typedef struct FullBTBPrediction
     std::map<Addr, bool> condTakens;
 
     // for indirect predictor, mapped with lowest bits of branches
-    std::map<Addr, Addr> indirectTargets;
+    std::map<Addr, Addr> indirectTargets; // {branch pc -> target pc} maps
     Addr returnTarget; // for RAS
 
     // std::vector<bool> valids; // hit

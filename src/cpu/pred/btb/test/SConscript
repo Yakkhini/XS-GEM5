@@ -1,5 +1,10 @@
 Import('*')
 
+# Add coverage flags
+# coverage_flags = '--coverage -fprofile-arcs -ftest-coverage'
+# env.Append(CCFLAGS=coverage_flags.split())
+# env.Append(LINKFLAGS=coverage_flags.split())
+
 # Add the test source files
 GTest('uras.test', 'uras_test.cc')
     # , '../uras.cc')
@@ -7,5 +12,7 @@ GTest('uras.test', 'uras_test.cc')
     #  '../../../../sim/sim_object.cc',  # For SimObject
     #  '../../../../base/debug.cc')  # For debug system
 
+GTest('btb.test', 'mockbtb.cc', 'btb.test.cc', '../stream_common.cc')
+
 # Add the test to UNITTESTS target
-env.Append(UNITTESTS=['uras.test']) 
+env.Append(UNITTESTS=['uras.test', 'btb.test']) 
