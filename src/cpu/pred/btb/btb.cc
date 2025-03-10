@@ -214,11 +214,12 @@ DefaultBTB::putPCHistory(Addr startAddr,
         for (auto &e : find_entries) {
             assert(e.valid);
             if (e.isCond) {
-                if (isL0()) {  // only L0 BTB has saturating counter
+                // TODO: a performance bug here, mbtb should not update condTakens!
+                // if (isL0()) {  // only L0 BTB has saturating counter
                     // Predict taken if always taken or counter is non-negative
                     stagePreds[s].condTakens[e.pc] = e.alwaysTaken || (e.ctr >= 0);
-                } else {  // L1 BTB condTakens depends on the TAGE predictor
-                }
+                // } else {  // L1 BTB condTakens depends on the TAGE predictor
+                // }
             } else if (e.isIndirect) {
                 // Set predicted target for indirect branches
                 DPRINTF(BTB, "setting indirect target for pc %#lx to %#lx\n", e.pc, e.target);
@@ -445,9 +446,9 @@ DefaultBTB::update(const FetchStream &stream)
             if (!this_cond_taken) {
                 entry_to_write.alwaysTaken = false;
             }
-            if (isL0()) {  // only L0 BTB has saturating counter
+            // if (isL0()) {  // only L0 BTB has saturating counter
                 updateCtr(entry_to_write.ctr, this_cond_taken);
-            }
+            // }
         }
         if (entry_to_write.isIndirect && stream.exeTaken && stream.getControlPC() == entry_to_write.pc) {
             entry_to_write.target = stream.exeBranchInfo.target;
