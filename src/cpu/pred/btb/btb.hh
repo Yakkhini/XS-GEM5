@@ -158,32 +158,32 @@ class DefaultBTB : public TimedBaseBTBPredictor
     TraceManager *btbTrace;
 
 
-    void printBTBEntry(BTBEntry &e, uint64_t tick = 0) {
+    void printBTBEntry(const BTBEntry &e, uint64_t tick = 0) {
         DPRINTF(BTB, "BTB entry: valid %d, pc:%#lx, tag: %#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d, always_taken:%d, tick:%llu\n",
             e.valid, e.pc, e.tag, e.size, e.target, e.isCond, e.isIndirect, e.isCall, e.isReturn, e.alwaysTaken, tick);
     }
 
-    void printTickedBTBEntry(TickedBTBEntry &e) {
+    void printTickedBTBEntry(const TickedBTBEntry &e) {
         printBTBEntry(e, e.tick);
     }
 
-    void dumpBTBEntries(std::vector<BTBEntry> &es) {
+    void dumpBTBEntries(const std::vector<BTBEntry> &es) {
         DPRINTF(BTB, "BTB entries:\n");
-        for (auto &entry : es) {
+        for (const auto &entry : es) {
             printBTBEntry(entry);
         }
     }
 
-    void dumpTickedBTBEntries(std::vector<TickedBTBEntry> &es) {
+    void dumpTickedBTBEntries(const std::vector<TickedBTBEntry> &es) {
         DPRINTF(BTB, "BTB entries:\n");
-        for (auto &entry : es) {
+        for (const auto &entry : es) {
             printTickedBTBEntry(entry);
         }
     }
 
-    void dumpMruList(BTBHeap &list) {
+    void dumpMruList(const BTBHeap &list) {
         DPRINTF(BTB, "MRU list:\n");
-        for (auto &it: list) {
+        for (const auto &it: list) {
             printTickedBTBEntry(*it);
         }
     }
@@ -223,6 +223,69 @@ class DefaultBTB : public TimedBaseBTBPredictor
         if (taken && ctr < 1) {ctr++;}
         if (!taken && ctr > -2) {ctr--;}
     }
+
+    typedef struct BTBMeta {
+        std::vector<BTBEntry> hit_entries;  // hit entries in L1 BTB
+        std::vector<BTBEntry> l0_hit_entries; // hit entries in L0 BTB
+        BTBMeta() {
+            std::vector<BTBEntry> es;
+            hit_entries = es;
+            l0_hit_entries = es;
+        }
+    }BTBMeta;
+
+    BTBMeta meta; // metadata for BTB, set in putPCHistory, used in update
+
+    /** Process BTB entries for prediction
+     *  @param entries Vector of BTB entries to process
+     *  @param startAddr Start address of the fetch block
+     *  @return Vector of processed entries in program order
+     */
+    std::vector<TickedBTBEntry> processEntries(const std::vector<TickedBTBEntry>& entries, 
+                                              Addr startAddr);
+
+    /** Fill predictions for pipeline stages
+     *  @param entries Processed BTB entries
+     *  @param stagePreds Vector of predictions for each stage
+     */
+    void fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
+                             std::vector<FullBTBPrediction>& stagePreds);
+
+    /** Update prediction metadata
+     *  @param entries Processed BTB entries
+     */
+    void updatePredictionMeta(const std::vector<TickedBTBEntry>& entries,
+                               std::vector<FullBTBPrediction>& stagePreds);
+
+    /** Process prediction metadata and old entries
+     *  @param stream Fetch stream containing prediction info
+     *  @return Processed old BTB entries
+     */
+    std::vector<BTBEntry> processOldEntries(const FetchStream &stream);
+
+    /** Check branch prediction hit status
+     *  @param stream Fetch stream containing execution results
+     *  @param meta BTB metadata from prediction
+     *  @return Tuple of (pred_hit, l0_hit)
+     */
+    std::pair<bool, bool> checkPredictionHit(const FetchStream &stream, 
+                                           const BTBMeta* meta);
+
+    /** Collect entries that need to be updated
+     *  @param old_entries Processed old entries
+     *  @param stream Fetch stream with update info
+     *  @return Vector of entries to update
+     */
+    std::vector<BTBEntry> collectEntriesToUpdate(
+        const std::vector<BTBEntry>& old_entries,
+        const FetchStream &stream);
+
+    /** Update or replace BTB entry
+     *  @param btb_idx BTB set index
+     *  @param entry Entry to update/replace
+     *  @param stream Fetch stream with update info
+     */
+    void updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream);
 
     /*
      * Comparator for MRU heap
@@ -294,18 +357,6 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
     /** Branch counter */
     unsigned numBr;  // Number of branches seen
-
-    typedef struct BTBMeta {
-        std::vector<BTBEntry> hit_entries;  // hit entries in L1 BTB
-        std::vector<BTBEntry> l0_hit_entries; // hit entries in L0 BTB
-        BTBMeta() {
-            std::vector<BTBEntry> es;
-            hit_entries = es;
-            l0_hit_entries = es;
-        }
-    }BTBMeta;
-
-    BTBMeta meta; // metadata for BTB, set in putPCHistory, used in update
 
     enum Mode {
         READ, WRITE, EVICT
