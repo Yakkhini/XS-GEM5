@@ -1109,7 +1109,7 @@ LSQUnit::loadPipeS1(const DynInstPtr &inst, std::bitset<LdStFlagNum> &flag)
     Fault load_fault = inst->getFault();
     LSQRequest* request = inst->savedRequest;
 
-    // Cache access
+    // normal inst cache access
     if (request && request->isTranslationComplete()) {
         if (request->isMemAccessRequired()) {
             inst->effAddr = request->getVaddr();
