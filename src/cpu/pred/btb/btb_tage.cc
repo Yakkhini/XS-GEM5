@@ -61,24 +61,10 @@ tageStats(this, p.numPredictors)
     usefulResetCnt = 0;
 
     useAlt.resize(128);
-    // for (unsigned i = 0; i < useAlt.size(); ++i) {
-    //     useAlt[i].resize(numBr, 0);
-    // }
-    
-    // enableSC = true;
-    // std::vector<TageBankStats *> statsPtr;
-    // for (int i = 0; i < numBr; i++) {
-    //     statsPtr.push_back(tageBankStats[i]);
-    // }
-    // sc.setStats(statsPtr);
 }
 
 BTBTAGE::~BTBTAGE()
 {
-    // for (int i = 0; i < numBr; i++) {
-    //     delete tageBankStats[i];
-    // }
-    // delete [] tageBankStats;
 }
 
 void
@@ -406,58 +392,6 @@ BTBTAGE::update(const FetchStream &stream)
         }
     }
 
-    // auto scMeta = meta->scMeta;
-
-        // // update use_alt_counters
-        // if (pred.mainFound && mainWeak && mainTaken != altTaken) {
-        //     DPRINTF(TAGE, "use_alt_on_provider_weak, alt %s, updating use_alt_counter\n",
-        //         altTaken == this_cond_actually_taken ? "correct" : "incorrect");
-        //     auto &use_alt_counter = useAlt.at(getUseAltIdx(startAddr))[b];
-        //     if (altTaken == this_cond_actually_taken) {
-        //         stat->updateUseAltOnNaInc++;
-        //         satIncrement(7, use_alt_counter);
-        //     } else {
-        //         stat->updateUseAltOnNaDec++;
-        //         satDecrement(-8, use_alt_counter);
-        //     }
-        // }
-
-
-        // if (pred.mainFound && mainWeak) {
-        //     stat->updateProviderNa++;
-        //     if (!pred.useAlt) {
-        //         bool mainCorrect = mainTaken == this_cond_actually_taken;
-        //         if (mainCorrect) {
-        //             stat->updateUseNaCorrect++;
-        //         } else {
-        //             stat->updateUseNaWrong++;
-        //         }
-        //     } else {
-        //         stat->updateUseAltOnNa++;
-        //         bool altCorrect = altTaken == this_cond_actually_taken;
-        //         if (altCorrect) {
-        //             stat->updateUseAltOnNaCorrect++;
-        //         } else {
-        //             stat->updateUseAltOnNaWrong++;
-        //         }
-        //     }
-        // }
-
-        // if (enableDB) {
-        //     TageMissTrace t;
-        //     t.set(startAddr, btb_entry.slots[b].pc, b, phyBrIdx, mainFound, pred.mainCounter,
-        //         pred.mainUseful, pred.altCounter, pred.table, pred.index, getBaseTableIndex(startAddr),
-        //         pred.tag, pred.useAlt, pred.taken, this_cond_actually_taken, allocSuccess, allocFailure,
-        //         scMeta.scPreds[b].scUsed, scMeta.scPreds[b].scPred != scMeta.scPreds[b].tageTaken,
-        //         scMeta.scPreds[b].scPred == this_cond_actually_taken);
-        //     tageMissTrace->write_record(t);
-        // }
-    // }
-
-    // update sc
-    // if (enableSC) {
-    //     sc.update(startAddr, scMeta, need_to_update, actualTakens);
-    // }
     DPRINTF(TAGE, "end update\n");
 }
 
@@ -561,9 +495,6 @@ BTBTAGE::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPredictio
     bool cond_taken;
     std::tie(shamt, cond_taken) = pred.getHistInfo();
     doUpdateHist(history, shamt, cond_taken);
-    // if (enableSC) {
-    //     sc.doUpdateHist(history, shamt, cond_taken);
-    // }
 }
 
 void
@@ -577,10 +508,6 @@ BTBTAGE::recoverHist(const boost::dynamic_bitset<> &history,
         indexFoldedHist[i].recover(predMeta->indexFoldedHist[i]);
     }
     doUpdateHist(history, shamt, cond_taken);
-    // if (enableSC) {
-    //     sc.recoverHist(predMeta->scMeta.indexFoldedHist);
-    //     sc.doUpdateHist(history, shamt, cond_taken);
-    // }
 }
 
 void
@@ -600,189 +527,6 @@ BTBTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
         }
     }
 }
-
-// std::vector<BTBTAGE::StatisticalCorrector::SCPrediction>
-// BTBTAGE::StatisticalCorrector::getPredictions(Addr pc, std::vector<TagePrediction> &tagePreds)
-// {
-//     std::vector<int> scSums = {0,0};
-//     std::vector<int> tageCtrCentereds;
-//     std::vector<SCPrediction> scPreds;
-//     std::vector<bool> sumAboveThresholds;
-//     scPreds.resize(numBr);
-//     sumAboveThresholds.resize(numBr);
-//     for (int b = 0; b < numBr; b++) {
-//         int phyBrIdx = tage->getShuffledBrIndex(pc, b);
-//         std::vector<int> scOldCounters;
-//         tageCtrCentereds.push_back((2 * tagePreds[b].mainCounter + 1) * 8);
-//         for (int i = 0;i < scCntTable.size();i++) {
-//             int index = getIndex(pc, i);
-//             int tOrNt = tagePreds[b].taken ? 1 : 0;
-//             int ctr = scCntTable[i][index][phyBrIdx][tOrNt];
-//             scSums[b] += 2 * ctr + 1;
-//         }
-//         scSums[b] += tageCtrCentereds[b];
-//         sumAboveThresholds[b] = abs(scSums[b]) > thresholds[b];
-
-//         scPreds[b].tageTaken = tagePreds[b].taken;
-//         scPreds[b].scUsed = tagePreds[b].mainFound;
-//         scPreds[b].scPred = tagePreds[b].mainFound && sumAboveThresholds[b] ?
-//             scSums[b] >= 0 : tagePreds[b].taken;
-//         scPreds[b].scSum = scSums[b];
-
-//         // stats
-//         auto &stat = stats[b];
-//         if (tagePreds[b].mainFound) {
-//             stat->scUsedAtPred++;
-//             if (sumAboveThresholds[b]) {
-//                 stat->scConfAtPred++;
-//                 if (scPreds[b].scPred == scPreds[b].tageTaken) {
-//                     stat->scAgreeAtPred++;
-//                 } else {
-//                     stat->scDisagreeAtPred++;
-//                 }
-//             } else {
-//                 stat->scUnconfAtPred++;
-//             }
-//         }
-//     }
-//     return scPreds;
-// }
-
-// std::vector<FoldedHist>
-// BTBTAGE::StatisticalCorrector::getFoldedHist()
-// {
-//     return foldedHist;
-// }
-
-// bool
-// BTBTAGE::StatisticalCorrector::satPos(int &counter, int counterBits)
-// {
-//     return counter == ((1 << (counterBits-1)) - 1);
-// }
-
-// bool
-// BTBTAGE::StatisticalCorrector::satNeg(int &counter, int counterBits)
-// {
-//     return counter == -(1 << (counterBits-1));
-// }
-
-// Addr
-// BTBTAGE::StatisticalCorrector::getIndex(Addr pc, int t)
-// {
-//     return getIndex(pc, t, foldedHist[t].get());
-// }
-
-// Addr
-// BTBTAGE::StatisticalCorrector::getIndex(Addr pc, int t, bitset &foldedHist)
-// {
-//     bitset buf(tableIndexBits[t], pc >> tablePcShifts[t]);  // lower bits of PC
-//     buf ^= foldedHist;
-//     return buf.to_ulong();
-// }
-
-// void
-// BTBTAGE::StatisticalCorrector::counterUpdate(int &ctr, int nbits, bool taken)
-// {
-//     if (taken) {
-// 		if (ctr < ((1 << (nbits-1)) - 1))
-// 			ctr++;
-// 	} else {
-// 		if (ctr > -(1 << (nbits-1)))
-// 			ctr--;
-//     }
-// }
-
-// void
-// BTBTAGE::StatisticalCorrector::update(Addr pc, SCMeta meta, std::vector<bool> needToUpdates,
-//     std::vector<bool> actualTakens)
-// {
-//     auto predHist = meta.indexFoldedHist;
-//     auto preds = meta.scPreds;
-
-//     for (int b = 0; b < numBr; b++) {
-//         if (!needToUpdates[b]) {
-//             continue;
-//         }
-//         int phyBrIdx = tage->getShuffledBrIndex(pc, b);
-//         auto &p = preds[b];
-//         bool scTaken = p.scPred;
-//         bool actualTaken = actualTakens[b];
-//         int tOrNt = p.tageTaken ? 1 : 0;
-//         int sumAbs = std::abs(p.scSum);
-//         // perceptron update
-//         if (p.scUsed) {
-//             if (sumAbs <= (thresholds[b] * 8 + 21) || scTaken != actualTaken) {
-//                 for (int i = 0; i < numPredictors; i++) {
-//                     auto idx = getIndex(pc, i, predHist[i].get());
-//                     auto &ctr = scCntTable[i][idx][phyBrIdx][tOrNt];
-//                     counterUpdate(ctr, scCounterWidth, actualTaken);
-//                 }
-//                 if (scTaken != actualTaken) {
-//                     stats[b]->scUpdateOnMispred++;
-//                 } else {
-//                     stats[b]->scUpdateOnUnconf++;
-//                 }
-//             }
-
-//             if (scTaken != p.tageTaken && sumAbs >= thresholds[b] - 4 && sumAbs <= thresholds[b] - 2) {
-
-//                 bool cause = scTaken != actualTaken;
-//                 counterUpdate(TCs[b], TCWidth, cause);
-//                 if (satPos(TCs[b], TCWidth) && thresholds[b] <= maxThres) {
-//                     thresholds[b] += 2;
-//                 } else if (satNeg(TCs[b], TCWidth) && thresholds[b] >= minThres) {
-//                     thresholds[b] -= 2;
-//                 }
-
-//                 if (satPos(TCs[b], TCWidth) || satNeg(TCs[b], TCWidth)) {
-//                     TCs[b] = neutralVal;
-//                 }
-//             }
-
-//             // stats
-//             auto &stat = stats[b];
-//             // bool sumAboveUpdateThreshold = sumAbs >= (thresholds[b] * 8 + 21);
-//             bool sumAboveUseThreshold = sumAbs >= thresholds[b];
-//             stat->scUsedAtCommit++;
-//             if (sumAboveUseThreshold) {
-//                 stat->scConfAtCommit++;
-//                 if (scTaken == p.tageTaken) {
-//                     stat->scAgreeAtCommit++;
-//                 } else {
-//                     stat->scDisagreeAtCommit++;
-//                     if (scTaken == actualTaken) {
-//                         stat->scCorrectTageWrong++;
-//                     } else {
-//                         stat->scWrongTageCorrect++;
-//                     }
-//                 }
-//             } else {
-//                 stat->scUnconfAtCommit++;
-//             }
-//         }
-
-//     }
-// }
-
-// void
-// BTBTAGE::StatisticalCorrector::recoverHist(std::vector<FoldedHist> &fh)
-// {
-//     for (int i = 0; i < numPredictors; i++) {
-//         foldedHist[i].recover(fh[i]);
-//     }
-// }
-
-// void
-// BTBTAGE::StatisticalCorrector::doUpdateHist(const boost::dynamic_bitset<> &history,
-//     int shamt, bool cond_taken)
-// {
-//     if (shamt == 0) {
-//         return;
-//     }
-//     for (int t = 0; t < numPredictors; t++) {
-//         foldedHist[t].update(history, shamt, cond_taken);
-//     }
-// }
 
 BTBTAGE::TageStats::TageStats(statistics::Group* parent, int numPredictors):
     statistics::Group(parent),
@@ -811,20 +555,6 @@ BTBTAGE::TageStats::TageStats(statistics::Group* parent, int numPredictors):
     ADD_STAT(updateResetUCtrInc, statistics::units::Count::get(), "reset u ctr inc when update"),
     ADD_STAT(updateResetUCtrDec, statistics::units::Count::get(), "reset u ctr dec when update"),
     ADD_STAT(updateTableMispreds, statistics::units::Count::get(), "mispreds of each table when update")
-    // ADD_STAT(scAgreeAtPred, statistics::units::Count::get(), "sc agrees with tage on prediction"),
-    // ADD_STAT(scAgreeAtCommit, statistics::units::Count::get(), "sc agrees with tage when update"),
-    // ADD_STAT(scDisagreeAtPred, statistics::units::Count::get(), "sc disagrees with tage on prediction"),
-    // ADD_STAT(scDisagreeAtCommit, statistics::units::Count::get(), "sc disagrees with tage when update"),
-    // ADD_STAT(scConfAtPred, statistics::units::Count::get(), "sc is confident on prediction"),
-    // ADD_STAT(scConfAtCommit, statistics::units::Count::get(), "sc is confident when update"),
-    // ADD_STAT(scUnconfAtPred, statistics::units::Count::get(), "sc is unconfident on prediction"),
-    // ADD_STAT(scUnconfAtCommit, statistics::units::Count::get(), "sc is unconfident when update"),
-    // ADD_STAT(scUpdateOnMispred, statistics::units::Count::get(), "sc update because of misprediction"),
-    // ADD_STAT(scUpdateOnUnconf, statistics::units::Count::get(), "sc update because of unconfidence"),
-    // ADD_STAT(scUsedAtPred, statistics::units::Count::get(), "sc used on prediction"),
-    // ADD_STAT(scUsedAtCommit, statistics::units::Count::get(), "sc used when update"),
-    // ADD_STAT(scCorrectTageWrong, statistics::units::Count::get(), "sc correct and tage wrong when update"),
-    // ADD_STAT(scWrongTageCorrect, statistics::units::Count::get(), "sc wrong and tage correct when update")
 {
     predTableHits.init(0, numPredictors-1, 1);
     updateTableHits.init(0, numPredictors-1, 1);
