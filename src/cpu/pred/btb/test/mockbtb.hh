@@ -45,9 +45,12 @@
 #include "base/types.hh"
 #include "cpu/pred/btb/stream_struct.hh"
 #include "cpu/pred/btb/stream_common.hh"
+#include <cstdint>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+// Include test DPRINTF definitions at last, override the default DPRINTF
+#include "cpu/pred/btb/test/test_dprintf.hh"
 
 namespace gem5
 {
@@ -68,16 +71,36 @@ class MockDefaultBTB
   public:
 
     MockDefaultBTB();
-
-    /** Creates a BTB with the given number of entries, number of bits per
-     *  tag, and number of ways.
-     *  @param numEntries Number of entries for the BTB.
-     *  @param tagBits Number of bits for each tag in the BTB.
-     *  @param numWays Number of ways for the BTB.
-     *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
-     */
-    MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay);
     
+
+    /*
+     * BTB Entry with timestamp for MRU replacement
+     * Inherits from BTBEntry which contains:
+     * - valid: whether this entry is valid
+     * - pc: branch instruction address
+     * - target: branch target address
+     * - size: branch instruction size
+     * - isCond/isIndirect/isCall/isReturn: branch type flags
+     * - alwaysTaken: whether this conditional branch is always taken
+     * - ctr: 2-bit counter for conditional branch prediction
+     */
+    typedef struct TickedBTBEntry : public BTBEntry
+    {
+        uint64_t tick;  // timestamp for MRU replacement
+        TickedBTBEntry(const BTBEntry &entry, uint64_t tick)
+            : BTBEntry(entry), tick(tick) {}
+        TickedBTBEntry() : tick(0) {}
+    }TickedBTBEntry;
+
+    // A BTB set is a vector of entries (ways)
+    using BTBSet = std::vector<TickedBTBEntry>;
+    using BTBSetIter = typename BTBSet::iterator;
+    // MRU heap for each set
+    using BTBHeap = std::vector<BTBSetIter>;
+    void tickStart();
+    
+    // void tick();
+
     /*
      * Main prediction function
      * @param startAddr: start address of the fetch block
@@ -100,6 +123,17 @@ class MockDefaultBTB
     // not used
     void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred);
 
+    /** Creates a BTB with the given number of entries, number of bits per
+     *  tag, and number of ways.
+     *  @param numEntries Number of entries for the BTB.
+     *  @param tagBits Number of bits for each tag in the BTB.
+     *  @param numWays Number of ways for the BTB.
+     *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
+     */
+    MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay);
+
+    void reset();
+    
     /**
      * @brief derive new btb entry from old ones and set updateNewBTBEntry field in stream
      *        only in L1BTB will this function be called before update
@@ -119,6 +153,37 @@ class MockDefaultBTB
     unsigned getDelay() { return numDelay; }   // for testing, L0 BTB, L1BTB both need to test
 
     uint64_t curTick() { return tick++; }    // for testing, LRU needs it!
+    void printBTBEntry(const BTBEntry &e, uint64_t tick = 0) {
+        DPRINTF(BTB, "BTB entry: valid %d, pc:%#lx, tag: %#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d, always_taken:%d, tick:%lu\n",
+            e.valid, e.pc, e.tag, e.size, e.target, e.isCond, e.isIndirect, e.isCall, e.isReturn, e.alwaysTaken, tick);
+    }
+
+    void printTickedBTBEntry(const TickedBTBEntry &e) {
+        printBTBEntry(e, e.tick);
+    }
+
+    void dumpBTBEntries(const std::vector<BTBEntry> &es) {
+        DPRINTF(BTB, "BTB entries:\n");
+        for (const auto &entry : es) {
+            printBTBEntry(entry);
+        }
+    }
+
+    void dumpTickedBTBEntries(const std::vector<TickedBTBEntry> &es) {
+        DPRINTF(BTB, "BTB entries:\n");
+        for (const auto &entry : es) {
+            printTickedBTBEntry(entry);
+        }
+    }
+
+    void dumpMruList(const BTBHeap &list) {
+        DPRINTF(BTB, "MRU list:\n");
+        for (const auto &it: list) {
+            printTickedBTBEntry(*it);
+        }
+    }
+
+
 
   private:
     /** Returns the index into the BTB, based on the branch's PC.
@@ -153,25 +218,6 @@ class MockDefaultBTB
         if (taken && ctr < 1) {ctr++;}
         if (!taken && ctr > -2) {ctr--;}
     }
-
-    /*
-     * BTB Entry with timestamp for MRU replacement
-     * Inherits from BTBEntry which contains:
-     * - valid: whether this entry is valid
-     * - pc: branch instruction address
-     * - target: branch target address
-     * - size: branch instruction size
-     * - isCond/isIndirect/isCall/isReturn: branch type flags
-     * - alwaysTaken: whether this conditional branch is always taken
-     * - ctr: 2-bit counter for conditional branch prediction
-     */
-    typedef struct TickedBTBEntry : public BTBEntry
-    {
-        uint64_t tick;  // timestamp for MRU replacement
-        TickedBTBEntry(const BTBEntry &entry, uint64_t tick)
-            : BTBEntry(entry), tick(tick) {}
-        TickedBTBEntry() : tick(0) {}
-    }TickedBTBEntry;
 
     typedef struct BTBMeta {
         std::vector<BTBEntry> hit_entries;  // hit entries in L1 BTB
@@ -235,12 +281,6 @@ class MockDefaultBTB
      *  @param stream Fetch stream with update info
      */
     void updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream);
-
-    // A BTB set is a vector of entries (ways)
-    using BTBSet = std::vector<TickedBTBEntry>;
-    using BTBSetIter = typename BTBSet::iterator;
-    // MRU heap for each set
-    using BTBHeap = std::vector<BTBSetIter>;
 
     /*
      * Comparator for MRU heap
@@ -323,6 +363,64 @@ class MockDefaultBTB
 
     unsigned getComponentIdx() { return 0; }    // TODO: remove this
 
+    struct BTBStats {
+        uint64_t newEntry;
+        uint64_t newEntryWithCond;
+        uint64_t newEntryWithUncond;
+        uint64_t oldEntry;
+        uint64_t oldEntryIndirectTargetModified;
+        uint64_t oldEntryWithNewCond;
+        uint64_t oldEntryWithNewUncond;
+
+        uint64_t predMiss;
+        uint64_t predHit;
+        uint64_t updateMiss;
+        uint64_t updateHit;
+
+        uint64_t eraseSlotBehindUncond;
+
+        uint64_t predUseL0OnL1Miss;
+        uint64_t updateUseL0OnL1Miss;
+
+        // per branch statistics
+        uint64_t allBranchHits;
+        uint64_t allBranchHitTakens;
+        uint64_t allBranchHitNotTakens;
+        uint64_t allBranchMisses;
+        uint64_t allBranchMissTakens;
+        uint64_t allBranchMissNotTakens;
+
+        uint64_t condHits;
+        uint64_t condHitTakens;
+        uint64_t condHitNotTakens;
+        uint64_t condMisses;
+        uint64_t condMissTakens;
+        uint64_t condMissNotTakens;
+        uint64_t condPredCorrect;
+        uint64_t condPredWrong;
+
+        uint64_t uncondHits;
+        uint64_t uncondMisses;
+
+        uint64_t indirectHits;
+        uint64_t indirectMisses;
+        uint64_t indirectPredCorrect;
+        uint64_t indirectPredWrong;
+
+        uint64_t callHits;
+        uint64_t callMisses;
+
+        uint64_t returnHits;
+        uint64_t returnMisses;
+
+        // BTBStats(statistics::Group* parent);
+    } btbStats;
+
+    void incNonL0Stat(uint64_t &stat) {
+        if (!isL0()) {
+            stat++;
+        }
+    }
 };
 
 } // namespace mockBTB

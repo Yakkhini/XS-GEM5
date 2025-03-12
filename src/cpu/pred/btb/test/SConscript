@@ -12,7 +12,22 @@ GTest('uras.test', 'uras_test.cc')
     #  '../../../../sim/sim_object.cc',  # For SimObject
     #  '../../../../base/debug.cc')  # For debug system
 
-GTest('btb.test', 'mockbtb.cc', 'btb.test.cc', '../stream_common.cc')
+# Add BTB test with minimal dependencies
+GTest('btb.test', 
+    'mockbtb.cc', 'btb.test.cc', '../stream_common.cc')
+
+# Add TAGE test with necessary dependencies
+GTest('tage.test', 
+    'btb_tage.cc',
+    'btb_tage.test.cc', 
+    '../stream_common.cc',
+    '../folded_hist.cc',
+)
+
+GTest('folded_hist.test',
+    'folded_hist.test.cc',
+    '../folded_hist.cc',
+)
 
 # Add the test to UNITTESTS target
-env.Append(UNITTESTS=['uras.test', 'btb.test']) 
+env.Append(UNITTESTS=['uras.test', 'btb.test', 'tage.test', 'folded_hist.test']) 

@@ -28,6 +28,7 @@
 
 
 #include "base/intmath.hh"
+#include "cpu/pred/btb/stream_common.hh"
 #include "cpu/pred/btb/test/mockbtb.hh"
 
 namespace gem5
@@ -56,6 +57,8 @@ MockDefaultBTB::MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned n
     log2NumThreads(1),
     numDelay(numDelay)
 {
+    // for test, TODO: remove this
+    alignToBlockSize = true;
     // Calculate shift amounts for index calculation
     if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);
@@ -100,6 +103,21 @@ MockDefaultBTB::MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned n
 std::vector<MockDefaultBTB::TickedBTBEntry>
 MockDefaultBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr startAddr)
 {
+    int hitNum = entries.size();
+    bool hit = hitNum > 0;
+    
+    // Update prediction statistics
+    if (hit) {
+        DPRINTF(BTB, "BTB: lookup hit, dumping hit entry\n");
+        btbStats.predHit += hitNum;
+        for (auto &entry: entries) {
+            printTickedBTBEntry(entry);
+        }
+    } else {
+        btbStats.predMiss++;
+        DPRINTF(BTB, "BTB: lookup miss\n");
+    }
+
     auto processed_entries = entries;
     
     // Sort by instruction order
@@ -134,7 +152,7 @@ MockDefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
         //     incNonL0Stat(btbStats.predUseL0OnL1Miss);
         //     break;
         // }
-        // DPRINTF(BTB, "BTB: assigning prediction for stage %d\n", s);
+        DPRINTF(BTB, "BTB: assigning prediction for stage %d\n", s);
         
         // Copy BTB entries to stage prediction
         stagePreds[s].btbEntries.clear();
@@ -142,22 +160,21 @@ MockDefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
             stagePreds[s].btbEntries.push_back(BTBEntry(e));
         }
         checkAscending(stagePreds[s].btbEntries);
-        // dumpBTBEntries(stagePreds[s].btbEntries);
+        dumpBTBEntries(stagePreds[s].btbEntries);
 
         // Set predictions for each branch
         for (auto &e : entries) {
             assert(e.valid);
             if (e.isCond) {
-                if (isL0()) {  // only L0 BTB has saturating counter
+                // TODO: a performance bug here, mbtb should not update condTakens!
+                // if (isL0()) {  // only L0 BTB has saturating counter
                     // use saturating counter of L0 BTB
                     stagePreds[s].condTakens[e.pc] = e.alwaysTaken || (e.ctr >= 0);
-                } else {  // L1 BTB condTakens depends on the TAGE predictor
-                    // use direction predictor
-                    // stagePreds[s].condTakens[e.pc] = e.alwaysTaken;
-                }
+                // } else {  // L1 BTB condTakens depends on the TAGE predictor
+                // }
             } else if (e.isIndirect) {
                 // Set predicted target for indirect branches
-                // DPRINTF(BTB, "setting indirect target for pc %#lx to %#lx\n", e.pc, e.target);
+                DPRINTF(BTB, "setting indirect target for pc %#lx to %#lx\n", e.pc, e.target);
                 stagePreds[s].indirectTargets[e.pc] = e.target;
             }
         }
@@ -251,7 +268,7 @@ MockDefaultBTB::lookup(Addr block_pc)
     }
     Addr btb_idx = getIndex(block_pc);
     Addr btb_tag = getTag(block_pc);
-    // DPRINTF(BTB, "BTB: Looking up BTB entry index %#lx tag %#lx\n", btb_idx, btb_tag);
+    DPRINTF(BTB, "BTB: Looking up BTB entry index %#lx tag %#lx\n", btb_idx, btb_tag);
 
     assert(btb_idx < numSets);
     for (auto &way : btb[btb_idx]) {
@@ -280,9 +297,9 @@ MockDefaultBTB::lookup(Addr block_pc)
 void
 MockDefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
 {
-    // DPRINTF(BTB, "generating new btb entry\n");
+    DPRINTF(BTB, "generating new btb entry\n");
     // Get prediction metadata from previous stages
-    auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[0]);
+    auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]);
     auto &predBTBEntries = meta->hit_entries;
     
     // Check if this branch was predicted (exists in BTB)
@@ -329,16 +346,18 @@ MockDefaultBTB::processOldEntries(const FetchStream &stream)
     auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]);
     // hit entries whose corresponding insts are acutally executed
     Addr end_inst_pc = stream.updateEndInstPC;
-    // DPRINTF(BTB, "end_inst_pc: %#lx\n", end_inst_pc);
+    DPRINTF(BTB, "end_inst_pc: %#lx\n", end_inst_pc);
     // remove not executed btb entries, pc > end_inst_pc
     auto old_entries = meta->hit_entries;
-    // DPRINTF(BTB, "old_entries.size(): %d\n", old_entries.size());
-    // dumpBTBEntries(old_entries);
+    DPRINTF(BTB, "old_entries.size(): %lu\n", old_entries.size());
+    dumpBTBEntries(old_entries);
     auto remove_it = std::remove_if(old_entries.begin(), old_entries.end(),
         [end_inst_pc](const BTBEntry &e) { return e.pc > end_inst_pc; });
     old_entries.erase(remove_it, old_entries.end());
-    // DPRINTF(BTB, "after removing not executed insts, old_entries.size(): %d\n", old_entries.size());
-    // dumpBTBEntries(old_entries);
+    DPRINTF(BTB, "after removing not executed insts, old_entries.size(): %lu\n", old_entries.size());
+    dumpBTBEntries(old_entries);
+
+    btbStats.updateHit += old_entries.size();
     
     return old_entries;
 }
@@ -358,7 +377,8 @@ MockDefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* met
         }
     }
     if (!pred_branch_hit && stream.exeTaken) {
-        // DPRINTF(BTB, "update miss detected, pc %#lx, predTick %llu\n", stream.exeBranchInfo.pc, stream.predTick);
+        DPRINTF(BTB, "update miss detected, pc %#lx, predTick %lu\n", stream.exeBranchInfo.pc, stream.predTick);
+        btbStats.updateMiss++;
     }
 
     // Check if L0 BTB had a hit but L1 BTB missed
@@ -372,8 +392,8 @@ MockDefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* met
     if (!isL0()) {
         bool l0_hit_l1_miss = pred_l0_branch_hit && !pred_branch_hit;
         if (l0_hit_l1_miss) {
-            // DPRINTF(BTB, "BTB: skipping entry write because of l0 hit\n");
-            // incNonL0Stat(btbStats.updateUseL0OnL1Miss);
+            DPRINTF(BTB, "BTB: skipping entry write because of l0 hit\n");
+            incNonL0Stat(btbStats.updateUseL0OnL1Miss);
             // return;
         }
     }
@@ -394,8 +414,8 @@ MockDefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
     if (!stream.updateIsOldEntry || isL0()) { // L0 BTB always updates
         all_entries.push_back(stream.updateNewBTBEntry);
     }
-    // DPRINTF(BTB, "all_entries_to_update.size(): %d\n", all_entries.size());
-    // dumpBTBEntries(all_entries);
+    DPRINTF(BTB, "all_entries_to_update.size(): %lu\n", all_entries.size());
+    dumpBTBEntries(all_entries);
     return all_entries;
 }
 
@@ -428,9 +448,9 @@ MockDefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const Fe
         if (!this_cond_taken) {
             entry_to_write.alwaysTaken = false;
         }
-        if (isL0()) {  // only L0 BTB has saturating counter
+        // if (isL0()) {  // only L0 BTB has saturating counter
             updateCtr(entry_to_write.ctr, this_cond_taken);
-        }
+        // }
     }
     // update indirect target if necessary
     if (entry_to_write.isIndirect && stream.exeTaken && stream.getControlPC() == entry_to_write.pc) {
@@ -442,6 +462,9 @@ MockDefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const Fe
         *it = ticked_entry;
     } else {
         // Replace oldest entry in the set
+        DPRINTF(BTB, "trying to replace entry in set %d\n", btb_idx);
+        dumpMruList(mruList[btb_idx]);
+        // put the oldest entry in this set to the back of heap
         std::pop_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
         const auto& entry_in_btb_now = mruList[btb_idx].back();
         *entry_in_btb_now = ticked_entry;
@@ -449,6 +472,15 @@ MockDefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const Fe
     std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
 }
 
+/*
+ * Update BTB with execution results
+ * Steps:
+ * 1. Get old entries that were hit during prediction
+ * 2. Remove entries that were not actually executed
+ * 3. Update statistics
+ * 4. Update existing entries or create new ones
+ * 5. Update MRU information
+ */
 void
 MockDefaultBTB::update(const FetchStream &stream)
 {
@@ -457,7 +489,7 @@ MockDefaultBTB::update(const FetchStream &stream)
     
     // 2. Check prediction hit status, for stats recording
     auto [pred_hit, l0_hit] = checkPredictionHit(stream, 
-        std::static_pointer_cast<BTBMeta>(stream.predMetas[0]).get());
+        std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]).get());
     
     // Record statistics for L0 hit but L1 miss case
     if (!isL0()) {
