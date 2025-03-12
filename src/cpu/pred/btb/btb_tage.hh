@@ -39,9 +39,9 @@ class BTBTAGE : public TimedBaseBTBPredictor
         public:
             bool valid;      // Whether this entry is valid
             Addr tag;       // Tag for matching
-            short counter;  // Prediction counter (-1 to 1)
-            bool useful;    // Whether this entry is useful for prediction
-            Addr pc;        // Program counter of the branch
+            short counter;  // Prediction counter (-4 to 3), 3bits， 0 and -1 are weak
+            bool useful;    // Whether this entry is useful for prediction, set true if alt differs from main and main is correct
+            Addr pc;        // branch pc, like branch position, for btb entry pc check
 
             TageEntry() : valid(false), tag(0), counter(0), useful(false), pc(0) {}
 
@@ -74,11 +74,11 @@ class BTBTAGE : public TimedBaseBTBPredictor
     struct TagePrediction
     {
         public:
-            Addr btb_pc;           // Branch target buffer PC
+            Addr btb_pc;           // btb entry pc, same as tage entry pc
             TageTableInfo mainInfo; // Main prediction info
             TageTableInfo altInfo;  // Alternative prediction info
-            bool useAlt;           // Whether to use alternative prediction
-            bool taken;            // Final prediction (taken/not taken)
+            bool useAlt;           // Whether to use alternative prediction, true if main is weak or no main prediction
+            bool taken;            // Final prediction (taken/not taken) = use_alt ? alt_provided ? alt_taken : base_taken : main_taken
 
             TagePrediction() : btb_pc(0), useAlt(false), taken(false) {}
 
@@ -102,10 +102,10 @@ class BTBTAGE : public TimedBaseBTBPredictor
 
     std::shared_ptr<void> getPredictionMeta() override;
 
-    // Update branch history for speculative execution
+    // speculative update 3 folded history, according history and pred.taken
     void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
 
-    // Recover branch history after a misprediction
+    // Recover 3 folded history after a misprediction, then update 3 folded history according to history and pred.taken
     void recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken) override;
 
     // Update predictor state based on actual branch outcomes
