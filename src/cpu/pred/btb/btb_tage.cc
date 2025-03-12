@@ -17,6 +17,7 @@ namespace branch_prediction {
 
 namespace btb_pred{
 
+// Constructor: Initialize TAGE predictor with given parameters
 BTBTAGE::BTBTAGE(const Params& p):
 TimedBaseBTBPredictor(p),
 numPredictors(p.numPredictors),
@@ -67,6 +68,7 @@ BTBTAGE::~BTBTAGE()
 {
 }
 
+// Set up tracing for debugging
 void
 BTBTAGE::setTrace()
 {
@@ -104,10 +106,11 @@ BTBTAGE::tick() {}
 void
 BTBTAGE::tickStart() {}
 
+// Helper function to look up predictions in TAGE tables for a stream of instructions
 std::map<Addr, bool>
 BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntries)
 {
-    // clear old metas
+    // Step 1: Clear old prediction metadata and save current history state
     meta.preds.clear();
     // assign history for meta
     meta.tagFoldedHist = tagFoldedHist;
@@ -115,11 +118,15 @@ BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntri
     meta.indexFoldedHist = indexFoldedHist;
 
     DPRINTF(TAGE, "lookupHelper startAddr: %#lx\n", startPC);
+    
+    // Step 2: Look up all TAGE tables for the given start PC
     std::vector<TageEntry> entries;
     std::vector<Addr> indices, tags;
     bitset useful_mask(numPredictors, false);
     // all btb entries should use the same lookup result
     // but each btb entry can use prediction from different tables
+    
+    // For each TAGE table, calculate index and tag, then look up the entry
     for (int i = 0; i < numPredictors; ++i) {
         Addr index = getTageIndex(startPC, i);
         Addr tag = getTageTag(startPC, i);
@@ -133,28 +140,37 @@ BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntri
     }
     meta.usefulMask = useful_mask;
 
+    // Step 3: Process each BTB entry to make predictions
     std::vector<TagePrediction> preds;
     std::map<Addr, bool> cond_takens;
+    
     for (auto &btb_entry : btbEntries) {
+        // Only predict for valid conditional branches
         if (btb_entry.isCond && btb_entry.valid) {
-            DPRINTF(TAGE, "lookupHelper btbEntry: %#lx, always taken %d\n", btb_entry.pc, btb_entry.alwaysTaken);
+            DPRINTF(TAGE, "lookupHelper btbEntry: %#lx, always taken %d\n", 
+                btb_entry.pc, btb_entry.alwaysTaken);
+            
+            // Step 3.1: Find main and alternative predictions
             bool provided = false;
             bool alt_provided = false;
-
             TageTableInfo main_info, alt_info;
 
+            // Search from highest to lowest table for matches
             for (int i = numPredictors - 1; i >= 0; --i) {
                 auto &way = entries[i];
                 // TODO: count alias hit (offset match but pc differs)
+                // Check if entry matches (valid, tag matches, and PC matches)
                 bool match = way.valid && tags[i] == way.tag && btb_entry.pc == way.pc;
                 DPRINTF(TAGE, "hit %d, table %d, index %d, lookup tag %d, tag %d, useful %d, btb_pc %#lx, entry_pc %#lx\n",
                     match, i, indices[i], tags[i], way.tag, way.useful, btb_entry.pc, way.pc);
 
                 if (match) {
                     if (!provided) {
+                        // First match becomes main prediction
                         main_info = TageTableInfo(true, way, i, indices[i], tags[i]);
                         provided = true;
                     } else if (!alt_provided) {
+                        // Second match becomes alternative prediction
                         alt_info = TageTableInfo(true, way, i, indices[i], tags[i]);
                         alt_provided = true;
                         break;
@@ -162,20 +178,26 @@ BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntri
                 }
             }
 
+            // Step 3.2: Determine final prediction
             bool main_taken = main_info.taken();
             bool alt_taken = alt_info.taken();
             bool base_taken = btb_entry.ctr >= 0;
 
+            // Use alternative prediction if available, otherwise use base prediction
             bool alt_pred = alt_provided ? alt_taken : base_taken;
 
             // TODO: dynamic control whether to use alt prediction
+            // Step 3.3: Decide whether to use alternative prediction
+            // Use alternative if main prediction is weak (counter = 0 or -1) or no main prediction
             bool use_alt = main_info.entry.counter == 0 || main_info.entry.counter == -1 || !provided;
             bool taken = use_alt ? alt_pred : main_taken;
             DPRINTF(TAGE, "tage predict %#lx taken %d\n", btb_entry.pc, taken);
 
+            // Step 3.4: Save prediction and update statistics
             TagePrediction pred(btb_entry.pc, main_info, alt_info, use_alt, taken);
             meta.preds[btb_entry.pc] = pred;
             tageStats.updateStatsWithTagePrediction(pred, true);
+            // Consider branch as taken if either predicted taken or always taken
             cond_takens[btb_entry.pc] = taken || btb_entry.alwaysTaken;
         }
     }
@@ -204,34 +226,39 @@ BTBTAGE::getPredictionMeta() {
     return meta_void_ptr;
 }
 
+// Update predictor state based on actual branch outcomes
 void
 BTBTAGE::update(const FetchStream &stream)
 {
-
+    // Step 1: Get the starting address and prepare entries to update
     Addr startAddr = stream.getRealStartPC();
     DPRINTF(TAGE, "update startAddr: %#lx\n", startAddr);
     // update at the basis of btb entries
+    // Get all BTB entries that need to be updated
     auto all_entries_to_update = stream.updateBTBEntries;
     // only update conditional branches that is not always taken
+    // Filter out non-conditional branches and always-taken branches
     auto remove_it = std::remove_if(all_entries_to_update.begin(), all_entries_to_update.end(),
         [](const BTBEntry &e) { return !e.isCond && !e.alwaysTaken; });
     all_entries_to_update.erase(remove_it, all_entries_to_update.end());
 
-    // check if pred btb miss branch need to be updated
+    // Step 2: Handle potential new BTB entries
     auto &potential_new_entry = stream.updateNewBTBEntry;
     if (!stream.updateIsOldEntry && potential_new_entry.isCond && !potential_new_entry.alwaysTaken) {
         all_entries_to_update.push_back(potential_new_entry);
     }
 
-    // get tage predictions and branch history info from meta
+    // Step 3: Get prediction metadata and history information
     auto meta = std::static_pointer_cast<TageMeta>(stream.predMetas[getComponentIdx()]);
     auto preds = meta->preds;
     auto updateTagFoldedHist = meta->tagFoldedHist;
     auto updateAltTagFoldedHist = meta->altTagFoldedHist;
     auto updateIndexFoldedHist = meta->indexFoldedHist;
     auto &stat = tageStats;
-    // update each branch
+
+    // Step 4: Update each branch prediction
     for (auto &btb_entry : all_entries_to_update) {
+        // Step 4.1: Get actual branch outcome and prediction
         bool this_cond_actual_taken = stream.exeTaken && stream.exeBranchInfo == btb_entry;
         auto pred_it = preds.find(btb_entry.pc);
         TagePrediction pred;
@@ -239,30 +266,38 @@ BTBTAGE::update(const FetchStream &stream)
             pred = pred_it->second;
         }
         tageStats.updateStatsWithTagePrediction(pred, false);
+
+        // Step 4.2: Analyze main prediction
         auto &main_info = pred.mainInfo;
         bool &main_found = main_info.found;
         auto &main_counter = main_info.entry.counter;
         bool main_taken = main_counter >= 0;
         bool main_weak  = main_counter == 0 || main_counter == -1;
 
+        // Step 4.3: Analyze alternative prediction
         bool &used_alt = pred.useAlt;
         auto &alt_info = pred.altInfo;
         bool base_as_alt = !alt_info.found;
         bool alt_taken = base_as_alt ? btb_entry.ctr >= 0 : alt_info.entry.counter >= 0;
         bool alt_diff = main_taken != alt_taken;
-        // update provider
+
+        // Step 4.4: Update main prediction provider
         if (main_found) {
             DPRINTF(TAGE, "prediction provided by table %d, idx %d, updating corresponding entry\n",
                 main_info.table, main_info.index);
             auto &way = tageTable[main_info.table][main_info.index];
+            
+            // Update useful bit if predictions differ
             if (alt_diff) {
                 way.useful = this_cond_actual_taken == main_taken;
             }
             DPRINTF(TAGE, "useful bit set to %d\n", way.useful);
+            
+            // Update prediction counter
             updateCounter(this_cond_actual_taken, 3, way.counter);
         }
 
-        // update alt provider
+        // Step 4.5: Update alternative prediction provider
         if (used_alt && !base_as_alt) {
             auto &way = tageTable[alt_info.table][alt_info.index];
             updateCounter(this_cond_actual_taken, 3, way.counter);
@@ -286,6 +321,7 @@ BTBTAGE::update(const FetchStream &stream)
         }
 
         // TODO: stats on use-alt-on-na
+        // Step 4.6: Handle mispredictions and allocation
         bool this_cond_mispred = stream.squashType == SquashType::SQUASH_CTRL && stream.squashPC == btb_entry.pc;
         if (this_cond_mispred) {
             tageStats.updateMispred++;
@@ -294,12 +330,13 @@ BTBTAGE::update(const FetchStream &stream)
             }
         }
 
+        // Step 4.7: Determine if new entry allocation is needed
         bool use_alt_on_main_found_correct = used_alt && main_found && main_taken == this_cond_actual_taken;
         bool need_to_allocate = this_cond_mispred && !use_alt_on_main_found_correct;
         DPRINTF(TAGE, "this_cond_mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
             this_cond_mispred, use_alt_on_main_found_correct, need_to_allocate);
         
-        // useful bit reset algorithm
+        // Step 4.8: Handle useful bit reset algorithm
         std::string useful_str;
         boost::to_string(meta->usefulMask, useful_str);
         auto useful_mask = meta->usefulMask;
@@ -315,6 +352,8 @@ BTBTAGE::update(const FetchStream &stream)
         bool incUsefulResetCounter = num_tables_can_allocate < (total_tables_to_allocate - num_tables_can_allocate);
         bool decUsefulResetCounter = num_tables_can_allocate > (total_tables_to_allocate - num_tables_can_allocate);
         int changeVal = std::abs(num_tables_can_allocate - (total_tables_to_allocate - num_tables_can_allocate));
+        
+        // Step 4.9: Update useful reset counter and reset useful bits if needed
         if (need_to_allocate) {
             if (incUsefulResetCounter) { // need modify: clear the useful bit of all entries
                 tageStats.updateResetUCtrInc.sample(changeVal, 1);
@@ -345,13 +384,15 @@ BTBTAGE::update(const FetchStream &stream)
             }
         }
 
-        // allocate new entry
+        // Step 4.10: Allocate new entries if needed
         bool alloc_success, alloc_failure;
         if (need_to_allocate) {
-            // allocate new entry
+            // Generate allocation mask using LFSR
             unsigned maskMaxNum = std::pow(2, alloc_table_num);
             unsigned mask = allocLFSR.get() % maskMaxNum;
             bitset allocateLFSR(alloc_table_num, mask);
+            
+            // Debug output for allocation process
             std::string buf;
             boost::to_string(allocateLFSR, buf);
             DPRINTF(TAGEUseful, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
@@ -364,8 +405,11 @@ BTBTAGE::update(const FetchStream &stream)
             bitset allocate = masked.any() ? masked : flipped_usefulMask;
             boost::to_string(allocate, buf);
             DPRINTF(TAGEUseful, "allocate %s, size %d\n", buf, allocate.size());
+            
+            // Initialize new counter based on actual outcome
             short newCounter = this_cond_actual_taken ? 0 : -1;
 
+            // Step 4.11: Perform allocation if possible
             bool allocateValid = flipped_usefulMask.any();
             if (allocateValid) {
                 DPRINTF(TAGE, "allocate new entry\n");
@@ -373,6 +417,7 @@ BTBTAGE::update(const FetchStream &stream)
                 alloc_success = true;
                 unsigned startTable = main_found ? main_info.table + 1 : 0;
 
+                // Try to allocate in each table according to allocation mask
                 for (int ti = startTable; ti < numPredictors; ti++) {
                     Addr newIndex = getTageIndex(startAddr, ti, updateIndexFoldedHist[ti].get());
                     Addr newTag = getTageTag(startAddr, ti, updateTagFoldedHist[ti].get(), updateAltTagFoldedHist[ti].get());
@@ -395,6 +440,7 @@ BTBTAGE::update(const FetchStream &stream)
     DPRINTF(TAGE, "end update\n");
 }
 
+// Update prediction counter with saturation
 void
 BTBTAGE::updateCounter(bool taken, unsigned width, short &counter) {
     int max = (1 << (width-1)) - 1;
@@ -406,6 +452,7 @@ BTBTAGE::updateCounter(bool taken, unsigned width, short &counter) {
     }
 }
 
+// Calculate TAGE tag with folded history
 Addr
 BTBTAGE::getTageTag(Addr pc, int t, bitset &foldedHist, bitset &altFoldedHist)
 {
@@ -467,6 +514,7 @@ BTBTAGE::getUseAltIdx(Addr pc) {
     return (pc >> instShiftAmt) & (useAlt.size() - 1); // need modify
 }
 
+// Update branch history
 void
 BTBTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
 {
@@ -488,6 +536,7 @@ BTBTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool ta
     }
 }
 
+// Update branch history for speculative execution
 void
 BTBTAGE::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred)
 {
@@ -497,6 +546,7 @@ BTBTAGE::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPredictio
     doUpdateHist(history, shamt, cond_taken);
 }
 
+// Recover branch history after a misprediction
 void
 BTBTAGE::recoverHist(const boost::dynamic_bitset<> &history,
     const FetchStream &entry, int shamt, bool cond_taken)
@@ -510,6 +560,7 @@ BTBTAGE::recoverHist(const boost::dynamic_bitset<> &history,
     doUpdateHist(history, shamt, cond_taken);
 }
 
+// Check folded history after speculative update and recovery
 void
 BTBTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
 {
@@ -528,6 +579,7 @@ BTBTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
     }
 }
 
+// Constructor for TAGE statistics
 BTBTAGE::TageStats::TageStats(statistics::Group* parent, int numPredictors):
     statistics::Group(parent),
     ADD_STAT(predTableHits, statistics::units::Count::get(), "hit of each tage table on prediction"),
@@ -563,6 +615,7 @@ BTBTAGE::TageStats::TageStats(statistics::Group* parent, int numPredictors):
     updateTableMispreds.init(numPredictors);
 }
 
+// Update statistics based on TAGE prediction
 void
 BTBTAGE::TageStats::updateStatsWithTagePrediction(const TagePrediction &pred, bool when_pred)
 {

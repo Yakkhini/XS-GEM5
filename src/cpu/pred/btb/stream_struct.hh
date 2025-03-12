@@ -3,7 +3,7 @@
 
 #include <boost/dynamic_bitset.hpp>
 
-#include "arch/generic/pcstate.hh"
+// #include "arch/generic/pcstate.hh"
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
 #include "cpu/pred/general_arch_db.hh"

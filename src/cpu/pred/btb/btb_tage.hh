@@ -33,14 +33,15 @@ class BTBTAGE : public TimedBaseBTBPredictor
   public:
     typedef BTBTAGEParams Params;
 
+    // Represents a single entry in the TAGE prediction table
     struct TageEntry
     {
         public:
-            bool valid;
-            Addr tag;
-            short counter;
-            bool useful;
-            Addr pc; // TODO: should use lowest bits only
+            bool valid;      // Whether this entry is valid
+            Addr tag;       // Tag for matching
+            short counter;  // Prediction counter (-1 to 1)
+            bool useful;    // Whether this entry is useful for prediction
+            Addr pc;        // Program counter of the branch
 
             TageEntry() : valid(false), tag(0), counter(0), useful(false), pc(0) {}
 
@@ -52,14 +53,15 @@ class BTBTAGE : public TimedBaseBTBPredictor
 
     };
 
+    // Contains information about a TAGE table lookup
     struct TageTableInfo
     {
         public:
-            bool found;
-            TageEntry entry;
-            unsigned table;
-            Addr index;
-            Addr tag;
+            bool found;     // Whether a matching entry was found
+            TageEntry entry; // The matching entry
+            unsigned table; // Which table this entry was found in
+            Addr index;     // Index in the table
+            Addr tag;       // Tag that was matched
             TageTableInfo() : found(false), table(0), index(0), tag(0) {}
             TageTableInfo(bool found, TageEntry entry, unsigned table, Addr index, Addr tag) :
                         found(found), entry(entry), table(table), index(index), tag(tag) {}
@@ -68,16 +70,15 @@ class BTBTAGE : public TimedBaseBTBPredictor
             }
     };
 
+    // Contains the complete prediction result
     struct TagePrediction
     {
         public:
-            Addr btb_pc;
-            TageTableInfo mainInfo;
-            TageTableInfo altInfo;
-
-            bool useAlt;
-            // bitset usefulMask;
-            bool taken;
+            Addr btb_pc;           // Branch target buffer PC
+            TageTableInfo mainInfo; // Main prediction info
+            TageTableInfo altInfo;  // Alternative prediction info
+            bool useAlt;           // Whether to use alternative prediction
+            bool taken;            // Final prediction (taken/not taken)
 
             TagePrediction() : btb_pc(0), useAlt(false), taken(false) {}
 
@@ -85,8 +86,6 @@ class BTBTAGE : public TimedBaseBTBPredictor
                             bool useAlt, bool taken) :
                             btb_pc(btb_pc), mainInfo(mainInfo), altInfo(altInfo),
                             useAlt(useAlt), taken(taken) {}
-
-
     };
 
   public:
@@ -96,17 +95,20 @@ class BTBTAGE : public TimedBaseBTBPredictor
     void tickStart() override;
 
     void tick() override;
-    // make predictions, record in stage preds
+    // Make predictions for a stream of instructions and record in stage preds
     void putPCHistory(Addr startAddr,
                       const boost::dynamic_bitset<> &history,
                       std::vector<FullBTBPrediction> &stagePreds) override;
 
     std::shared_ptr<void> getPredictionMeta() override;
 
+    // Update branch history for speculative execution
     void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
 
+    // Recover branch history after a misprediction
     void recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken) override;
 
+    // Update predictor state based on actual branch outcomes
     void update(const FetchStream &entry) override;
 
     void commitBranch(const FetchStream &stream, const DynInstPtr &inst) override;
@@ -119,81 +121,114 @@ class BTBTAGE : public TimedBaseBTBPredictor
 
   private:
 
-    // return condTakens
+    // Look up predictions in TAGE tables for a stream of instructions
     std::map<Addr, bool> lookupHelper(const Addr &stream_start, const std::vector<BTBEntry> &btbEntries);
 
-    // use blockPC
+    // Calculate TAGE index for a given PC and table
     Addr getTageIndex(Addr pc, int table);
 
-    // use blockPC
+    // Calculate TAGE index with folded history
     Addr getTageIndex(Addr pc, int table, bitset &foldedHist);
 
-    // use blockPC
+    // Calculate TAGE tag for a given PC and table
     Addr getTageTag(Addr pc, int table);
 
-    // use blockPC
+    // Calculate TAGE tag with folded history
     Addr getTageTag(Addr pc, int table, bitset &foldedHist, bitset &altFoldedHist);
 
+    // Get offset within a block for a given PC
     Addr getOffset(Addr pc) {
         return (pc & (blockSize - 1)) >> 1;
     }
 
-    // unsigned getBaseTableIndex(Addr pc);
-
+    // Update branch history
     void doUpdateHist(const bitset &history, int shamt, bool taken);
 
+    // Number of TAGE predictor tables
     const unsigned numPredictors;
 
+    // Size of each prediction table
     std::vector<unsigned> tableSizes;
+
+    // Number of bits used for indexing each table
     std::vector<unsigned> tableIndexBits;
+
+    // Masks for table indexing
     std::vector<bitset> tableIndexMasks;
-    // std::vector<uint64_t> tablePcMasks;
+
+    // Number of bits used for tags in each table
     std::vector<unsigned> tableTagBits;
+
+    // Masks for tag matching
     std::vector<bitset> tableTagMasks;
+
+    // PC shift amounts for each table
     std::vector<unsigned> tablePcShifts;
+
+    // History lengths for each table
     std::vector<unsigned> histLengths;
+
+    // Folded history for tag calculation
     std::vector<FoldedHist> tagFoldedHist;
+
+    // Folded history for alternative tag calculation
     std::vector<FoldedHist> altTagFoldedHist;
+
+    // Folded history for index calculation
     std::vector<FoldedHist> indexFoldedHist;
 
+    // Linear feedback shift register for allocation
     LFSR64 allocLFSR;
 
+    // Maximum history length
     unsigned maxHistLen;
 
+    // The actual TAGE prediction tables
     std::vector<std::vector<TageEntry>> tageTable;
 
-    // std::vector<std::vector<short>> baseTable;
-
+    // Table for tracking when to use alternative prediction
     std::vector<std::vector<short>> useAlt;
 
+    // Check if a tag matches
     bool matchTag(Addr expected, Addr found);
 
+    // Set tag bits for a given table
     void setTag(Addr &dest, Addr src, int table);
 
+    // Debug flag
     bool debugFlagOn{false};
 
+    // Number of tables to allocate on misprediction
     unsigned numTablesToAlloc;
 
+    // Instruction shift amount
     unsigned instShiftAmt {1};
 
+    // Update prediction counter with saturation
     void updateCounter(bool taken, unsigned width, short &counter);
 
+    // Increment counter with saturation
     bool satIncrement(int max, short &counter);
 
+    // Decrement counter with saturation
     bool satDecrement(int min, short &counter);
 
+    // Get index for useAlt table
     Addr getUseAltIdx(Addr pc);
 
+    // Counter for useful bit reset algorithm
     int usefulResetCnt;
 
-
-
+    // Cache for TAGE indices
     std::vector<Addr> tageIndex;
 
+    // Cache for TAGE tags
     std::vector<Addr> tageTag;
 
+    // Whether statistical corrector is enabled
     bool enableSC;
 
+    // Statistics for TAGE predictor
     struct TageStats : public statistics::Group {
         statistics::Distribution predTableHits;
         statistics::Scalar predNoHitUseBim;
@@ -223,21 +258,6 @@ class BTBTAGE : public TimedBaseBTBPredictor
 
         statistics::Vector updateTableMispreds;
 
-        // statistics::Scalar scAgreeAtPred;
-        // statistics::Scalar scAgreeAtCommit;
-        // statistics::Scalar scDisagreeAtPred;
-        // statistics::Scalar scDisagreeAtCommit;
-        // statistics::Scalar scConfAtPred;
-        // statistics::Scalar scConfAtCommit;
-        // statistics::Scalar scUnconfAtPred;
-        // statistics::Scalar scUnconfAtCommit;
-        // statistics::Scalar scUpdateOnMispred;
-        // statistics::Scalar scUpdateOnUnconf;
-        // statistics::Scalar scUsedAtPred;
-        // statistics::Scalar scUsedAtCommit;
-        // statistics::Scalar scCorrectTageWrong;
-        // statistics::Scalar scWrongTageCorrect;
-
         int bankIdx;
         int numPredictors;
 
@@ -251,25 +271,23 @@ class BTBTAGE : public TimedBaseBTBPredictor
 
 public:
 
+    // Recover folded history after misprediction
     void recoverFoldedHist(const bitset& history);
 
-    // void checkFoldedHist(const bitset& history);
 public:
 
 private:
-    // using SCMeta = StatisticalCorrector::SCMeta;
+    // Metadata for TAGE predictions
     typedef struct TageMeta {
         std::map<Addr, TagePrediction> preds;
         bitset usefulMask;
         std::vector<FoldedHist> tagFoldedHist;
         std::vector<FoldedHist> altTagFoldedHist;
         std::vector<FoldedHist> indexFoldedHist;
-        // SCMeta scMeta;
         TageMeta(std::map<Addr, TagePrediction> preds, bitset usefulMask, std::vector<FoldedHist> tagFoldedHist,
-            std::vector<FoldedHist> altTagFoldedHist, std::vector<FoldedHist> indexFoldedHist/* , SCMeta scMeta */) :
+            std::vector<FoldedHist> altTagFoldedHist, std::vector<FoldedHist> indexFoldedHist) :
             preds(preds), usefulMask(usefulMask), tagFoldedHist(tagFoldedHist),
-            altTagFoldedHist(altTagFoldedHist), indexFoldedHist(indexFoldedHist)/* ,
-            scMeta(scMeta) */ {}
+            altTagFoldedHist(altTagFoldedHist), indexFoldedHist(indexFoldedHist) {}
         TageMeta() {}
         TageMeta(const TageMeta &other) {
             preds = other.preds;
