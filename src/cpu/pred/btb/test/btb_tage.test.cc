@@ -630,12 +630,12 @@ TEST_F(BTBTAGETest, MultipleBranchSequence) {
         int actual_shamt;          // actual shift amount
     };
 
+    // only one branch taken
     std::vector<BranchGroupTest> test_groups = {
         {{false, false, false}, {false, false, false}, false, 3, false, 3},  // all NT
-        {{false, true, true}, {false, true, true}, true, 2, true, 2},      // NT,T,T -> update T
-        {{true, false, true}, {true, false, true}, true, 1, true, 1},      // T,NT,T -> update T
+        {{false, true, false}, {false, true, false}, true, 2, true, 2},      // NT,T,NT -> update T
         {{false, false, true}, {false, false, true}, true, 3, true, 3},    // NT,NT,T -> update T
-        {{true, true, true}, {false, false, false}, true, 1, false, 3}     // all T, actual all NT
+        {{true, false, false}, {false, false, false}, true, 1, false, 1}     // all T, actual all NT
     };
 
     for (const auto& group : test_groups) {
@@ -684,10 +684,11 @@ TEST_F(BTBTAGETest, MultipleBranchSequence) {
 
             if (predicted_taken != actual_taken) {
                 // Handle misprediction
-                tage->recoverHist(history, stream, group.actual_shamt, group.actual_hist_taken);
+                // recover GHR first, then recover folded history
                 history >>= group.actual_shamt;
                 history <<= group.actual_shamt;
                 history[0] = group.actual_hist_taken;
+                tage->recoverHist(history, stream, group.actual_shamt, group.actual_hist_taken);
                 tage->checkFoldedHist(history, "recover");
 
                 // Re-predict after recovery
