@@ -306,18 +306,21 @@ BTBITTAGE::update(const FetchStream &stream)
             unsigned maskMaxNum = std::pow(2, alloc_table_num);
             unsigned mask = allocLFSR.get() % maskMaxNum;
             bitset allocateLFSR(alloc_table_num, mask);
-            std::string buf;
-            boost::to_string(allocateLFSR, buf);
-            DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
+
             auto flipped_usefulMask = useful_mask.flip();
-            boost::to_string(flipped_usefulMask, buf);
-            DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", buf, useful_mask.size());
             bitset masked = allocateLFSR & flipped_usefulMask;
-            boost::to_string(masked, buf);
-            DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", buf, masked.size());
             bitset allocate = masked.any() ? masked : flipped_usefulMask;
-            boost::to_string(allocate, buf);
-            DPRINTF(ITTAGE || debugFlag, "allocate %s, size %d\n", buf, allocate.size());
+            if (debugFlag) {
+                std::string buf;
+                boost::to_string(allocateLFSR, buf);
+                DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
+                boost::to_string(flipped_usefulMask, buf);
+                DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", buf, useful_mask.size());
+                boost::to_string(masked, buf);
+                DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", buf, masked.size());
+                boost::to_string(allocate, buf);
+                DPRINTF(ITTAGE || debugFlag, "allocate %s, size %d\n", buf, allocate.size());
+            }
 
             bool allocateValid = flipped_usefulMask.any();
             if (needToAllocate && allocateValid) {
@@ -415,9 +418,11 @@ BTBITTAGE::satDecrement(int min, short &counter)
 void
 BTBITTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
 {
-    std::string buf;
-    boost::to_string(history, buf);
-    DPRINTF(ITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf);
+    if (debugFlag) {
+        std::string buf;
+        boost::to_string(history, buf);
+        DPRINTF(ITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf);
+    }
     if (shamt == 0) {
         DPRINTF(ITTAGE || debugFlag, "shamt is 0, returning\n");
         return;
@@ -459,10 +464,12 @@ BTBITTAGE::recoverHist(const boost::dynamic_bitset<> &history,
 void
 BTBITTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
 {
-    DPRINTF(ITTAGE || debugFlag, "checking folded history when %s\n", when);
-    std::string hist_str;
-    boost::to_string(hist, hist_str);
-    DPRINTF(ITTAGE || debugFlag, "history:\t%s\n", hist_str.c_str());
+    if (debugFlag) {
+        DPRINTF(ITTAGE || debugFlag, "checking folded history when %s\n", when);
+        std::string hist_str;
+        boost::to_string(hist, hist_str);
+        DPRINTF(ITTAGE || debugFlag, "history:\t%s\n", hist_str.c_str());
+    }
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 2; type++) {
             DPRINTF(ITTAGE || debugFlag, "t: %d, type: %d\n", t, type);

@@ -350,11 +350,12 @@ BTBTAGE::update(const FetchStream &stream)
             this_cond_mispred, use_alt_on_main_found_correct, need_to_allocate);
         
         // Step 4.8: Handle useful bit reset algorithm
-        std::string useful_str;
-        boost::to_string(meta->usefulMask, useful_str);
+        if (debugFlagOn) {
+            std::string useful_str;
+            boost::to_string(meta->usefulMask, useful_str);
+            DPRINTF(TAGEUseful, "useful mask: %s\n", useful_str.c_str());
+        }
         auto useful_mask = meta->usefulMask;
-
-        DPRINTF(TAGEUseful, "useful mask: %s\n", useful_str.c_str());
         int alloc_table_num = numPredictors - (main_info.found ? main_info.table + 1 : 0); // number of tables can allocate
         if (main_info.found) {
             useful_mask >>= main_info.table + 1;
@@ -406,18 +407,18 @@ BTBTAGE::update(const FetchStream &stream)
             bitset allocateLFSR(alloc_table_num, mask);
             
             // Debug output for allocation process
-            std::string buf;
-            boost::to_string(allocateLFSR, buf);
-            DPRINTF(TAGEUseful, "allocateLFSR %s, size %lu\n", buf.c_str(), allocateLFSR.size());
             auto flipped_usefulMask = ~useful_mask;
-            boost::to_string(flipped_usefulMask, buf);
-            DPRINTF(TAGEUseful, "pred flipped usefulmask %s, size %lu\n", buf.c_str(), useful_mask.size());
             bitset masked = allocateLFSR & flipped_usefulMask;
-            boost::to_string(masked, buf);
-            DPRINTF(TAGEUseful, "masked %s, size %lu\n", buf.c_str(), masked.size());
             bitset allocate = masked.any() ? masked : flipped_usefulMask;
-            boost::to_string(allocate, buf);
-            DPRINTF(TAGEUseful, "allocate %s, size %lu\n", buf.c_str(), allocate.size());
+            if (debugFlagOn) {
+                std::string buf;
+                boost::to_string(allocateLFSR, buf);
+                DPRINTF(TAGEUseful, "allocateLFSR %s, size %lu\n", buf.c_str(), allocateLFSR.size());
+                boost::to_string(masked, buf);
+                DPRINTF(TAGEUseful, "masked %s, size %lu\n", buf.c_str(), masked.size());
+                boost::to_string(allocate, buf);
+                DPRINTF(TAGEUseful, "allocate %s, size %lu\n", buf.c_str(), allocate.size());
+            }
             
             // Initialize new counter based on actual outcome
             short newCounter = this_cond_actual_taken ? 0 : -1;
@@ -542,9 +543,11 @@ BTBTAGE::getUseAltIdx(Addr pc) {
 void
 BTBTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
 {
-    std::string buf;
-    boost::to_string(history, buf);
-    DPRINTF(TAGE, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf.c_str());
+    if (debugFlagOn) {
+        std::string buf;
+        boost::to_string(history, buf);
+        DPRINTF(TAGE, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf.c_str());
+    }
     if (shamt == 0) {
         DPRINTF(TAGE, "shamt is 0, returning\n");
         return;
@@ -612,9 +615,11 @@ void
 BTBTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
 {
     DPRINTF(TAGE, "checking folded history when %s\n", when);
-    std::string hist_str;
-    boost::to_string(hist, hist_str);
-    DPRINTF(TAGE, "history:\t%s\n", hist_str.c_str());
+    if (debugFlagOn) {
+        std::string hist_str;
+        boost::to_string(hist, hist_str);
+        DPRINTF(TAGE, "history:\t%s\n", hist_str.c_str());
+    }
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 3; type++) {
 
