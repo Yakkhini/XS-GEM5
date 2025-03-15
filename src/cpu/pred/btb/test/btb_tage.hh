@@ -52,10 +52,9 @@ class BTBTAGE
 
             TageEntry(Addr tag, short counter, Addr pc) :
                       valid(true), tag(tag), counter(counter), useful(false), pc(pc) {}
-            bool taken() {
+            bool taken() const {
                 return counter >= 0;
             }
-
     };
 
     // Contains information about a TAGE table lookup
@@ -70,7 +69,7 @@ class BTBTAGE
             TageTableInfo() : found(false), table(0), index(0), tag(0) {}
             TageTableInfo(bool found, TageEntry entry, unsigned table, Addr index, Addr tag) :
                         found(found), entry(entry), table(table), index(index), tag(tag) {}
-            bool taken() {
+            bool taken() const {
                 return entry.taken();
             }
     };
@@ -91,6 +90,24 @@ class BTBTAGE
                             bool useAlt, bool taken) :
                             btb_pc(btb_pc), mainInfo(mainInfo), altInfo(altInfo),
                             useAlt(useAlt), taken(taken) {}
+    };
+
+    // Structure to hold TAGE table lookup results
+    struct TableLookupResult {
+        std::vector<TageEntry> entries;  // Entries found in each table
+        std::vector<Addr> indices;       // Indices used for lookup
+        std::vector<Addr> tags;          // Tags used for lookup
+        bitset useful_mask;              // Mask of useful bits from entries
+
+        TableLookupResult() {}
+    };
+
+    // Structure to hold allocation results
+    struct AllocationResult {
+        bool allocate_valid;             // Whether allocation is valid
+        bitset allocate_mask;            // Mask for allocation
+        
+        AllocationResult() : allocate_valid(false) {}
     };
 
   public:
@@ -308,18 +325,51 @@ public:
             tagFoldedHist = other.tagFoldedHist;
             altTagFoldedHist = other.altTagFoldedHist;
             indexFoldedHist = other.indexFoldedHist;
+            // scMeta = other.scMeta;
         }
     } TageMeta;
 
 private:
+    // Helper method to lookup entries in all TAGE tables
+    TableLookupResult lookupTageTable(const Addr &startPC);
+
+    // Helper method to generate prediction for a single BTB entry
+    TagePrediction generateSinglePrediction(const BTBEntry &btb_entry, 
+                                          const TableLookupResult &table_result);
+
+    // Helper method to prepare BTB entries for update
+    std::vector<BTBEntry> prepareUpdateEntries(const FetchStream &stream);
+
+    // Helper method to update predictor state for a single entry
+    bool updatePredictorStateAndCheckAllocation(const BTBEntry &entry, 
+                                 bool actual_taken,
+                                 const TagePrediction &pred,
+                                 const FetchStream &stream);
+
+    // Helper method to handle useful bit reset
+    void handleUsefulBitReset(const bitset &useful_mask);
+
+    // Helper method to handle new entry allocation
+    void handleNewEntryAllocation(const Addr &startPC,
+                                 const BTBEntry &entry,
+                                 bool actual_taken,
+                                 const bitset &useful_mask,
+                                 unsigned main_table,
+                                 std::shared_ptr<TageMeta> meta);
+
+    // Helper method to generate allocation mask
+    AllocationResult generateAllocationMask(const bitset &useful_mask,
+                                          unsigned start_table);
+
     TageMeta meta;
-};
-}
+}; // end of class BTBTAGE
 
-}
+}   // end of namespace test
 
-}
+}   // end of namespace btb_pred
 
-}
+}   // end of namespace branch_prediction
+
+}   // end of namespace gem5
 
 #endif  // __CPU_PRED_BTB_TAGE_HH__
