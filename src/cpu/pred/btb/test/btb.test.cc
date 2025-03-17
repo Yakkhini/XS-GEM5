@@ -11,7 +11,7 @@ namespace branch_prediction
 namespace btb_pred
 {
 
-namespace mockBTB
+namespace test
 {
 
 // Test fixture for BTB tests
@@ -19,8 +19,8 @@ class BTBTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create a BTB with 16 entries, 8-bit tags, and 4-way set associative
-        ubtb = new MockDefaultBTB(16, 8, 4, 0);  // ubtb
-        mbtb = new MockDefaultBTB(16, 8, 4, 1); // mbtb
+        ubtb = new DefaultBTB(16, 8, 4, 0);  // ubtb
+        mbtb = new DefaultBTB(16, 8, 4, 1); // mbtb
     }
     
     void TearDown() override {
@@ -28,14 +28,14 @@ protected:
         delete mbtb;
     }
     
-    MockDefaultBTB* ubtb;
-    MockDefaultBTB* mbtb;
+    DefaultBTB* ubtb;
+    DefaultBTB* mbtb;
 };
 
 // Test basic initialization
 TEST_F(BTBTest, Initialization) {
     // Create a new BTB with different parameters
-    MockDefaultBTB testBtb(32, 12, 8, 0);
+    DefaultBTB testBtb(32, 12, 8, 0);
     // Basic initialization test passes if no crashes/assertions
     SUCCEED();
 }
@@ -383,7 +383,7 @@ TEST_F(BTBTest, MispredictionRecovery) {
     }
 }
 
-} // namespace mockBTB
+} // namespace test
 } // namespace btb_pred
 } // namespace branch_prediction
 } // namespace gem5

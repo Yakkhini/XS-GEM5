@@ -40,7 +40,7 @@ namespace branch_prediction
 namespace btb_pred
 {
 
-namespace mockBTB
+namespace test
 {
 
 /*
@@ -50,7 +50,7 @@ namespace mockBTB
  * - MRU tracking for each set
  * - Address calculation parameters (index/tag masks and shifts)
  */
-MockDefaultBTB::MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay)
+DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay)
     : numEntries(numEntries),
     numWays(numWays),
     tagBits(tagBits),
@@ -100,8 +100,8 @@ MockDefaultBTB::MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned n
  * 1. Sort entries by PC order
  * 2. Remove entries before the start PC
  */
-std::vector<MockDefaultBTB::TickedBTBEntry>
-MockDefaultBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr startAddr)
+std::vector<DefaultBTB::TickedBTBEntry>
+DefaultBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr startAddr)
 {
     int hitNum = entries.size();
     bool hit = hitNum > 0;
@@ -143,7 +143,7 @@ MockDefaultBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr 
  * 3. Set indirect branch targets
  */
 void
-MockDefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
+DefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
                                     std::vector<FullBTBPrediction>& stagePreds)
 {
     for (int s = getDelay(); s < stagePreds.size(); ++s) {
@@ -190,7 +190,7 @@ MockDefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
  * 3. Save current BTB entries
  */
 void
-MockDefaultBTB::updatePredictionMeta(const std::vector<TickedBTBEntry>& entries,
+DefaultBTB::updatePredictionMeta(const std::vector<TickedBTBEntry>& entries,
                                    std::vector<FullBTBPrediction>& stagePreds)
 {
     meta.l0_hit_entries.clear();
@@ -209,9 +209,9 @@ MockDefaultBTB::updatePredictionMeta(const std::vector<TickedBTBEntry>& entries,
 }
 
 void
-MockDefaultBTB::putPCHistory(Addr startAddr,
-                            const boost::dynamic_bitset<> &history,
-                            std::vector<FullBTBPrediction> &stagePreds)
+DefaultBTB::putPCHistory(Addr startAddr,
+                         const boost::dynamic_bitset<> &history,
+                         std::vector<FullBTBPrediction> &stagePreds)
 {
     // Lookup all matching entries in BTB
     auto find_entries = lookup(startAddr);
@@ -227,18 +227,18 @@ MockDefaultBTB::putPCHistory(Addr startAddr,
 }
 
 std::shared_ptr<void>
-MockDefaultBTB::getPredictionMeta()
+DefaultBTB::getPredictionMeta()
 {
     std::shared_ptr<void> meta_void_ptr = std::make_shared<BTBMeta>(meta);
     return meta_void_ptr;
 }
 
 void
-MockDefaultBTB::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) {}
+DefaultBTB::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) {}
 
 inline
 Addr
-MockDefaultBTB::getIndex(Addr instPC)
+DefaultBTB::getIndex(Addr instPC)
 {
     // Need to shift PC over by the word offset.
     return (instPC >> idxShiftAmt) & idxMask;
@@ -246,7 +246,7 @@ MockDefaultBTB::getIndex(Addr instPC)
 
 inline
 Addr
-MockDefaultBTB::getTag(Addr instPC)
+DefaultBTB::getTag(Addr instPC)
 {
     return (instPC >> tagShiftAmt) & tagMask;
 }
@@ -259,8 +259,8 @@ MockDefaultBTB::getTag(Addr instPC)
  * 2. Check all ways in the set for matching entries
  * 3. Update MRU information for hits
  */
-std::vector<MockDefaultBTB::TickedBTBEntry>
-MockDefaultBTB::lookup(Addr block_pc)
+std::vector<DefaultBTB::TickedBTBEntry>
+DefaultBTB::lookup(Addr block_pc)
 {
     std::vector<TickedBTBEntry> res;
     if (block_pc & 0x1) {
@@ -295,7 +295,7 @@ MockDefaultBTB::lookup(Addr block_pc)
  * Note: This is only called in L1 BTB during update
  */
 void
-MockDefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
+DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
 {
     DPRINTF(BTB, "generating new btb entry\n");
     // Get prediction metadata from previous stages
@@ -341,7 +341,7 @@ MockDefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
  * 2. Remove entries that were not executed
  */
 std::vector<BTBEntry>
-MockDefaultBTB::processOldEntries(const FetchStream &stream)
+DefaultBTB::processOldEntries(const FetchStream &stream)
 {
     auto meta = std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]);
     // hit entries whose corresponding insts are acutally executed
@@ -367,7 +367,7 @@ MockDefaultBTB::processOldEntries(const FetchStream &stream)
  * Also check L0 BTB prediction status
  */
 std::pair<bool, bool>
-MockDefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* meta)
+DefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* meta)
 {
     bool pred_branch_hit = false;
     for (auto &e : meta->hit_entries) {
@@ -407,7 +407,7 @@ MockDefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* met
  * 2. Add new entry if necessary
  */
 std::vector<BTBEntry>
-MockDefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
+DefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
                                      const FetchStream &stream)
 {
     auto all_entries = old_entries;
@@ -428,7 +428,7 @@ MockDefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
  * 5. Update MRU information
  */
 void
-MockDefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream)
+DefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream)
 {
     // Look for matching entry
     bool found = false;
@@ -482,7 +482,7 @@ MockDefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const Fe
  * 5. Update MRU information
  */
 void
-MockDefaultBTB::update(const FetchStream &stream)
+DefaultBTB::update(const FetchStream &stream)
 {
     // 1. Process old entries
     auto old_entries = processOldEntries(stream);
@@ -519,7 +519,7 @@ MockDefaultBTB::update(const FetchStream &stream)
     assert(mruList[btb_idx].size() <= numWays);
 }
 
-} // namespace mockBTB
+} // namespace test
 } // namespace btb_pred
 } // namespace branch_prediction
 } // namespace gem5

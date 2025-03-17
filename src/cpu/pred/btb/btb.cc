@@ -387,12 +387,12 @@ DefaultBTB::processOldEntries(const FetchStream &stream)
     DPRINTF(BTB, "end_inst_pc: %#lx\n", end_inst_pc);
     // remove not executed btb entries, pc > end_inst_pc
     auto old_entries = meta->hit_entries;
-    DPRINTF(BTB, "old_entries.size(): %d\n", old_entries.size());
+    DPRINTF(BTB, "old_entries.size(): %lu\n", old_entries.size());
     dumpBTBEntries(old_entries);
     auto remove_it = std::remove_if(old_entries.begin(), old_entries.end(),
         [end_inst_pc](const BTBEntry &e) { return e.pc > end_inst_pc; });
     old_entries.erase(remove_it, old_entries.end());
-    DPRINTF(BTB, "after removing not executed insts, old_entries.size(): %d\n", old_entries.size());
+    DPRINTF(BTB, "after removing not executed insts, old_entries.size(): %lu\n", old_entries.size());
     dumpBTBEntries(old_entries);
 
     btbStats.updateHit += old_entries.size();
@@ -415,7 +415,7 @@ DefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* meta)
         }
     }
     if (!pred_branch_hit && stream.exeTaken) {
-        DPRINTF(BTB, "update miss detected, pc %#lx, predTick %llu\n", stream.exeBranchInfo.pc, stream.predTick);
+        DPRINTF(BTB, "update miss detected, pc %#lx, predTick %lu\n", stream.exeBranchInfo.pc, stream.predTick);
         btbStats.updateMiss++;
     }
 
@@ -452,7 +452,7 @@ DefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
     if (!stream.updateIsOldEntry || isL0()) { // L0 BTB always updates
         all_entries.push_back(stream.updateNewBTBEntry);
     }
-    DPRINTF(BTB, "all_entries_to_update.size(): %d\n", all_entries.size());
+    DPRINTF(BTB, "all_entries_to_update.size(): %lu\n", all_entries.size());
     dumpBTBEntries(all_entries);
     return all_entries;
 }
@@ -506,7 +506,7 @@ DefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchS
         }
     } else {
         // Replace oldest entry in the set
-        DPRINTF(BTB, "trying to replace entry in set %#lx\n", btb_idx);
+        DPRINTF(BTB, "trying to replace entry in set %d\n", btb_idx);
         dumpMruList(mruList[btb_idx]);
         // put the oldest entry in this set to the back of heap
         std::pop_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());

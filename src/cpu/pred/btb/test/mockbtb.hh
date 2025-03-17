@@ -61,16 +61,16 @@ namespace branch_prediction
 namespace btb_pred
 {
 
-namespace mockBTB
+namespace test
 {
 
-class MockDefaultBTB
+class DefaultBTB
 {
   private:
 
   public:
 
-    MockDefaultBTB();
+    DefaultBTB();
     
 
     /*
@@ -130,7 +130,7 @@ class MockDefaultBTB
      *  @param numWays Number of ways for the BTB.
      *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
      */
-    MockDefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay);
+    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay);
 
     void reset();
     
@@ -423,7 +423,7 @@ class MockDefaultBTB
     }
 };
 
-} // namespace mockBTB
+} // namespace test
 } // namespace btb_pred
 } // namespace branch_prediction
 } // namespace gem5
