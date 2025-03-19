@@ -361,7 +361,7 @@ def setKmhV3IdealParams(args, system):
                 cpu.branchPred.numBr = 8    # numBr must be a power of 2, see getShuffledBrIndex()
                 cpu.branchPred.predictWidth = 64
                 cpu.branchPred.uftb.numEntries = 1024
-                cpu.branchPred.btb.numEntries = 16384
+                cpu.branchPred.ftb.numEntries = 16384
                 cpu.branchPred.tage.baseTableSize = 16384
                 cpu.branchPred.tage.tableSizes = [2048] * 14
             else:
