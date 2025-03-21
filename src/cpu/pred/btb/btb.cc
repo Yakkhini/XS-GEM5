@@ -60,6 +60,8 @@ DefaultBTB::DefaultBTB(const Params &p)
     // Calculate shift amounts for index calculation
     if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);
+    } else if (halfAligned) { // if half aligned to blockSize, mbtb/ubtb block Size is 32
+        idxShiftAmt = floorLog2(blockSize);
     } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
         idxShiftAmt = 1;
     }
@@ -298,7 +300,7 @@ DefaultBTB::getTag(Addr instPC)
  * 3. Update MRU information for hits
  */
 std::vector<DefaultBTB::TickedBTBEntry>
-DefaultBTB::lookup(Addr block_pc)
+DefaultBTB::lookupSingleBlock(Addr block_pc)
 {
     std::vector<TickedBTBEntry> res;
     if (block_pc & 0x1) {
@@ -315,6 +317,38 @@ DefaultBTB::lookup(Addr block_pc)
             way.tick = curTick();  // Update timestamp for MRU
             std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
         }
+    }
+    return res;
+}
+
+std::vector<DefaultBTB::TickedBTBEntry>
+DefaultBTB::lookup(Addr block_pc)
+{
+    std::vector<TickedBTBEntry> res;
+    if (block_pc & 0x1) {
+        return res; // ignore false hit when lowest bit is 1
+    }
+
+    if (halfAligned) {
+        // Calculate 32B aligned address
+        Addr alignedPC = block_pc & ~(blockSize - 1);
+        // Lookup first 32B block
+        res = lookupSingleBlock(alignedPC);
+        // Lookup next 32B block
+        auto nextBlockRes = lookupSingleBlock(alignedPC + blockSize);
+        // Merge results
+        res.insert(res.end(), nextBlockRes.begin(), nextBlockRes.end());
+
+        // Sort entries by PC order
+        std::sort(res.begin(), res.end(),
+                 [](const TickedBTBEntry &a, const TickedBTBEntry &b) {
+                     return a.pc < b.pc;
+                 });
+
+        DPRINTF(BTB, "BTB: Half-aligned lookup results:\n");
+        dumpTickedBTBEntries(res);
+    } else {
+        res = lookupSingleBlock(block_pc);
     }
     return res;
 }
@@ -360,7 +394,11 @@ DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
         if (new_entry.isCond) {
             new_entry.alwaysTaken = true;
             new_entry.ctr = 1;  // Start with positive prediction
+            incNonL0Stat(btbStats.newEntryWithCond);
+        } else {
+            incNonL0Stat(btbStats.newEntryWithUncond);
         }
+        incNonL0Stat(btbStats.newEntry);
         entry_to_write = new_entry;
         is_old_entry = false;
     } else {
@@ -559,23 +597,41 @@ DefaultBTB::update(const FetchStream &stream)
         }
     }
     
-    // 3. Calculate BTB index and tag
-    Addr startPC = stream.getRealStartPC();
-    Addr btb_idx = getIndex(startPC);
-    Addr btb_tag = getTag(startPC);
-    
-    // 4. Collect entries to update
+    // 3. Collect entries to update
     auto entries_to_update = collectEntriesToUpdate(old_entries, stream);
     
-    // 5. Update BTB entries
+    // 4. Update BTB entries - each entry uses its own PC to calculate index and tag
     for (auto &entry : entries_to_update) {
-        entry.tag = btb_tag;
-        updateBTBEntry(btb_idx, entry, stream);
+        if (halfAligned) {
+            // Calculate 32-byte aligned address for this entry
+            Addr entryBlockPC = entry.pc & ~(blockSize - 1);
+
+            // Calculate index and tag for this entry
+            Addr btb_idx = getIndex(entryBlockPC);
+            Addr btb_tag = getTag(entryBlockPC);
+
+            DPRINTF(BTB, "BTB: Half-aligned update for entry PC=%#lx, using index=%#lx, tag=%#lx\n",
+                    entry.pc, btb_idx, btb_tag);
+
+            // Set tag and update entry
+            entry.tag = btb_tag;
+            updateBTBEntry(btb_idx, entry, stream);
+        } else {
+            // Original logic - use startPC for all entries
+            Addr startPC = stream.getRealStartPC();
+            Addr btb_idx = getIndex(startPC);
+            Addr btb_tag = getTag(startPC);
+
+            entry.tag = btb_tag;
+            updateBTBEntry(btb_idx, entry, stream);
+        }
     }
     
-    assert(btb_idx < numSets);
-    assert(btb[btb_idx].size() <= numWays);
-    assert(mruList[btb_idx].size() <= numWays);
+    // Verify BTB state
+    for (unsigned i = 0; i < numSets; i++) {
+        assert(btb[i].size() <= numWays);
+        assert(mruList[i].size() <= numWays);
+    }
 }
 
 void

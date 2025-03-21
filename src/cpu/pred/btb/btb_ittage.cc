@@ -30,7 +30,7 @@ histLengths(p.histLengths),
 maxHistLen(p.maxHistLen),
 numTablesToAlloc(p.numTablesToAlloc)
 {
-    DPRINTF(ITTAGE || debugFlag, "BTBITTAGE constructor numBr=%d\n", numBr);
+    DPRINTF(ITTAGE, "BTBITTAGE constructor numBr=%d\n", numBr);
     tageTable.resize(numPredictors);
     tableIndexBits.resize(numPredictors);
     tableIndexMasks.resize(numPredictors);
@@ -80,7 +80,7 @@ BTBITTAGE::lookupHelper(Addr startAddr, const std::vector<BTBEntry> &btbEntries)
     meta.altTagFoldedHist = altTagFoldedHist;
     meta.indexFoldedHist = indexFoldedHist;
 
-    DPRINTF(ITTAGE || debugFlag, "lookupHelper startAddr: %#lx\n", startAddr);
+    DPRINTF(ITTAGE, "lookupHelper startAddr: %#lx\n", startAddr);
     std::vector<TageEntry> entries;
     std::vector<Addr> indices, tags;
     bitset useful_mask(numPredictors, false);
@@ -174,13 +174,13 @@ BTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
     if (debugPC == stream_start) {
         debugFlag = true;
     }
-    DPRINTF(ITTAGE || debugFlag, "putPCHistory startAddr: %#lx\n", stream_start);
+    DPRINTF(ITTAGE, "putPCHistory startAddr: %#lx\n", stream_start);
     for (int s = getDelay(); s < stagePreds.size(); s++) {
         auto &stage_pred = stagePreds[s];
         auto indirect_targets = lookupHelper(stream_start, stage_pred.btbEntries);
         stage_pred.indirectTargets = indirect_targets;
     }
-    DPRINTF(ITTAGE || debugFlag, "putPCHistory end\n");
+    DPRINTF(ITTAGE, "putPCHistory end\n");
     debugFlag = false;
 }
 
@@ -197,7 +197,7 @@ BTBITTAGE::update(const FetchStream &stream)
         debugFlag = true;
     }
     Addr startAddr = stream.getRealStartPC();
-    DPRINTF(ITTAGE || debugFlag, "update startAddr: %#lx\n", startAddr);
+    DPRINTF(ITTAGE, "update startAddr: %#lx\n", startAddr);
     // update at the basis of btb entries
     auto all_entries_to_update = stream.updateBTBEntries;
     // only update conditional branches that is not always taken
@@ -265,7 +265,7 @@ BTBITTAGE::update(const FetchStream &stream)
 
         bool use_alt_on_main_found_correct = used_alt && main_found && main_target == exe_target;
         bool needToAllocate = mispred && !use_alt_on_main_found_correct;
-        DPRINTF(ITTAGE || debugFlag, "mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
+        DPRINTF(ITTAGE, "mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
             mispred, use_alt_on_main_found_correct, needToAllocate);
 
         auto useful_mask = meta->usefulMask;
@@ -282,16 +282,16 @@ BTBITTAGE::update(const FetchStream &stream)
                 if (usefulResetCnt <= 0) {
                     usefulResetCnt = 0;
                 }
-                DPRINTF(ITTAGE || debugFlag, "can allocate, usefulResetCnt %d\n", usefulResetCnt);
+                DPRINTF(ITTAGE, "can allocate, usefulResetCnt %d\n", usefulResetCnt);
             } else {
                 usefulResetCnt += 1;
                 if (usefulResetCnt >= 256) {
                     usefulResetCnt = 256;
                 }
-                DPRINTF(ITTAGE || debugFlag, "can not allocate, usefulResetCnt %d\n", usefulResetCnt);
+                DPRINTF(ITTAGE, "can not allocate, usefulResetCnt %d\n", usefulResetCnt);
             }
             if (usefulResetCnt == 256) {
-                DPRINTF(ITTAGE || debugFlag, "reset useful bit of all entries\n");
+                DPRINTF(ITTAGE, "reset useful bit of all entries\n");
                 for (auto &table : tageTable) {
                     for (auto &entry : table) {
                         entry.useful = 0;
@@ -313,18 +313,18 @@ BTBITTAGE::update(const FetchStream &stream)
             if (debugFlag) {
                 std::string buf;
                 boost::to_string(allocateLFSR, buf);
-                DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
+                DPRINTF(ITTAGE, "allocateLFSR %s, size %d\n", buf, allocateLFSR.size());
                 boost::to_string(flipped_usefulMask, buf);
-                DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", buf, useful_mask.size());
+                DPRINTF(ITTAGE, "pred usefulmask %s, size %d\n", buf, useful_mask.size());
                 boost::to_string(masked, buf);
-                DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", buf, masked.size());
+                DPRINTF(ITTAGE, "masked %s, size %d\n", buf, masked.size());
                 boost::to_string(allocate, buf);
-                DPRINTF(ITTAGE || debugFlag, "allocate %s, size %d\n", buf, allocate.size());
+                DPRINTF(ITTAGE, "allocate %s, size %d\n", buf, allocate.size());
             }
 
             bool allocateValid = flipped_usefulMask.any();
             if (needToAllocate && allocateValid) {
-                DPRINTF(ITTAGE || debugFlag, "allocate new entry\n");
+                DPRINTF(ITTAGE, "allocate new entry\n");
                 unsigned startTable = main_found ? main_info.table + 1 : 0;
 
                 for (int ti = startTable; ti < numPredictors; ti++) {
@@ -334,7 +334,7 @@ BTBITTAGE::update(const FetchStream &stream)
                     auto &newEntry = tageTable[ti][newIndex];
 
                     if (allocate[ti - startTable]) {
-                        DPRINTF(ITTAGE || debugFlag, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
+                        DPRINTF(ITTAGE, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
                             ti, newIndex, newTag, 2);
                         newEntry = TageEntry(newTag, exe_target, 2, btb_entry.pc);
                         break; // allocate only 1 entry
@@ -344,7 +344,7 @@ BTBITTAGE::update(const FetchStream &stream)
         }
     }
 
-    DPRINTF(ITTAGE || debugFlag, "end update\n");
+    DPRINTF(ITTAGE, "end update\n");
     debugFlag = false;
 }
 
@@ -421,16 +421,16 @@ BTBITTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool 
     if (debugFlag) {
         std::string buf;
         boost::to_string(history, buf);
-        DPRINTF(ITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf);
+        DPRINTF(ITTAGE, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, buf);
     }
     if (shamt == 0) {
-        DPRINTF(ITTAGE || debugFlag, "shamt is 0, returning\n");
+        DPRINTF(ITTAGE, "shamt is 0, returning\n");
         return;
     }
 
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 3; type++) {
-            DPRINTF(ITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
+            DPRINTF(ITTAGE, "t: %d, type: %d\n", t, type);
 
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.update(history, shamt, taken);
@@ -465,14 +465,14 @@ void
 BTBITTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
 {
     if (debugFlag) {
-        DPRINTF(ITTAGE || debugFlag, "checking folded history when %s\n", when);
+        DPRINTF(ITTAGE, "checking folded history when %s\n", when);
         std::string hist_str;
         boost::to_string(hist, hist_str);
-        DPRINTF(ITTAGE || debugFlag, "history:\t%s\n", hist_str.c_str());
+        DPRINTF(ITTAGE, "history:\t%s\n", hist_str.c_str());
     }
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 2; type++) {
-            DPRINTF(ITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
+            DPRINTF(ITTAGE, "t: %d, type: %d\n", t, type);
             std::string buf2, buf3;
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.check(hist);

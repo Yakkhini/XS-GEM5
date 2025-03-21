@@ -431,6 +431,8 @@ typedef struct FullBTBPrediction
     Addr getFallThrough() {
         if (alignToBlockSize) { // endAddr is aligned to blockSize
             return (bbStart + blockSize) & ~mask(floorLog2(blockSize));
+        } else if (halfAligned) {   // max 64 byte block, 32 byte aligned
+            return (bbStart + blockSize) & ~mask(floorLog2(blockSize) - 1);
         } else {
             return bbStart + blockSize;
         }

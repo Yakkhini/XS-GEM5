@@ -979,12 +979,14 @@ class DefaultBTB(TimedBaseBTBPredictor):
     numThreads = Param.Unsigned(1, "Number of threads")
     numWays = Param.Unsigned(8, "Number of ways per set")
     numDelay = 1
-    
+    blockSize = 32  # max 64 byte block, 32 byte aligned
+
 class UBTB(DefaultBTB):
     numEntries = 32
     tagBits = 38
     numWays = 32
     numDelay = 0
+    blockSize = 32  # max 64 byte block, 32 byte aligned
 
 class BTBRAS(TimedBaseBTBPredictor):
     type = 'BTBRAS'
@@ -1047,8 +1049,8 @@ class DecoupledBPUWithBTB(BranchPredictor):
     maxHistLen = Param.Unsigned(970, "The length of history")
     
     # blockSize equals to predictWidth in DecoupledBPUWithFTB
-    blockSize = Param.Unsigned(32, "Maximum range in bytes that a single prediction can cover")
-    alignToBlockSize = Param.Bool(True, "Whether the prediction ends at the end of blockSize boundaries")
+    blockSize = Param.Unsigned(64, "Maximum range in bytes that a single prediction can cover")
+    alignToBlockSize = Param.Bool(False, "Whether the prediction ends at the end of blockSize boundaries")
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")
     ubtb = Param.DefaultBTB(UBTB(), "UBTB predictor")
     btb = Param.DefaultBTB(DefaultBTB(), "BTB")

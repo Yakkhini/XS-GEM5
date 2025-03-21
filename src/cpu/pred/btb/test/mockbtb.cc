@@ -337,7 +337,11 @@ DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
         if (new_entry.isCond) {
             new_entry.alwaysTaken = true;
             new_entry.ctr = 1;  // Start with positive prediction
+            incNonL0Stat(btbStats.newEntryWithCond);
+        } else {
+            incNonL0Stat(btbStats.newEntryWithUncond);
         }
+        incNonL0Stat(btbStats.newEntry);
         entry_to_write = new_entry;
         is_old_entry = false;
     } else {

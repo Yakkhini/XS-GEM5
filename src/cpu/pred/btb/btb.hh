@@ -326,6 +326,12 @@ class DefaultBTB : public TimedBaseBTBPredictor
      */
     std::vector<TickedBTBEntry> lookup(Addr block_pc);
 
+    /** Helper function to lookup entries in a single block
+     * @param block_pc The aligned PC to lookup
+     * @return Vector of matching BTB entries
+     */
+    std::vector<TickedBTBEntry> lookupSingleBlock(Addr block_pc);
+
     /** The BTB structure:
      *  - Organized as numSets sets
      *  - Each set has numWays ways
