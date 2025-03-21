@@ -383,6 +383,306 @@ TEST_F(BTBTest, MispredictionRecovery) {
     }
 }
 
+// Test half-aligned mode basic functionality
+TEST_F(BTBTest, HalfAlignedBasicTest) {
+    // Create a BTB with half-aligned mode enabled
+    DefaultBTB btb(1024, 20, 8, 1, true);  // numEntries=1024, tagBits=20, numWays=8, numDelay=1, halfAligned=true
+
+    // Phase 1: Initial prediction to get metadata
+    std::vector<FullBTBPrediction> stagePreds(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+    auto meta = btb.getPredictionMeta();
+
+    // Phase 2: Setup update stream with first branch
+    FetchStream stream;
+    stream.startPC = 0x100;
+    stream.predMetas[0] = meta;  // Must set meta from prediction phase
+    stream.resolved = true;
+    stream.exeBranchInfo.pc = 0x100;
+    stream.exeBranchInfo.target = 0x200;
+    stream.exeBranchInfo.isCond = true;
+    stream.exeBranchInfo.size = 4;
+    stream.exeTaken = true;
+    stream.updateEndInstPC = 0x140;  // Cover 64B range
+
+    // Update BTB with first branch
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 3: Setup second branch in next 32B block
+    // Need to predict again to get new meta
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x120, boost::dynamic_bitset<>(64, 0), stagePreds);
+    meta = btb.getPredictionMeta();
+
+    stream.startPC = 0x120;
+    stream.predMetas[0] = meta;
+    stream.exeBranchInfo.pc = 0x120;
+    stream.exeBranchInfo.target = 0x300;
+
+    // Update BTB with second branch
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 4: Final prediction to verify results
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Verify both branches are found and in correct order
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 2);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x100);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x200);
+    EXPECT_EQ(stagePreds[1].btbEntries[1].pc, 0x120);
+    EXPECT_EQ(stagePreds[1].btbEntries[1].target, 0x300);
+}
+
+// Test half-aligned mode with unaligned addresses
+TEST_F(BTBTest, HalfAlignedUnalignedTest) {
+    // Create a BTB with half-aligned mode enabled
+    DefaultBTB btb(1024, 20, 8, 1, true);
+
+    // Phase 1: Initial prediction to get metadata
+    std::vector<FullBTBPrediction> stagePreds(2);
+    btb.putPCHistory(0x104, boost::dynamic_bitset<>(64, 0), stagePreds);
+    auto meta = btb.getPredictionMeta();
+
+    // Phase 2: Setup update stream with first unaligned branch
+    FetchStream stream;
+    stream.startPC = 0x104;
+    stream.predMetas[0] = meta;
+    stream.resolved = true;
+    stream.exeBranchInfo.pc = 0x104;  // Unaligned address in first block
+    stream.exeBranchInfo.target = 0x200;
+    stream.exeBranchInfo.isCond = true;
+    stream.exeBranchInfo.size = 4;
+    stream.exeTaken = true;
+    stream.updateEndInstPC = 0x144;  // Cover 64B range
+
+    // Update BTB with first branch
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 3: Setup second unaligned branch in next 32B block
+    // Need to predict again to get new meta
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x124, boost::dynamic_bitset<>(64, 0), stagePreds);
+    meta = btb.getPredictionMeta();
+
+    stream.startPC = 0x124;
+    stream.predMetas[0] = meta;
+    stream.exeBranchInfo.pc = 0x124;  // Unaligned address in second block
+    stream.exeBranchInfo.target = 0x300;
+
+    // Update BTB with second branch
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 4: Final prediction to verify results
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x104, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Verify both unaligned branches are found and in correct order
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 2);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x104);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x200);
+    EXPECT_EQ(stagePreds[1].btbEntries[1].pc, 0x124);
+    EXPECT_EQ(stagePreds[1].btbEntries[1].target, 0x300);
+}
+
+// Test half-aligned mode update with branch in second block
+TEST_F(BTBTest, HalfAlignedUpdateSecondBlock) {
+    // Create a BTB with half-aligned mode enabled
+    DefaultBTB btb(1024, 20, 8, 1, true);  // numEntries=1024, tagBits=20, numWays=8, numDelay=1, halfAligned=true
+
+    // Phase 1: Initial prediction to get metadata
+    // Start address in first 32B block
+    Addr startPC = 0x100;
+    std::vector<FullBTBPrediction> stagePreds(2);
+    btb.putPCHistory(startPC, boost::dynamic_bitset<>(64, 0), stagePreds);
+    auto meta = btb.getPredictionMeta();
+
+    // Phase 2: Setup update stream with branch in second 32B block
+    FetchStream stream;
+    stream.startPC = startPC;
+    stream.predMetas[0] = meta;
+    stream.resolved = true;
+    // Branch is in second 32B block (0x120 - 0x13F)
+    stream.exeBranchInfo.pc = 0x124;
+    stream.exeBranchInfo.target = 0x200;
+    stream.exeBranchInfo.isCond = true;
+    stream.exeBranchInfo.size = 4;
+    stream.exeTaken = true;
+    stream.updateEndInstPC = 0x140;  // Cover 64B range
+
+    // Update BTB with branch in second block
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 3: Verify the update worked correctly
+    // Predict from first block
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(startPC, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Should find the branch in second block
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 1);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x124);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x200);
+
+    // Predict from second block
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x120, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Should still find the branch
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 1);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x124);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x200);
+}
+
+// Test half-aligned mode with branches in both blocks
+TEST_F(BTBTest, HalfAlignedBothBlocks) {
+    // Create a BTB with half-aligned mode enabled
+    DefaultBTB btb(1024, 20, 8, 1, true);
+
+    // Phase 1: Add branch in first block
+    std::vector<FullBTBPrediction> stagePreds(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+    auto meta = btb.getPredictionMeta();
+
+    FetchStream stream;
+    stream.startPC = 0x100;
+    stream.predMetas[0] = meta;
+    stream.resolved = true;
+    stream.exeBranchInfo.pc = 0x108;  // Branch in first block
+    stream.exeBranchInfo.target = 0x200;
+    stream.exeBranchInfo.isCond = true;
+    stream.exeBranchInfo.size = 4;
+    stream.exeTaken = true;
+    stream.updateEndInstPC = 0x140;
+
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 2: Add branch in second block
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+    meta = btb.getPredictionMeta();
+
+    stream.startPC = 0x100;
+    stream.predMetas[0] = meta;
+    stream.exeBranchInfo.pc = 0x128;  // Branch in second block
+    stream.exeBranchInfo.target = 0x300;
+
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 3: Verify both branches are found
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Should find both branches
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 2);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x108);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x200);
+    EXPECT_EQ(stagePreds[1].btbEntries[1].pc, 0x128);
+    EXPECT_EQ(stagePreds[1].btbEntries[1].target, 0x300);
+}
+
+// Test half-aligned mode with unaligned start address
+TEST_F(BTBTest, HalfAlignedUnalignedStart) {
+    // Create a BTB with half-aligned mode enabled
+    DefaultBTB btb(1024, 20, 8, 1, true);
+
+    // Phase 1: Initial prediction with unaligned start address
+    Addr startPC = 0x10A;  // Unaligned address in first block
+    std::vector<FullBTBPrediction> stagePreds(2);
+    btb.putPCHistory(startPC, boost::dynamic_bitset<>(64, 0), stagePreds);
+    auto meta = btb.getPredictionMeta();
+
+    // Phase 2: Setup update stream with branch in second block
+    FetchStream stream;
+    stream.startPC = startPC;
+    stream.predMetas[0] = meta;
+    stream.resolved = true;
+    stream.exeBranchInfo.pc = 0x12C;  // Branch in second block
+    stream.exeBranchInfo.target = 0x200;
+    stream.exeBranchInfo.isCond = true;
+    stream.exeBranchInfo.size = 4;
+    stream.exeTaken = true;
+    stream.updateEndInstPC = 0x140;
+
+    // Update BTB
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 3: Verify the update worked correctly
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(startPC, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Should find the branch
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 1);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x12C);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x200);
+}
+
+// Test half-aligned mode with multiple updates to same branch
+TEST_F(BTBTest, HalfAlignedMultipleUpdates) {
+    // Create a BTB with half-aligned mode enabled
+    DefaultBTB btb(1024, 20, 8, 1, true);
+
+    // Phase 1: Add branch in second block
+    std::vector<FullBTBPrediction> stagePreds(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+    auto meta = btb.getPredictionMeta();
+
+    FetchStream stream;
+    stream.startPC = 0x100;
+    stream.predMetas[0] = meta;
+    stream.resolved = true;
+    stream.exeBranchInfo.pc = 0x124;  // Branch in second block
+    stream.exeBranchInfo.target = 0x200;
+    stream.exeBranchInfo.isIndirect = true; // only indirect branch's target will be updated!
+    stream.exeBranchInfo.size = 4;
+    stream.exeTaken = true;
+    stream.updateEndInstPC = 0x140;
+
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 2: Update same branch with different target
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+    meta = btb.getPredictionMeta();
+
+    stream.startPC = 0x100;
+    stream.predMetas[0] = meta;
+    stream.exeBranchInfo.pc = 0x124;  // Same branch
+    stream.exeBranchInfo.target = 0x300;  // Different target
+
+    btb.getAndSetNewBTBEntry(stream);
+    btb.update(stream);
+
+    // Phase 3: Verify the update changed the target
+    stagePreds.clear();
+    stagePreds.resize(2);
+    btb.putPCHistory(0x100, boost::dynamic_bitset<>(64, 0), stagePreds);
+
+    // Should find the branch with updated target
+    ASSERT_EQ(stagePreds[1].btbEntries.size(), 1);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x124);
+    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x300);  // Updated target
+}
+
+
 } // namespace test
 } // namespace btb_pred
 } // namespace branch_prediction

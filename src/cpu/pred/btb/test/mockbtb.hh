@@ -129,8 +129,9 @@ class DefaultBTB
      *  @param tagBits Number of bits for each tag in the BTB.
      *  @param numWays Number of ways for the BTB.
      *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
+     *  @param halfAligned Whether to use half-aligned mode (64B prediction)
      */
-    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay);
+    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay, bool halfAligned = false);
 
     void reset();
     
@@ -183,9 +184,6 @@ class DefaultBTB
         }
     }
 
-
-
-  private:
     /** Returns the index into the BTB, based on the branch's PC.
      *  The index is calculated as: (pc >> idxShiftAmt) & idxMask
      *  where idxShiftAmt is:
@@ -194,7 +192,9 @@ class DefaultBTB
      *  @param inst_PC The branch to look up.
      *  @return Returns the index into the BTB.
      */
-    inline Addr getIndex(Addr instPC);
+    inline Addr getIndex(Addr instPC) {
+        return (instPC >> idxShiftAmt) & idxMask;
+    }
 
     /** Returns the tag bits of a given address.
      *  The tag is calculated as: (pc >> tagShiftAmt) & tagMask
@@ -202,8 +202,11 @@ class DefaultBTB
      *  @param inst_PC The branch's address.
      *  @return Returns the tag bits.
      */
-    inline Addr getTag(Addr instPC);
+    inline Addr getTag(Addr instPC) {
+        return (instPC >> tagShiftAmt) & tagMask;
+    }
 
+  private:
     /** Helper function to check if this is L0 BTB
      *  L0 BTB has zero delay (getDelay() == 0)
      */
@@ -339,6 +342,9 @@ class DefaultBTB
     unsigned numEntries;    // Total number of entries
     unsigned numWays;       // Number of ways per set
     unsigned numSets;       // Number of sets (numEntries/numWays)
+    unsigned numDelay;      // Number of delay cycles
+    bool alignToBlockSize;  // Whether to align to block size
+    bool halfAligned;      // Whether to use half-aligned mode (64B prediction)
 
     /** Address calculation masks and shifts */
     Addr idxMask;          // Mask for extracting index bits
@@ -356,8 +362,6 @@ class DefaultBTB
     enum Mode {
         READ, WRITE, EVICT
     };
-
-    unsigned numDelay;
 
     unsigned tick{0};
 
@@ -421,6 +425,12 @@ class DefaultBTB
             stat++;
         }
     }
+
+    /** Helper function to lookup entries in a single block
+     * @param block_pc The aligned PC to lookup
+     * @return Vector of matching BTB entries
+     */
+    std::vector<TickedBTBEntry> lookupSingleBlock(Addr block_pc);
 };
 
 } // namespace test

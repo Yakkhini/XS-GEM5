@@ -50,12 +50,13 @@ namespace test
  * - MRU tracking for each set
  * - Address calculation parameters (index/tag masks and shifts)
  */
-DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay)
+DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay, bool halfAligned)
     : numEntries(numEntries),
     numWays(numWays),
+    numDelay(numDelay),
+    halfAligned(halfAligned),
     tagBits(tagBits),
-    log2NumThreads(1),
-    numDelay(numDelay)
+    log2NumThreads(1)
 {
     // for test, TODO: remove this
     alignToBlockSize = true;
@@ -236,31 +237,13 @@ DefaultBTB::getPredictionMeta()
 void
 DefaultBTB::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) {}
 
-inline
-Addr
-DefaultBTB::getIndex(Addr instPC)
-{
-    // Need to shift PC over by the word offset.
-    return (instPC >> idxShiftAmt) & idxMask;
-}
-
-inline
-Addr
-DefaultBTB::getTag(Addr instPC)
-{
-    return (instPC >> tagShiftAmt) & tagMask;
-}
-
-/*
- * Main lookup function
- * Returns all BTB entries that match the given PC
- * Steps:
- * 1. Calculate index and tag from PC
- * 2. Check all ways in the set for matching entries
- * 3. Update MRU information for hits
+/**
+ * Helper function to lookup entries in a single block
+ * @param block_pc The aligned PC to lookup
+ * @return Vector of matching BTB entries
  */
 std::vector<DefaultBTB::TickedBTBEntry>
-DefaultBTB::lookup(Addr block_pc)
+DefaultBTB::lookupSingleBlock(Addr block_pc)
 {
     std::vector<TickedBTBEntry> res;
     if (block_pc & 0x1) {
@@ -277,6 +260,38 @@ DefaultBTB::lookup(Addr block_pc)
             way.tick = curTick();  // Update timestamp for MRU
             std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
         }
+    }
+    return res;
+}
+
+std::vector<DefaultBTB::TickedBTBEntry>
+DefaultBTB::lookup(Addr block_pc)
+{
+    std::vector<TickedBTBEntry> res;
+    if (block_pc & 0x1) {
+        return res; // ignore false hit when lowest bit is 1
+    }
+
+    if (halfAligned) {
+        // Calculate 32B aligned address
+        Addr alignedPC = block_pc & ~(blockSize - 1);
+        // Lookup first 32B block
+        res = lookupSingleBlock(alignedPC);
+        // Lookup next 32B block
+        auto nextBlockRes = lookupSingleBlock(alignedPC + blockSize);
+        // Merge results
+        res.insert(res.end(), nextBlockRes.begin(), nextBlockRes.end());
+
+        // Sort entries by PC order
+        std::sort(res.begin(), res.end(),
+                 [](const TickedBTBEntry &a, const TickedBTBEntry &b) {
+                     return a.pc < b.pc;
+                 });
+
+        DPRINTF(BTB, "BTB: Half-aligned lookup results:\n");
+        dumpTickedBTBEntries(res);
+    } else {
+        res = lookupSingleBlock(block_pc);
     }
     return res;
 }
@@ -500,23 +515,41 @@ DefaultBTB::update(const FetchStream &stream)
         }
     }
     
-    // 3. Calculate BTB index and tag
-    Addr startPC = stream.getRealStartPC();
-    Addr btb_idx = getIndex(startPC);
-    Addr btb_tag = getTag(startPC);
-    
-    // 4. Collect entries to update
+    // 3. Collect entries to update
     auto entries_to_update = collectEntriesToUpdate(old_entries, stream);
     
-    // 5. Update BTB entries
+    // 4. Update BTB entries - each entry uses its own PC to calculate index and tag
     for (auto &entry : entries_to_update) {
-        entry.tag = btb_tag;
-        updateBTBEntry(btb_idx, entry, stream);
+        if (halfAligned) {
+            // Calculate 32-byte aligned address for this entry
+            Addr entryBlockPC = entry.pc & ~(blockSize - 1);
+
+            // Calculate index and tag for this entry
+            Addr btb_idx = getIndex(entryBlockPC);
+            Addr btb_tag = getTag(entryBlockPC);
+
+            DPRINTF(BTB, "BTB: Half-aligned update for entry PC=%#lx, using index=%#lx, tag=%#lx\n",
+                    entry.pc, btb_idx, btb_tag);
+
+            // Set tag and update entry
+            entry.tag = btb_tag;
+            updateBTBEntry(btb_idx, entry, stream);
+        } else {
+            // Original logic - use startPC for all entries
+            Addr startPC = stream.getRealStartPC();
+            Addr btb_idx = getIndex(startPC);
+            Addr btb_tag = getTag(startPC);
+
+            entry.tag = btb_tag;
+            updateBTBEntry(btb_idx, entry, stream);
+        }
     }
     
-    assert(btb_idx < numSets);
-    assert(btb[btb_idx].size() <= numWays);
-    assert(mruList[btb_idx].size() <= numWays);
+    // Verify BTB state
+    for (unsigned i = 0; i < numSets; i++) {
+        assert(btb[i].size() <= numWays);
+        assert(mruList[i].size() <= numWays);
+    }
 }
 
 } // namespace test

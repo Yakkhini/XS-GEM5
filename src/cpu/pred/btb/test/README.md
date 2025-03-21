@@ -184,17 +184,17 @@ btb->update(stream);
 
 ```bash
 # Build all branch prediction tests
-scons build/RISCV/cpu/pred/btb/test/uras.test.opt
-scons build/RISCV/cpu/pred/btb/test/btb_tage.test.opt
-scons build/RISCV/cpu/pred/btb/test/btb.test.opt
+scons build/RISCV/cpu/pred/btb/test/uras.test.debug
+scons build/RISCV/cpu/pred/btb/test/tage.test.debug
+scons build/RISCV/cpu/pred/btb/test/btb.test.debug
 
 # Run all tests (with debug output)
-./build/RISCV/cpu/pred/btb/test/btb_tage.test.opt
+./build/RISCV/cpu/pred/btb/test/tage.test.debug
 
 # First build debug version
-scons build/RISCV/cpu/pred/btb/test/btb_tage.test.debug
+scons build/RISCV/cpu/pred/btb/test/tage.test.debug
 # Then run with filter
-./build/RISCV/cpu/pred/btb/test/btb_tage.test.debug --gtest_filter=BTBTAGETest.BasicPrediction
+./build/RISCV/cpu/pred/btb/test/tage.test.debug --gtest_filter=BTBTAGETest.BasicPrediction
 ```
 
 ## Adding New Tests
