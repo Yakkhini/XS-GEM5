@@ -385,7 +385,7 @@ DefaultBTB::processOldEntries(const FetchStream &stream)
  * Check if the branch was predicted correctly
  * Also check L0 BTB prediction status
  */
-std::pair<bool, bool>
+void
 DefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* meta)
 {
     bool pred_branch_hit = false;
@@ -416,7 +416,6 @@ DefaultBTB::checkPredictionHit(const FetchStream &stream, const BTBMeta* meta)
             // return;
         }
     }
-    return std::make_pair(pred_branch_hit, pred_l0_branch_hit);
 }
 
 
@@ -447,8 +446,11 @@ DefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
  * 5. Update MRU information
  */
 void
-DefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream)
+DefaultBTB::updateBTBEntry(Addr entryPC, const BTBEntry& entry, const FetchStream &stream)
 {
+    Addr btb_idx = getIndex(entryPC);
+    Addr btb_tag = getTag(entryPC);
+
     // Look for matching entry
     bool found = false;
     auto it = btb[btb_idx].begin();
@@ -461,6 +463,7 @@ DefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchS
     // if cond entry in btb now, use the one in btb, since we need the up-to-date counter
     // else use the recorded entry
     auto entry_to_write = entry.isCond && found ? BTBEntry(*it) : entry;
+    entry_to_write.tag = btb_tag;   // update tag after found it!
     // update saturating counter if necessary
     if (entry_to_write.isCond) {
         bool this_cond_taken = stream.exeTaken && stream.getControlPC() == entry_to_write.pc;
@@ -481,7 +484,7 @@ DefaultBTB::updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchS
         *it = ticked_entry;
     } else {
         // Replace oldest entry in the set
-        DPRINTF(BTB, "trying to replace entry in set %d\n", btb_idx);
+        DPRINTF(BTB, "trying to replace entry in set %#lx\n", btb_idx);
         dumpMruList(mruList[btb_idx]);
         // put the oldest entry in this set to the back of heap
         std::pop_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
@@ -507,46 +510,17 @@ DefaultBTB::update(const FetchStream &stream)
     auto old_entries = processOldEntries(stream);
     
     // 2. Check prediction hit status, for stats recording
-    auto [pred_hit, l0_hit] = checkPredictionHit(stream, 
+    checkPredictionHit(stream,
         std::static_pointer_cast<BTBMeta>(stream.predMetas[getComponentIdx()]).get());
-    
-    // Record statistics for L0 hit but L1 miss case
-    if (!isL0()) {
-        bool l0_hit_l1_miss = l0_hit && !pred_hit;
-        if (l0_hit_l1_miss) {
-            // DPRINTF(BTB, "BTB: skipping entry write because of l0 hit\n");
-            // incNonL0Stat(btbStats.updateUseL0OnL1Miss);
-        }
-    }
-    
+
     // 3. Collect entries to update
     auto entries_to_update = collectEntriesToUpdate(old_entries, stream);
     
     // 4. Update BTB entries - each entry uses its own PC to calculate index and tag
     for (auto &entry : entries_to_update) {
-        if (halfAligned) {
-            // Calculate 32-byte aligned address for this entry
-            Addr entryBlockPC = entry.pc & ~(blockSize - 1);
-
-            // Calculate index and tag for this entry
-            Addr btb_idx = getIndex(entryBlockPC);
-            Addr btb_tag = getTag(entryBlockPC);
-
-            DPRINTF(BTB, "BTB: Half-aligned update for entry PC=%#lx, using index=%#lx, tag=%#lx\n",
-                    entry.pc, btb_idx, btb_tag);
-
-            // Set tag and update entry
-            entry.tag = btb_tag;
-            updateBTBEntry(btb_idx, entry, stream);
-        } else {
-            // Original logic - use startPC for all entries
-            Addr startPC = stream.getRealStartPC();
-            Addr btb_idx = getIndex(startPC);
-            Addr btb_tag = getTag(startPC);
-
-            entry.tag = btb_tag;
-            updateBTBEntry(btb_idx, entry, stream);
-        }
+        // Calculate 32-byte aligned address for this entry
+        Addr entryPC = entry.pc & ~(blockSize - 1);
+        updateBTBEntry(entryPC, entry, stream);
     }
     
     // Verify BTB state

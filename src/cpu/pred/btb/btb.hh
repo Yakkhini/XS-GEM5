@@ -159,7 +159,8 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
 
     void printBTBEntry(const BTBEntry &e, uint64_t tick = 0) {
-        DPRINTF(BTB, "BTB entry: valid %d, pc:%#lx, tag: %#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d, always_taken:%d, tick:%llu\n",
+        DPRINTF(BTB, "BTB entry: valid %d, pc:%#lx, tag: %#lx, size:%d, target:%#lx, \
+            cond:%d, indirect:%d, call:%d, return:%d, always_taken:%d, tick:%lu\n",
             e.valid, e.pc, e.tag, e.size, e.target, e.isCond, e.isIndirect, e.isCall, e.isReturn, e.alwaysTaken, tick);
     }
 
@@ -199,7 +200,9 @@ class DefaultBTB : public TimedBaseBTBPredictor
      *  @param inst_PC The branch to look up.
      *  @return Returns the index into the BTB.
      */
-    inline Addr getIndex(Addr instPC);
+    inline Addr getIndex(Addr instPC) {
+        return (instPC >> idxShiftAmt) & idxMask;
+    }
 
     /** Returns the tag bits of a given address.
      *  The tag is calculated as: (pc >> tagShiftAmt) & tagMask
@@ -207,7 +210,9 @@ class DefaultBTB : public TimedBaseBTBPredictor
      *  @param inst_PC The branch's address.
      *  @return Returns the tag bits.
      */
-    inline Addr getTag(Addr instPC);
+    inline Addr getTag(Addr instPC) {
+        return (instPC >> tagShiftAmt) & tagMask;
+    }
 
     /** Helper function to check if this is L0 BTB
      *  L0 BTB has zero delay (getDelay() == 0)
@@ -266,10 +271,9 @@ class DefaultBTB : public TimedBaseBTBPredictor
     /** Check branch prediction hit status
      *  @param stream Fetch stream containing execution results
      *  @param meta BTB metadata from prediction
-     *  @return Tuple of (pred_hit, l0_hit)
      */
-    std::pair<bool, bool> checkPredictionHit(const FetchStream &stream, 
-                                           const BTBMeta* meta);
+    void checkPredictionHit(const FetchStream &stream,
+                           const BTBMeta* meta);
 
     /** Collect entries that need to be updated
      *  @param old_entries Processed old entries
@@ -281,11 +285,11 @@ class DefaultBTB : public TimedBaseBTBPredictor
         const FetchStream &stream);
 
     /** Update or replace BTB entry
-     *  @param btb_idx BTB set index
+     *  @param entryPC PC of the entry to update/replace
      *  @param entry Entry to update/replace
      *  @param stream Fetch stream with update info
      */
-    void updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream);
+    void updateBTBEntry(Addr entryPC, const BTBEntry& entry, const FetchStream &stream);
 
     /*
      * Comparator for MRU heap

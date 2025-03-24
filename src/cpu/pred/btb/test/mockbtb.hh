@@ -264,10 +264,9 @@ class DefaultBTB
     /** Check branch prediction hit status
      *  @param stream Fetch stream containing execution results
      *  @param meta BTB metadata from prediction
-     *  @return Tuple of (pred_hit, l0_hit)
      */
-    std::pair<bool, bool> checkPredictionHit(const FetchStream &stream, 
-                                           const BTBMeta* meta);
+    void checkPredictionHit(const FetchStream &stream,
+                           const BTBMeta* meta);
 
     /** Collect entries that need to be updated
      *  @param old_entries Processed old entries
@@ -279,11 +278,11 @@ class DefaultBTB
         const FetchStream &stream);
 
     /** Update or replace BTB entry
-     *  @param btb_idx BTB set index
+     *  @param entryPC PC of the entry to update/replace
      *  @param entry Entry to update/replace
      *  @param stream Fetch stream with update info
      */
-    void updateBTBEntry(unsigned btb_idx, const BTBEntry& entry, const FetchStream &stream);
+    void updateBTBEntry(Addr entryPC, const BTBEntry& entry, const FetchStream &stream);
 
     /*
      * Comparator for MRU heap
@@ -323,6 +322,12 @@ class DefaultBTB
      *  @return Returns all hit BTB entries.
      */
     std::vector<TickedBTBEntry> lookup(Addr block_pc);
+
+    /** Helper function to lookup entries in a single block
+     * @param block_pc The aligned PC to lookup
+     * @return Vector of matching BTB entries
+     */
+    std::vector<TickedBTBEntry> lookupSingleBlock(Addr block_pc);
 
     /** The BTB structure:
      *  - Organized as numSets sets
@@ -425,12 +430,6 @@ class DefaultBTB
             stat++;
         }
     }
-
-    /** Helper function to lookup entries in a single block
-     * @param block_pc The aligned PC to lookup
-     * @return Vector of matching BTB entries
-     */
-    std::vector<TickedBTBEntry> lookupSingleBlock(Addr block_pc);
 };
 
 } // namespace test
