@@ -136,7 +136,7 @@ typedef struct BTBEntry : BranchInfo
     int ctr;
     Addr tag;
     // Addr offset; // retrived from lowest bits of pc
-    BTBEntry() : valid(false) {}
+    BTBEntry() : valid(false), alwaysTaken(false), ctr(0), tag(0) {}
     BTBEntry(const BranchInfo &bi) : BranchInfo(bi), valid(true), alwaysTaken(true), ctr(0) {}
     BranchInfo getBranchInfo() { return BranchInfo(*this); }
 
@@ -271,32 +271,41 @@ typedef struct FetchStream
     int fetchInstNum;
     int commitInstNum;
 
-    FetchStream()
-        : startPC(0),
-          predTaken(false),
-          predEndPC(0),
-          predBranchInfo(BranchInfo()),
-          isHit(false),
-          falseHit(false),
-        //   predBTBEntry(BTBEntry()),
-          sentToICache(false),
-          exeTaken(false),
-          exeBranchInfo(BranchInfo()),
-          updateNewBTBEntry(BTBEntry()),
-          updateIsOldEntry(false),
-          resolved(false),
-          squashType(SquashType::SQUASH_NONE),
-          predSource(0),
-          fromLoopBuffer(false),
-          isDouble(false),
-          isExit(false),
-          jaHit(false),
-          jaEntry(JAEntry()),
-          currentSentBlock(0),
-          fetchInstNum(0),
-          commitInstNum(0)
-    {
-    }
+   FetchStream()
+       : startPC(0),
+         predTaken(false),
+         predEndPC(0),
+         predBranchInfo(BranchInfo()),
+         isHit(false),
+         falseHit(false),
+         sentToICache(false),
+         exeTaken(false),
+         exeBranchInfo(BranchInfo()),
+         updateNewBTBEntry(BTBEntry()),
+         updateIsOldEntry(false),
+         resolved(false),
+         updateEndInstPC(0),
+         squashType(SquashType::SQUASH_NONE),
+         squashPC(0),
+         predSource(0),
+         fromLoopBuffer(false),
+         isDouble(false),
+         isExit(false),
+         jaHit(false),
+         jaEntry(JAEntry()),
+         currentSentBlock(0),
+         predTick(0),
+         history(),
+         fetchInstNum(0),
+         commitInstNum(0)
+   {
+       predMetas.fill(nullptr);
+       loopRedirectInfos.clear();
+       fixNotExits.clear();
+       unseenLoopRedirectInfos.clear();
+       predBTBEntries.clear();
+       updateBTBEntries.clear();
+   }
 
     // the default exe result should be consistent with prediction
     void setDefaultResolve() {

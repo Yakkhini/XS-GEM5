@@ -39,14 +39,18 @@ namespace debug {
 #undef DPRINTF_UNCONDITIONAL
 #endif
 
-// define Dprintf as nop
-// #define DPRINTF(x, ...) {}
-// #define DPRINTFS(x, s, ...) {}
-// #define DPRINTFR(x, ...) {}
-// #define DPRINTFV(x, ...) {}
-// #define DPRINTFN(...) {}
-// #define DPRINTFNR(...) {}
+// #define DPRINTF_AS_NOP
 
+#if defined(DPRINTF_AS_NOP)
+// define Dprintf as nop
+#define DPRINTF(x, ...) {}
+#define DPRINTFS(x, s, ...) {}
+#define DPRINTFR(x, ...) {}
+#define DPRINTFV(x, ...) {}
+#define DPRINTFN(...) {}
+#define DPRINTFNR(...) {}
+
+#else
 // Only define DPRINTF macros if they haven't been defined yet
 #ifndef DPRINTF
 #define DPRINTF(x, ...) std::printf(__VA_ARGS__)
@@ -76,4 +80,6 @@ namespace debug {
 #define DPRINTF_UNCONDITIONAL(x, ...) std::printf(__VA_ARGS__)
 #endif
 
-#endif // __CPU_PRED_BTB_TEST_TEST_DPRINTF_HH__ 
+#endif
+
+#endif // __CPU_PRED_BTB_TEST_TEST_DPRINTF_HH__
