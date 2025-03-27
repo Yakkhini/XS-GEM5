@@ -106,15 +106,12 @@ The table lookup process involves:
 
 1. Calculating indices and tags for each table
 2. Checking for matching entries
-3. Collecting the entries, indices, tags, and useful masks
+3. Collecting the entries and updating useful masks
 
 ```cpp
-TableLookupResult lookupTageTable(const Addr &startPC) {
-    TableLookupResult result;
-    result.entries.resize(numPredictors);
-    result.indices.resize(numPredictors);
-    result.tags.resize(numPredictors);
-    result.useful_mask.resize(numPredictors);
+std::vector<BTBTAGE::TageEntry> lookupTageTable(const Addr &startPC) {
+    std::vector<BTBTAGE::TageEntry> entries(numPredictors);
+    meta.usefulMask.resize(numPredictors);
     
     // Look up entries in all TAGE tables
     for (int i = 0; i < numPredictors; ++i) {

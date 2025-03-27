@@ -110,44 +110,40 @@ BTBTAGE::tickStart() {}
  * @brief Helper method to lookup entries in all TAGE tables
  * 
  * @param startPC The starting PC address for lookup
- * @return TableLookupResult containing entries, indices, tags and useful mask
+ * @return std::vector<TageEntry> containing entries from all tables
  */
-BTBTAGE::TableLookupResult
+std::vector<BTBTAGE::TageEntry>
 BTBTAGE::lookupTageTable(const Addr &startPC) {
-    TableLookupResult result;
-    result.entries.resize(numPredictors);
-    result.indices.resize(numPredictors);
-    result.tags.resize(numPredictors);
-    result.useful_mask.resize(numPredictors);
-    
+    std::vector<BTBTAGE::TageEntry> entries(numPredictors);
+    meta.usefulMask.resize(numPredictors);
+
     // Look up entries in all TAGE tables
     for (int i = 0; i < numPredictors; ++i) {
         Addr index = getTageIndex(startPC, i);
-        Addr tag = getTageTag(startPC, i);
         auto &entry = tageTable[i][index];
         
-        result.entries[i] = entry;
-        result.indices[i] = index;
-        result.tags[i] = tag;
-        result.useful_mask[i] = entry.useful;
-        
+        entries[i] = entry;
+        meta.usefulMask[i] = entry.useful;
+
         DPRINTF(TAGE, "lookup table %d[%lu]: valid %d, tag %lu, ctr %d, useful %d\n",
             i, index, entry.valid, entry.tag, entry.counter, entry.useful);
     }
-    return result;
+    return entries;
 }
 
 /**
  * @brief Generate prediction for a single BTB entry using TAGE table results
  * 
  * @param btb_entry The BTB entry to generate prediction for
- * @param table_result Results from TAGE table lookup
+ * @param entries Entries from TAGE tables
+ * @param startPC The starting PC address for recalculating indices and tags
  * @return TagePrediction containing main and alternative predictions
  */
 BTBTAGE::TagePrediction
 BTBTAGE::generateSinglePrediction(const BTBEntry &btb_entry, 
-                                 const TableLookupResult &table_result) {
-    DPRINTF(TAGE, "lookupHelper btbEntry: %#lx, always taken %d\n", 
+                                 const std::vector<BTBTAGE::TageEntry> &entries,
+                                 const Addr &startPC) {
+    DPRINTF(TAGE, "lookupHelper btbEntry: %#lx, always taken %d\n",
         btb_entry.pc, btb_entry.alwaysTaken);
     
     // Find main and alternative predictions
@@ -157,26 +153,25 @@ BTBTAGE::generateSinglePrediction(const BTBEntry &btb_entry,
 
     // Search from highest to lowest table for matches
     for (int i = numPredictors - 1; i >= 0; --i) {
-        auto &way = table_result.entries[i];
-        bool match = way.valid && 
-                    table_result.tags[i] == way.tag && 
-                    btb_entry.pc == way.pc;
+        const auto &entry = entries[i];
+        Addr index = getTageIndex(startPC, i);
+        Addr tag = getTageTag(startPC, i); // use for tag comparison
+
+        bool match = entry.valid &&
+                    tag == entry.tag &&
+                    btb_entry.pc == entry.pc; // entry valid, tag matches, pos matches
 
         DPRINTF(TAGE, "hit %d, table %d, index %lu, lookup tag %lu, tag %lu, useful %d, btb_pc %#lx, entry_pc %#lx\n",
-            match, i, table_result.indices[i], table_result.tags[i], way.tag, way.useful, btb_entry.pc, way.pc);
+            match, i, index, tag, entry.tag, entry.useful, btb_entry.pc, entry.pc);
 
         if (match) {
             if (!provided) {
                 // First match becomes main prediction
-                main_info = TageTableInfo(true, way, i, 
-                                        table_result.indices[i], 
-                                        table_result.tags[i]);
+                main_info = TageTableInfo(true, entry, i, index, tag);
                 provided = true;
             } else if (!alt_provided) {
                 // Second match becomes alternative prediction
-                alt_info = TageTableInfo(true, way, i, 
-                                       table_result.indices[i], 
-                                       table_result.tags[i]);
+                alt_info = TageTableInfo(true, entry, i, index, tag);
                 alt_provided = true;
                 break;
             }
@@ -219,15 +214,14 @@ BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntri
     DPRINTF(TAGE, "lookupHelper startAddr: %#lx\n", startPC);
     
     // Look up all TAGE tables for the given start PC
-    auto table_result = lookupTageTable(startPC);
-    meta.usefulMask = table_result.useful_mask;
+    auto entries = lookupTageTable(startPC);
 
     // Process each BTB entry to make predictions
     std::map<Addr, bool> cond_takens;
     for (auto &btb_entry : btbEntries) {
         // Only predict for valid conditional branches
         if (btb_entry.isCond && btb_entry.valid) {
-            auto pred = generateSinglePrediction(btb_entry, table_result);
+            auto pred = generateSinglePrediction(btb_entry, entries, startPC);
             meta.preds[btb_entry.pc] = pred;
             tageStats.updateStatsWithTagePrediction(pred, true);
             cond_takens[btb_entry.pc] = pred.taken || btb_entry.alwaysTaken;

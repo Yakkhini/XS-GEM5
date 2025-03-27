@@ -92,16 +92,6 @@ class BTBTAGE
                             useAlt(useAlt), taken(taken) {}
     };
 
-    // Structure to hold TAGE table lookup results
-    struct TableLookupResult {
-        std::vector<TageEntry> entries;  // Entries found in each table
-        std::vector<Addr> indices;       // Indices used for lookup
-        std::vector<Addr> tags;          // Tags used for lookup
-        bitset useful_mask;              // Mask of useful bits from entries
-
-        TableLookupResult() {}
-    };
-
     // Structure to hold allocation results
     struct AllocationResult {
         bool allocate_valid;             // Whether allocation is valid
@@ -331,11 +321,12 @@ public:
 
 private:
     // Helper method to lookup entries in all TAGE tables
-    TableLookupResult lookupTageTable(const Addr &startPC);
+    std::vector<TageEntry> lookupTageTable(const Addr &startPC);
 
     // Helper method to generate prediction for a single BTB entry
     TagePrediction generateSinglePrediction(const BTBEntry &btb_entry, 
-                                          const TableLookupResult &table_result);
+                                           const std::vector<TageEntry> &entries,
+                                           const Addr &startPC);
 
     // Helper method to prepare BTB entries for update
     std::vector<BTBEntry> prepareUpdateEntries(const FetchStream &stream);
