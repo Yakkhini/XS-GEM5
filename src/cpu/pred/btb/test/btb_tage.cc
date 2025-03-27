@@ -157,10 +157,10 @@ BTBTAGE::generateSinglePrediction(const BTBEntry &btb_entry,
     bool main_taken = main_info.taken();
     bool alt_taken = alt_info.taken();
     bool base_taken = btb_entry.ctr >= 0;
-    bool alt_pred = alt_provided ? alt_taken : base_taken;
-    bool use_alt = main_info.entry.counter == 0 || 
-                   main_info.entry.counter == -1 || 
-                   !provided;
+    bool alt_pred = alt_provided ? alt_taken : base_taken; // if alt provided, use alt prediction, otherwise use base
+    bool use_alt = main_info.entry.counter == 0 ||
+                   main_info.entry.counter == -1 ||
+                   !provided;   // main prediction is weak or not provided
     bool taken = use_alt ? alt_pred : main_taken;
 
     DPRINTF(TAGE, "tage predict %#lx taken %d\n", btb_entry.pc, taken);
@@ -336,7 +336,7 @@ BTBTAGE::updatePredictorStateAndCheckAllocation(const BTBEntry &entry,
     // check if we used alt prediction and main was correct
     bool use_alt_on_main_found_correct = used_alt && main_info.found && 
                                         main_info.taken() == actual_taken;
-    
+
     // return true if need to allocate new entry = mispred and main was incorrect
     return this_cond_mispred && !use_alt_on_main_found_correct;
 }
@@ -515,7 +515,7 @@ BTBTAGE::update(const FetchStream &stream) {
         // Handle useful bit reset
             handleUsefulBitReset(meta->usefulMask);
         }
-        
+
         // Handle new entry allocation if needed
         if (need_allocate) {
             uint start_table = 0;
@@ -636,8 +636,6 @@ BTBTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool ta
 
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 3; type++) {
-            DPRINTF(TAGE, "t: %d, type: %d\n", t, type);
-
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.update(history, shamt, taken);
         }

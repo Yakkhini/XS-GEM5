@@ -6,6 +6,14 @@ The Branch Target Buffer (BTB) is a critical component in modern branch predicti
 
 This document describes the design and implementation of the DefaultBTB in gem5, which models a set-associative BTB with MRU (Most Recently Used) replacement policy and support for half-aligned mode.
 
+Notion: BTB entry is different from FTB entry.
+One BTB entry is one branch.
+One FTB entry is one Fetch Block, contains multiple branches.
+For BTB, 32B Fetch Block(FBlock) is the basic unit, one FBlock may contains multiple BTB entries,
+all of the BTB entries in one FBlock are predicted in the same way(same index, different tag/ different ways).
+Then, BTB entries in one FBlock are send to TAGE, TAGE will predict each BTB entry independently,
+TAGE will find the first predicted as taken branch, and return it's target address to BTB as the next predict pc.
+
 ## 2. Key Design Principles
 
 ### 2.1 Multi-level BTB Hierarchy
@@ -26,6 +34,7 @@ The BTB is designed to work with gem5's decoupled frontend pipeline, where:
 ### 2.3 Half-Aligned Mode
 
 The BTB supports a half-aligned mode that allows it to access and predict branches across 32-byte block boundaries. In this mode, the BTB effectively looks up two consecutive 32-byte blocks for each prediction, providing better coverage for branches near block boundaries.
+Now Fetch Width is max 64B, contains 2 32B FBlock.
 
 ## 3. Data Structures
 

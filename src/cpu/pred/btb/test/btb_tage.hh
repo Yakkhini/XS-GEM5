@@ -218,7 +218,7 @@ class BTBTAGE
     void setTag(Addr &dest, Addr src, int table);
 
     // Debug flag
-    bool debugFlagOn{false};
+    bool debugFlagOn{true};
 
     // Number of tables to allocate on misprediction
     unsigned numTablesToAlloc;
