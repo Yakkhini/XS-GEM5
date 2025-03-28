@@ -50,20 +50,22 @@ BTBEntry createBTBEntry(Addr pc, bool isCond = true, bool valid = true,
  * @return FetchStream Initialized stream for update or recovery
  */
 FetchStream createStream(Addr startPC, const BTBEntry& entry, bool taken,
-                         std::shared_ptr<void> meta,
-                         SquashType squashType = SquashType::SQUASH_CTRL) {
+                         std::shared_ptr<void> meta) {
     FetchStream stream;
     stream.startPC = startPC;
     stream.exeBranchInfo = entry;
     stream.exeTaken = taken;
-    stream.squashType = squashType;
-    stream.squashPC = entry.pc;
     stream.updateBTBEntries = {entry};
     stream.updateIsOldEntry = true;
     stream.predMetas[0] = meta;
     return stream;
 }
 
+FetchStream setMispredStream(FetchStream stream) {
+    stream.squashType = SquashType::SQUASH_CTRL;
+    stream.squashPC = stream.exeBranchInfo.pc;
+    return stream;
+}
 /**
  * @brief Execute a complete TAGE prediction cycle
  *
@@ -101,7 +103,7 @@ bool predictTAGE(BTBTAGE* tage, Addr startPC,
  * @param history Branch history register
  * @param stagePreds Prediction results container
  */
-void predictUpdateCycle(BTBTAGE* tage, Addr startPC,
+bool predictUpdateCycle(BTBTAGE* tage, Addr startPC,
                       const BTBEntry& entry,
                       bool actual_taken,
                       boost::dynamic_bitset<>& history,
@@ -127,11 +129,12 @@ void predictUpdateCycle(BTBTAGE* tage, Addr startPC,
 
     // 6. Handle possible misprediction
     if (predicted_taken != actual_taken) {
+        stream = setMispredStream(stream);
+        // Update history with correct outcome
+        history >>= 1;  // Undo speculative update
         // Recover from misprediction
         tage->recoverHist(history, stream, 1, actual_taken);
 
-        // Update history with correct outcome
-        history >>= 1;  // Undo speculative update
         history <<= 1;  // Re-shift
         history[0] = actual_taken;  // Set with actual outcome
         tage->checkFoldedHist(history, "recover");
@@ -139,6 +142,7 @@ void predictUpdateCycle(BTBTAGE* tage, Addr startPC,
 
     // 7. Update predictor
     tage->update(stream);
+    return predicted_taken;
 }
 
 /**
@@ -235,8 +239,8 @@ TEST_F(BTBTAGETest, BasicPrediction) {
     // Should predict taken due to initial counter bias
     EXPECT_TRUE(taken) << "Initial prediction should be taken";
 
-    // Update predictor with actual outcome = taken
-    predictUpdateCycle(tage, 0x1000, entry, true, history, stagePreds);
+    // Update predictor with actual outcome Not taken
+    predictUpdateCycle(tage, 0x1000, entry, false, history, stagePreds);
 
     // Verify at least one table has an entry allocated
     int table = findTableWithEntry(tage, 0x1000);
@@ -426,6 +430,7 @@ TEST_F(BTBTAGETest, HistoryRecoveryCorrectness) {
 
     // Create a recovery stream with opposite outcome
     FetchStream stream = createStream(0x1000, entry, !predicted_taken, meta);
+    stream = setMispredStream(stream);
 
     // Recover to pre-speculative state and update with correct outcome
     boost::dynamic_bitset<> recoveryHistory = originalHistory;
@@ -465,18 +470,18 @@ TEST_F(BTBTAGETest, MultipleBranchSequence) {
         second_pred = stagePreds[1].condTakens[0x1004];
     }
 
-    // Update first branch (correct prediction)
+    // Update first branch (correct prediction), no allocation
     FetchStream stream1 = createStream(0x1000, btbEntries[0], first_pred, meta);
     tage->update(stream1);
 
-    // Update second branch (incorrect prediction)
+    // Update second branch (incorrect prediction), allocate 1 entry
     FetchStream stream2 = createStream(0x1000, btbEntries[1], !second_pred, meta);
     stream2.squashType = SquashType::SQUASH_CTRL;
     stream2.squashPC = 0x1004;
     tage->update(stream2);
 
     // Verify both branches have entries allocated
-    EXPECT_GE(findTableWithEntry(tage, 0x1000), 0) << "First branch should have an entry";
+    EXPECT_EQ(findTableWithEntry(tage, 0x1000), -1) << "First branch should not have an entry";
     EXPECT_GE(findTableWithEntry(tage, 0x1004), 0) << "Second branch should have an entry";
 }
 
@@ -517,6 +522,111 @@ TEST_F(BTBTAGETest, CounterUpdateMechanism) {
     // Verify counter saturates at minimum
     EXPECT_EQ(tage->tageTable[testTable][index].counter, -4)
         << "Counter should saturate at minimum value";
+}
+
+/**
+ * @brief Test predictor consistency after multiple predictions
+ *
+ * This test verifies that:
+ * 1. The predictor learns a repeating pattern
+ * 2. The prediction accuracy improves over time
+ * 3. Predictor state is consistent after multiple predictions
+ */
+TEST_F(BTBTAGETest, UpdateConsistencyAfterMultiplePredictions) {
+    // Create a branch entry
+    BTBEntry entry = createBTBEntry(0x1000);
+
+    // Step 1: Train predictor on a fixed pattern (alternating T/N)
+    const int TOTAL_ITERATIONS = 100;
+    const int WARMUP_ITERATIONS = 80;
+
+    int correctly_predicted = 0;
+
+    for (int i = 0; i < TOTAL_ITERATIONS; i++) {
+        bool actual_taken = (i % 2 == 0);  // T,N,T,N pattern
+        bool predicted_taken = predictUpdateCycle(tage, 0x1000, entry, actual_taken, history, stagePreds);
+
+        // Count correct predictions after warmup
+        if (i >= WARMUP_ITERATIONS) {
+            correctly_predicted += (predicted_taken == actual_taken) ? 1 : 0;
+        }
+    }
+
+    // Calculate accuracy in final phase
+    double accuracy = static_cast<double>(correctly_predicted) /
+                     (TOTAL_ITERATIONS - WARMUP_ITERATIONS);
+
+    // Verify predictor has learned the pattern with high accuracy
+    EXPECT_GT(accuracy, 0.9)
+        << "Predictor should learn alternating pattern with >90% accuracy";
+    // print updateMispred: mispredictions times
+    std::cout << "updateMispred: " << tage->tageStats.updateMispred << std::endl;
+}
+
+/**
+ * @brief Test combined prediction accuracy across different tables
+ *
+ * This test evaluates how different tables in the TAGE predictor
+ * contribute to prediction accuracy for various branch patterns.
+ */
+TEST_F(BTBTAGETest, CombinedPredictionAccuracyTesting) {
+    // Setup branch entry
+    BTBEntry entry = createBTBEntry(0x1000);
+
+    // Define different branch patterns
+    struct PatternTest
+    {
+        std::string name;
+        std::function<bool(int)> pattern;
+    };
+
+    std::vector<PatternTest> patterns = {
+        {"Alternating", [](int i) { return i % 2 == 0; }},                   // T,N,T,N...
+        {"ThreeCycle", [](int i) { return i % 3 == 0; }},                    // T,N,N,T,N,N...
+        {"LongCycle", [](int i) { return (i / 10) % 2 == 0; }},              // 10 Ts, 10 Ns...
+        {"BiasedRandom", [](int i) {
+            // Use deterministic but complex pattern that appears somewhat random
+            return ((i * 7 + 3) % 11) > 5;
+        }}
+    };
+
+    const int TRAIN_ITERATIONS = 200;  // it need more iterations to train!
+    const int WARMUP_ITERATIONS = 180;
+
+
+    // Test each pattern
+    for (const auto& pattern_test : patterns) {
+        // Reset predictor and history
+        delete tage;
+        tage = new BTBTAGE();
+        // clear history
+        history.reset();
+        stagePreds.resize(2);
+
+        int correctly_predicted = 0;
+        // Training phase
+        for (int i = 0; i < TRAIN_ITERATIONS; i++) {
+            bool actual_taken = pattern_test.pattern(i);
+            bool predicted_taken = predictUpdateCycle(tage, 0x1000, entry, actual_taken, history, stagePreds);
+
+                    // Count correct predictions after warmup
+            if (i >= WARMUP_ITERATIONS) {
+                correctly_predicted += (predicted_taken == actual_taken) ? 1 : 0;
+            }
+        }
+
+        // Calculate accuracy in final phase
+        double accuracy = static_cast<double>(correctly_predicted) /
+                         (TRAIN_ITERATIONS - WARMUP_ITERATIONS);
+
+
+        // Verify predictor has learned the pattern with high accuracy
+        EXPECT_GT(accuracy, 0.9)
+            << "Predictor should learn alternating pattern with >90% accuracy";
+
+        // print updateMispred: mispredictions times
+        std::cout << "updateMispred: " << tage->tageStats.updateMispred << std::endl;
+    }
 }
 
 }  // namespace test

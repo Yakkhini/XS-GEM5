@@ -340,11 +340,11 @@ recoverStream.exeBranchInfo = branch_info;
 recoverStream.exeTaken = actual_taken;
 recoverStream.predMetas[0] = meta;  // Must include metadata from prediction
 
+// Manually update global history register to match
+history >>= shamt;  // Undo speculative update
 // Recover history to checkpoint state, then update with actual outcome
 tage->recoverHist(history, recoverStream, shamt, actual_taken);
 
-// Manually update global history register to match
-history >>= shamt;  // Undo speculative update
 history <<= shamt;  // Re-shift
 history[0] = actual_taken;  // Set with actual outcome
 ```

@@ -26,11 +26,11 @@ BTBTAGE::BTBTAGE() : numPredictors(4), tageStats(4)
 {
     DPRINTF(TAGE, "BTBTAGE constructor\n");
     tableSizes = {1024, 1024, 1024, 1024};
-    tableTagBits = {10, 10, 10, 10};
-    tablePcShifts = {10, 10, 10, 10};
-    histLengths = {10, 10, 10, 10};
-    maxHistLen = 10;
-    numTablesToAlloc = 4;
+    tableTagBits = {8, 8, 8, 8};
+    tablePcShifts = {1, 1, 1, 1};
+    histLengths = {8, 13, 32, 62}; // max hist < 64 in test
+    maxHistLen = 970;
+    numTablesToAlloc = 1;
     enableSC = false;
 
     tageTable.resize(numPredictors);
