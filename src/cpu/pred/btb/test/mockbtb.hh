@@ -42,12 +42,15 @@
  */ 
 
 // #include "base/logging.hh"
-#include "base/types.hh"
-#include "cpu/pred/btb/stream_struct.hh"
-#include "cpu/pred/btb/stream_common.hh"
-#include <cstdint>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <cstdint>
+#include <queue>
+
+#include "base/types.hh"
+#include "cpu/pred/btb/stream_common.hh"
+#include "cpu/pred/btb/stream_struct.hh"
 
 // Include test DPRINTF definitions at last, override the default DPRINTF
 #include "cpu/pred/btb/test/test_dprintf.hh"
@@ -122,7 +125,8 @@ class DefaultBTB
 
     // not used
     void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred);
-
+    void recoverHist(const boost::dynamic_bitset<> &history,
+        const FetchStream &entry, int shamt, bool cond_taken);
     /** Creates a BTB with the given number of entries, number of bits per
      *  tag, and number of ways.
      *  @param numEntries Number of entries for the BTB.
@@ -131,7 +135,7 @@ class DefaultBTB
      *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
      *  @param halfAligned Whether to use half-aligned mode (64B prediction)
      */
-    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay, bool halfAligned = false);
+    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay, unsigned aheadPipelinedStages = 0, bool halfAligned = false);
 
     void reset();
     
@@ -261,6 +265,12 @@ class DefaultBTB
      */
     std::vector<BTBEntry> processOldEntries(const FetchStream &stream);
 
+    /** Get the previous PC from the fetch stream
+     *  @param stream Fetch stream containing prediction info
+     *  @return Previous PC
+     */
+    Addr getPreviousPC(const FetchStream &stream);
+
     /** Check branch prediction hit status
      *  @param stream Fetch stream containing execution results
      *  @param meta BTB metadata from prediction
@@ -344,6 +354,8 @@ class DefaultBTB
      */
     std::vector<BTBHeap> mruList;
 
+    std::queue<std::tuple<Addr, Addr, BTBSet>> aheadReadBtbEntries;
+
     /** BTB configuration parameters */
     unsigned numEntries;    // Total number of entries
     unsigned numWays;       // Number of ways per set
@@ -351,6 +363,7 @@ class DefaultBTB
     unsigned numDelay;      // Number of delay cycles
     bool alignToBlockSize;  // Whether to align to block size
     bool halfAligned;      // Whether to use half-aligned mode (64B prediction)
+    unsigned aheadPipelinedStages;
 
     /** Address calculation masks and shifts */
     Addr idxMask;          // Mask for extracting index bits

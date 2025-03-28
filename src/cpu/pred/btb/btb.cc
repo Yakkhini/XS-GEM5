@@ -659,7 +659,12 @@ DefaultBTB::update(const FetchStream &stream)
         Addr btb_idx = getIndex(entryPC);
         Addr btb_tag = getTag(entryPC);
         if (aheadPipelinedStages > 0) {
-            btb_idx = getIndex(getPreviousPC(stream));
+            Addr previousPC = getPreviousPC(stream);
+            if (previousPC == 0) {
+                DPRINTF(BTB, "ahead-pipeline: no previous PC, skipping update\n");
+                return;
+            }
+            btb_idx = getIndex(previousPC);
         }
         updateBTBEntry(btb_idx, btb_tag, entry, stream);
 
