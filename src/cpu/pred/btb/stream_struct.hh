@@ -1,14 +1,17 @@
 #ifndef __CPU_PRED_BTB_STREAM_STRUCT_HH__
 #define __CPU_PRED_BTB_STREAM_STRUCT_HH__
 
+#include <queue>
+
 #include <boost/dynamic_bitset.hpp>
 
 // #include "arch/generic/pcstate.hh"
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
-#include "cpu/pred/general_arch_db.hh"
 #include "cpu/pred/btb/stream_common.hh"
+#include "cpu/pred/general_arch_db.hh"
 #include "cpu/static_inst.hh"
+
 // #include "debug/DecoupleBP.hh"
 // #include "debug/BTB.hh"
 // #include "debug/Override.hh"
@@ -266,6 +269,7 @@ typedef struct FetchStream
 
     Tick predTick;
     boost::dynamic_bitset<> history;
+    std::queue<Addr> previousPCs;
 
     // for profiling
     int fetchInstNum;

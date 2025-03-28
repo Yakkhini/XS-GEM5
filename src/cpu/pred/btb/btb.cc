@@ -27,10 +27,12 @@
  */
 
 
+#include "cpu/pred/btb/btb.hh"
+
 #include "base/intmath.hh"
 #include "base/trace.hh"
 #include "cpu/o3/dyn_inst.hh"
-#include "cpu/pred/btb/btb.hh"
+#include "debug/AheadPipeline.hh"
 #include "debug/Fetch.hh"
 
 namespace gem5
@@ -68,6 +70,9 @@ DefaultBTB::DefaultBTB(const Params &p)
 
     assert(numEntries % numWays == 0);
     numSets = numEntries / numWays;
+    aheadPipelinedStages = p.aheadPipelinedStages;
+    // half-aligned should not be used with ahead-pipelined stages
+    assert(aheadPipelinedStages == 0 || !halfAligned);
 
     if (!isPowerOf2(numEntries)) {
         fatal("BTB entries is not a power of 2!");
@@ -276,6 +281,38 @@ DefaultBTB::getPredictionMeta()
 void
 DefaultBTB::specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) {}
 
+void
+DefaultBTB::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
+{
+    // clear ahead pipeline first
+    while (!aheadReadBtbEntries.empty()) {
+        aheadReadBtbEntries.pop();
+    }
+    /*
+    // do ahead reads to fill the ahead-pipeline
+    // with the squashed stream we could only do one read
+    // if want to support more ahead stages, interface needs to be modified
+    auto startAddr = entry.startPC;
+    // access ftb memory, get a set
+    Addr ftb_read_idx = getIndex(startAddr);
+    auto ftb_read_set = ftb[ftb_read_idx];
+    assert(ftb_read_idx < numSets);
+    // in ahead-pipelined implementations, we do memory access first with
+    // address of the previous block, and do tag compare with current address
+    // thus we need to store the entry read from memory for later use
+    if (aheadPipelinedStages > 0) {
+        DPRINTF(AheadPipeline, "FTB: in recoverHist\n");
+        DPRINTF(AheadPipeline, "FTB: pushing set for ahead-pipelined stages %d,
+            idx %d\n", aheadPipelinedStages, ftb_read_idx);
+        DPRINTF(AheadPipeline, "FTB: dumping ftb set\n");
+        for (auto &entry : ftb_read_set) {
+            printTickedFTBEntry(entry.second);
+        }
+        aheadReadFtbEntries.push(std::make_tuple(startAddr, ftb_read_idx, ftb_read_set));
+    }*/
+}
+
+
 /**
  * Helper function to lookup entries in a single block
  * @param block_pc The aligned PC to lookup
@@ -289,12 +326,53 @@ DefaultBTB::lookupSingleBlock(Addr block_pc)
         return res; // ignore false hit when lowest bit is 1
     }
     Addr btb_idx = getIndex(block_pc);
-    Addr btb_tag = getTag(block_pc);
-    DPRINTF(BTB, "BTB: Looking up BTB entry index %#lx tag %#lx\n", btb_idx, btb_tag);
-
+    auto btb_set = btb[btb_idx];
     assert(btb_idx < numSets);
-    for (auto &way : btb[btb_idx]) {
-        if (way.valid && way.tag == btb_tag) {
+    // in ahead-pipelined implementations, we do memory access first with
+    // address of the previous block, and do tag compare with current address
+    // thus we need to store the entry read from memory for later use
+    if (aheadPipelinedStages > 0) {
+        assert(!halfAligned);
+        DPRINTF(AheadPipeline, "FTB: pushing set for ahead-pipelined stages %d, idx %d\n",
+             aheadPipelinedStages, btb_idx);
+        // DPRINTF(AheadPipeline, "FTB: dumping ftb set\n");
+        // for (auto &entry : btb_set) {
+        //     printTickedBTBEntry(entry);
+        // }
+        aheadReadBtbEntries.push(std::make_tuple(block_pc, btb_idx, btb_set));
+    }
+
+    Addr current_tag = getTag(block_pc);
+    Addr current_pc = 0;
+    Addr current_idx = 0;
+    BTBSet current_set;
+    if (aheadPipelinedStages == 0) {
+        current_pc = block_pc;
+        current_idx = btb_idx;
+        current_set = btb_set;
+    } else {
+        // only if the ahead-pipeline is filled can we use the entry
+        if (aheadReadBtbEntries.size() >= aheadPipelinedStages+1) {
+            // +1 because we pushed a new set in this cycle before
+            // in case there are push without corresponding pop
+            assert(aheadReadBtbEntries.size() == aheadPipelinedStages+1);
+            std::tie(current_pc, current_idx, current_set) = aheadReadBtbEntries.front();
+            DPRINTF(AheadPipeline, "BTB: ahead-pipeline filled, using set %d from pc %#lx\n",
+                current_idx, current_pc);
+            DPRINTF(AheadPipeline, "BTB: dumping btb set\n");
+            for (auto &entry : current_set) {
+                printTickedBTBEntry(entry);
+            }
+            aheadReadBtbEntries.pop();
+        } else {
+            DPRINTF(AheadPipeline, "BTB: ahead-pipeline not filled, only have %d sets read,"
+                " skipping tag compare, assigning miss\n", aheadReadBtbEntries.size());
+        }
+    }
+    DPRINTF(BTB, "BTB: Doing tag comparison for index %d tag %#lx\n",
+        current_idx, current_tag);
+    for (auto &way : current_set) {
+        if (way.valid && way.tag == current_tag) {
             res.push_back(way);
             way.tick = curTick();  // Update timestamp for MRU
             std::make_heap(mruList[btb_idx].begin(), mruList[btb_idx].end(), older());
@@ -580,13 +658,42 @@ DefaultBTB::update(const FetchStream &stream)
         Addr entryPC = entry.pc;
         Addr btb_idx = getIndex(entryPC);
         Addr btb_tag = getTag(entryPC);
+        if (aheadPipelinedStages > 0) {
+            btb_idx = getIndex(getPreviousPC(stream));
+        }
         updateBTBEntry(btb_idx, btb_tag, entry, stream);
+
     }
     
     // Verify BTB state
     for (unsigned i = 0; i < numSets; i++) {
         assert(btb[i].size() <= numWays);
         assert(mruList[i].size() <= numWays);
+    }
+}
+
+/**
+ * Get the previous PC from the fetch stream, useful in the update of ahead-pipelined BTB
+ * @param stream Fetch stream containing prediction info
+ * @return Previous PC, 0 if the stream is not filled
+ */
+Addr
+DefaultBTB::getPreviousPC(const FetchStream &stream)
+{
+    // get pc from the nth previous block, the value of n is aheadPipelinedStages
+    auto previous_pcs = stream.previousPCs;
+    if (previous_pcs.size() < aheadPipelinedStages) {
+        // if the stream is not filled, we cannot update ftb
+        DPRINTF(AheadPipeline, "FTB: ahead-pipeline not filled, only have %d pcs read,"
+            " skipping ftb update\n", previous_pcs.size());
+        return 0;
+    } else {
+        DPRINTF(AheadPipeline, "FTB: ahead-pipeline filled, using pc %d blocks before,"
+            " prevoiusPC.size() %d\n", aheadPipelinedStages, previous_pcs.size());
+        while (previous_pcs.size() > aheadPipelinedStages) {
+            previous_pcs.pop();
+        }
+        return previous_pcs.front();
     }
 }
 

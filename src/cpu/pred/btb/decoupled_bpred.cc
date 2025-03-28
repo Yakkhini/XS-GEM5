@@ -2139,7 +2139,21 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
     DPRINTF(LoopBuffer, "now stream before loop:\n");
     printStream(lb.streamBeforeLoop);
 
-
+    // if there are ahead pipelined predictors, get prevoius PCs
+    unsigned max_ahead_pipeline_stages = 0;
+    for (int i = 0; i < numComponents; i++) {
+        max_ahead_pipeline_stages = std::max(max_ahead_pipeline_stages, components[i]->aheadPipelinedStages);
+    }
+    // get number of max_ahead_pipeline_stages previous PCs from fetchStreamQueue
+    if (max_ahead_pipeline_stages > 0) {
+        for (int i = 0; i < max_ahead_pipeline_stages; i++) {
+            auto it = fetchStreamQueue.find(fsqId - max_ahead_pipeline_stages + i);
+            if (it != fetchStreamQueue.end()) {
+                // FIXME: it may not work well with jump ahead predictor
+                entry.previousPCs.push(it->second.getRealStartPC());
+            }
+        }
+    }
 
 
     auto [insert_it, inserted] = fetchStreamQueue.emplace(fsqId, entry);

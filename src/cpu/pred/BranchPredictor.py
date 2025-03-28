@@ -978,8 +978,16 @@ class DefaultBTB(TimedBaseBTBPredictor):
     instShiftAmt = Param.Unsigned(1, "Amount to shift PC to get inst bits")
     numThreads = Param.Unsigned(1, "Number of threads")
     numWays = Param.Unsigned(8, "Number of ways per set")
+    aheadPipelinedStages = Param.Unsigned(0, "Number of stages ahead pipelined")
     numDelay = 1
     blockSize = 32  # max 64 byte block, 32 byte aligned
+
+class PBTB(DefaultBTB):
+    numEntries = 1024
+    tagBits = 38
+    numWays = 8
+    numDelay = 0
+    aheadPipelinedStages = 1
 
 class UBTB(DefaultBTB):
     numEntries = 32

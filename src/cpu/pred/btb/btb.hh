@@ -44,6 +44,8 @@
 #ifndef __CPU_PRED_BTB_BTB_HH__
 #define __CPU_PRED_BTB_BTB_HH__
 
+#include <queue>
+
 #include "arch/generic/pcstate.hh"
 #include "base/logging.hh"
 #include "base/types.hh"
@@ -53,7 +55,6 @@
 #include "debug/BTB.hh"
 #include "debug/BTBStats.hh"
 #include "params/DefaultBTB.hh"
-
 
 namespace gem5
 {
@@ -123,6 +124,9 @@ class DefaultBTB : public TimedBaseBTBPredictor
 
     // not used
     void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
+
+    void recoverHist(const boost::dynamic_bitset<> &history,
+        const FetchStream &entry, int shamt, bool cond_taken) override;
 
     /** Creates a BTB with the given number of entries, number of bits per
      *  tag, and instruction offset amount.
@@ -268,6 +272,12 @@ class DefaultBTB : public TimedBaseBTBPredictor
      */
     std::vector<BTBEntry> processOldEntries(const FetchStream &stream);
 
+    /** Get the previous PC from the fetch stream
+     *  @param stream Fetch stream containing prediction info
+     *  @return Previous PC
+     */
+    Addr getPreviousPC(const FetchStream &stream);
+
     /** Check branch prediction hit status
      *  @param stream Fetch stream containing execution results
      *  @param meta BTB metadata from prediction
@@ -350,6 +360,8 @@ class DefaultBTB : public TimedBaseBTBPredictor
      *  - Oldest entry is at the top of heap
      */
     std::vector<BTBHeap> mruList;
+
+    std::queue<std::tuple<Addr, Addr, BTBSet>> aheadReadBtbEntries;
 
     /** BTB configuration parameters */
     unsigned numEntries;    // Total number of entries

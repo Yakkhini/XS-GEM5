@@ -48,6 +48,7 @@ class TimedBaseBTBPredictor: public SimObject
     virtual void commitBranch(const FetchStream &entry, const DynInstPtr &inst) {}
 
     int componentIdx;
+    unsigned aheadPipelinedStages{0};
     int getComponentIdx() { return componentIdx; }
     void setComponentIdx(int idx) { componentIdx = idx; }
 
