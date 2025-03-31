@@ -965,7 +965,7 @@ class TimedBaseBTBPredictor(SimObject):
     cxx_header = "cpu/pred/btb/timed_base_pred.hh"
     
     # TODO: parametrize numBr and numDelay
-    blockSize = Param.Unsigned(Parent.blockSize, "Block size in bytes")
+    blockSize = Param.Unsigned(Parent.predictWidth, "Block size in bytes")
     numDelay = Param.Unsigned(1000, "Number of bubbles to put on a prediction")
 
 class DefaultBTB(TimedBaseBTBPredictor):
@@ -981,13 +981,15 @@ class DefaultBTB(TimedBaseBTBPredictor):
     aheadPipelinedStages = Param.Unsigned(0, "Number of stages ahead pipelined")
     numDelay = 1
     blockSize = 32  # max 64 byte block, 32 byte aligned
+    entryHalfAligned = Param.Bool(True, "Whether the entries are half-aligned")
 
-class PBTB(DefaultBTB):
+class ABTB(DefaultBTB):
     numEntries = 1024
     tagBits = 38
     numWays = 8
     numDelay = 0
     aheadPipelinedStages = 1
+    entryHalfAligned = False
 
 class UBTB(DefaultBTB):
     numEntries = 32
@@ -995,7 +997,7 @@ class UBTB(DefaultBTB):
     numWays = 32
     numDelay = 0
     blockSize = 32  # max 64 byte block, 32 byte aligned
-
+    entryHalfAligned = False
 class BTBRAS(TimedBaseBTBPredictor):
     type = 'BTBRAS'
     cxx_class = 'gem5::branch_prediction::btb_pred::BTBRAS'
@@ -1057,8 +1059,7 @@ class DecoupledBPUWithBTB(BranchPredictor):
     fsq_size = Param.Unsigned(64, "Fetch stream queue size")
     maxHistLen = Param.Unsigned(970, "The length of history")
     
-    # blockSize equals to predictWidth in DecoupledBPUWithFTB
-    blockSize = Param.Unsigned(64, "Maximum range in bytes that a single prediction can cover")
+    predictWidth = Param.Unsigned(64, "Maximum range in bytes that a single prediction can cover")
     alignToBlockSize = Param.Bool(False, "Whether the prediction ends at the end of blockSize boundaries")
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")
     ubtb = Param.DefaultBTB(UBTB(), "UBTB predictor")

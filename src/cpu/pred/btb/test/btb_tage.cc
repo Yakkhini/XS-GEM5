@@ -619,7 +619,7 @@ BTBTAGE::updateCounter(bool taken, unsigned width, short &counter) {
 Addr
 BTBTAGE::getTageTag(Addr pc, int t, bitset &foldedHist, bitset &altFoldedHist)
 {
-    bitset buf(tableTagBits[t], pc >> floorLog2(blockSize));  // lower bits of PC
+    bitset buf(tableTagBits[t], pc >> floorLog2(predictWidth));  // lower bits of PC
     bitset altTagBuf(altFoldedHist);
     altTagBuf.resize(tableTagBits[t]);
     altTagBuf <<= 1;
@@ -637,7 +637,7 @@ BTBTAGE::getTageTag(Addr pc, int t)
 Addr
 BTBTAGE::getTageIndex(Addr pc, int t, bitset &foldedHist)
 {
-    bitset buf(tableIndexBits[t], pc >> floorLog2(blockSize));  // lower bits of PC
+    bitset buf(tableIndexBits[t], pc >> floorLog2(predictWidth));  // lower bits of PC
     buf ^= foldedHist;
     return buf.to_ulong();
 }

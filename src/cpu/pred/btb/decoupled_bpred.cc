@@ -28,7 +28,6 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       enableJumpAheadPredictor(p.enableJumpAheadPredictor),
       fetchTargetQueue(p.ftq_size),
       fetchStreamQueueSize(p.fsq_size),
-      blockSize(p.blockSize),
       alignToBlockSize(p.alignToBlockSize),
       historyBits(p.maxHistLen),
       ubtb(p.ubtb),
@@ -42,7 +41,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       historyManager(8), // TODO: fix this
       dbpBtbStats(this, p.numStages, p.fsq_size)
 {
-    btb_pred::blockSize = p.blockSize;  // set global variable, used in stream_struct.hh
+    btb_pred::predictWidth = p.predictWidth;  // set global variable, used in stream_struct.hh
     btb_pred::alignToBlockSize = p.alignToBlockSize;
     numBr = 8; //TODO: remove numBr
     if (bpDBSwitches.size() > 0) {
@@ -1221,7 +1220,7 @@ void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
 
 
         if (stream.isHit || stream.exeTaken) {
-            stream.setUpdateInstEndPC(blockSize);
+            stream.setUpdateInstEndPC(predictWidth);
             stream.setUpdateBTBEntries();
             btb->getAndSetNewBTBEntry(stream);
             for (int i = 0; i < numComponents; ++i) {
@@ -1830,7 +1829,7 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
          ftq_enq_state.pc, end);
     }
     
-    assert(ftq_enq_state.pc <= end || (end < blockSize && (ftq_enq_state.pc + blockSize < blockSize)));
+    assert(ftq_enq_state.pc <= end || (end < predictWidth && (ftq_enq_state.pc + predictWidth < predictWidth)));
 
     // create a new target entry
     FtqEntry ftq_entry;
@@ -1846,7 +1845,7 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
         bool jaHit = stream_to_enq.jaHit;
         if (jaHit) {
             int &currentSentBlock = stream_to_enq.currentSentBlock;
-            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * blockSize;
+            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * predictWidth;
             currentSentBlock++;
         }
     }

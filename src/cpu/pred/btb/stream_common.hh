@@ -15,7 +15,7 @@ extern unsigned streamChunkSize;
 extern unsigned fetchTargetSize;
 extern unsigned fetchTargetMask;
 
-extern unsigned blockSize;
+extern unsigned predictWidth;
 extern bool alignToBlockSize;
 extern bool halfAligned;
 Addr computeLastChunkStart(Addr taken_control_pc, Addr stream_start_pc);

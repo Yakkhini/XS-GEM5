@@ -225,7 +225,6 @@ class DecoupledBPUWithBTB : public BPredUnit
     CPU *cpu;
 
     unsigned numBr;
-    unsigned blockSize;
     bool alignToBlockSize;
 
     unsigned cacheLineOffsetBits{6};  // TODO: parameterize this

@@ -8,7 +8,7 @@ namespace btb_pred {
 
 unsigned streamChunkSize{0x40};
 
-unsigned blockSize{0x20};   // global variable, set in decoupled_bpred.cc
+unsigned predictWidth{0x20};   // global variable, set in decoupled_bpred.cc
 bool alignToBlockSize{false}; // TODO: remove this, should not use global variable!
 bool halfAligned{true};      // max 64 byte block, 32 byte aligned
 

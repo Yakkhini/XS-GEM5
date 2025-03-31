@@ -63,7 +63,7 @@ DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, 
     //alignToBlockSize = true;
     // Calculate shift amounts for index calculation
     if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
-        idxShiftAmt = floorLog2(blockSize);
+        idxShiftAmt = floorLog2(predictWidth);
     } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
         idxShiftAmt = 1;
     }
@@ -348,11 +348,11 @@ DefaultBTB::lookup(Addr block_pc)
 
     if (halfAligned) {
         // Calculate 32B aligned address
-        Addr alignedPC = block_pc & ~(blockSize - 1);
+        Addr alignedPC = block_pc & ~(predictWidth - 1);
         // Lookup first 32B block
         res = lookupSingleBlock(alignedPC);
         // Lookup next 32B block
-        auto nextBlockRes = lookupSingleBlock(alignedPC + blockSize);
+        auto nextBlockRes = lookupSingleBlock(alignedPC + predictWidth);
         // Merge results
         res.insert(res.end(), nextBlockRes.begin(), nextBlockRes.end());
 

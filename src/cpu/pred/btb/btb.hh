@@ -367,6 +367,12 @@ class DefaultBTB : public TimedBaseBTBPredictor
     unsigned numEntries;    // Total number of entries
     unsigned numWays;       // Number of ways per set
     unsigned numSets;       // Number of sets (numEntries/numWays)
+    // Whether the entries are half-aligned, in other words, whether it is mBTB. Note that the global
+    // variable halfAligned in stream_common.hh is used to define the alignment of the fallthrough address
+    // of the a fetch block, and it is orthogonal to whether the entries are stored in 32B aligned blocks
+    bool entryHalfAligned;
+
+
 
     /** Address calculation masks and shifts */
     Addr idxMask;          // Mask for extracting index bits

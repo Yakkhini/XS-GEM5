@@ -365,7 +365,7 @@ def setKmhV3IdealParams(args, system):
                 cpu.branchPred.tage.baseTableSize = 16384
                 cpu.branchPred.tage.tableSizes = [2048] * 14
             else:
-                cpu.branchPred.blockSize = 64               # blockSize equals to predictWidth in DecoupledBPUWithFTB
+                cpu.branchPred.predictWidth = 64              # max width of a fetch block
                 cpu.branchPred.alignToBlockSize = False     # TODO: ubtb not aligned, btb aligned 16byte
                 cpu.branchPred.ubtb.numEntries = 1024
                 cpu.branchPred.btb.numEntries = 16384

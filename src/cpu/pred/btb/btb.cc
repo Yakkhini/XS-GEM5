@@ -55,6 +55,7 @@ DefaultBTB::DefaultBTB(const Params &p)
     : TimedBaseBTBPredictor(p),
     numEntries(p.numEntries),
     numWays(p.numWays),
+    entryHalfAligned(p.entryHalfAligned),
     tagBits(p.tagBits),
     log2NumThreads(floorLog2(p.numThreads)),
     btbStats(this)
@@ -62,7 +63,7 @@ DefaultBTB::DefaultBTB(const Params &p)
     // Calculate shift amounts for index calculation
     if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);
-    } else if (halfAligned) { // if half aligned to blockSize, mbtb/ubtb block Size is 32
+    } else if (entryHalfAligned) { // if half aligned to blockSize, mbtb/ubtb block Size is 32
         idxShiftAmt = floorLog2(blockSize);
     } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
         idxShiftAmt = 1;
@@ -72,7 +73,7 @@ DefaultBTB::DefaultBTB(const Params &p)
     numSets = numEntries / numWays;
     aheadPipelinedStages = p.aheadPipelinedStages;
     // half-aligned should not be used with ahead-pipelined stages
-    assert(aheadPipelinedStages == 0 || !halfAligned);
+    assert(aheadPipelinedStages == 0 || !entryHalfAligned);
 
     if (!isPowerOf2(numEntries)) {
         fatal("BTB entries is not a power of 2!");
@@ -332,7 +333,7 @@ DefaultBTB::lookupSingleBlock(Addr block_pc)
     // address of the previous block, and do tag compare with current address
     // thus we need to store the entry read from memory for later use
     if (aheadPipelinedStages > 0) {
-        assert(!halfAligned);
+        assert(!entryHalfAligned);
         DPRINTF(AheadPipeline, "FTB: pushing set for ahead-pipelined stages %d, idx %d\n",
              aheadPipelinedStages, btb_idx);
         // DPRINTF(AheadPipeline, "FTB: dumping ftb set\n");
@@ -389,7 +390,7 @@ DefaultBTB::lookup(Addr block_pc)
         return res; // ignore false hit when lowest bit is 1
     }
 
-    if (halfAligned) {
+    if (entryHalfAligned) {
         // Calculate 32B aligned address
         Addr alignedPC = block_pc & ~(blockSize - 1);
         // Lookup first 32B block

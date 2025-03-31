@@ -334,8 +334,8 @@ typedef struct FetchStream
         if (jaHit && squashType == SQUASH_CTRL) {
             Addr realStart = startPC;
             Addr squashBranchPC = exeBranchInfo.pc;
-            while (realStart + blockSize <= squashBranchPC) {
-                realStart += blockSize;
+            while (realStart + predictWidth <= squashBranchPC) {
+                realStart += predictWidth;
             }
             return realStart;
         } else {
@@ -443,11 +443,11 @@ typedef struct FullBTBPrediction
 
     Addr getFallThrough() {
         if (alignToBlockSize) { // endAddr is aligned to blockSize
-            return (bbStart + blockSize) & ~mask(floorLog2(blockSize));
+            return (bbStart + predictWidth) & ~mask(floorLog2(predictWidth));
         } else if (halfAligned) {   // max 64 byte block, 32 byte aligned
-            return (bbStart + blockSize) & ~mask(floorLog2(blockSize) - 1);
+            return (bbStart + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
         } else {
-            return bbStart + blockSize;
+            return bbStart + predictWidth;
         }
     }
 
