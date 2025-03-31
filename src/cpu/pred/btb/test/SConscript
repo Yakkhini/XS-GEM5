@@ -7,8 +7,8 @@ GTest('uras.test', 'uras_test.cc')
 GTest('btb.test', 
     'mockbtb.cc', 'btb.test.cc', '../stream_common.cc')
 
-GTest('pbtb.test',
-    'mockbtb.cc', 'pbtb.test.cc', '../stream_common.cc')
+GTest('abtb.test',
+    'mockbtb.cc', 'abtb.test.cc', '../stream_common.cc')
 
 # Add TAGE test with necessary dependencies
 GTest('tage.test', 

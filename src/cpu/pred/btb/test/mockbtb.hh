@@ -210,7 +210,7 @@ class DefaultBTB
         return (instPC >> tagShiftAmt) & tagMask;
     }
 
-  private:
+ // private:
     /** Helper function to check if this is L0 BTB
      *  L0 BTB has zero delay (getDelay() == 0)
      */

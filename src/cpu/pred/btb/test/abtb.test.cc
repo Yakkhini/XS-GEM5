@@ -15,6 +15,42 @@ namespace btb_pred
 namespace test
 {
 
+
+FetchStream createStream(Addr startPC, FullBTBPrediction &pred, DefaultBTB *abtb) {
+    FetchStream stream;
+    stream.startPC = startPC;
+    Addr fallThroughAddr = pred.getFallThrough();
+    stream.isHit = pred.btbEntries.size() > 0; // TODO: fix isHit and falseHit
+    stream.falseHit = false;
+    stream.predBTBEntries = pred.btbEntries;
+    stream.predTaken = pred.isTaken();
+    stream.predEndPC = fallThroughAddr;
+    stream.predMetas[0] = abtb->getPredictionMeta();
+    return stream;
+}
+
+void resolveStream(FetchStream &stream, bool taken, Addr brPc, Addr target, bool isCond, int size=4) {
+    stream.resolved = true;
+    stream.exeBranchInfo.pc = brPc;
+    stream.exeBranchInfo.target = target;
+    stream.exeBranchInfo.isCond = isCond;
+    stream.exeBranchInfo.size = size;
+    stream.exeTaken = taken;
+}
+
+FullBTBPrediction makePrediction(Addr startPC, DefaultBTB *abtb) {
+    std::vector<FullBTBPrediction> stagePreds(2);  // 2 stages
+    boost::dynamic_bitset<> history(8, 0); // history does not matter for BTB
+    abtb->putPCHistory(startPC, history, stagePreds);
+    return stagePreds[1];
+}
+
+void updateBTB(FetchStream &stream, DefaultBTB *abtb) {
+    abtb->getAndSetNewBTBEntry(stream);
+    abtb->update(stream);
+}
+
+
 // Test fixture for Pipelined BTB tests
 class ABTBTest : public ::testing::Test
 {
@@ -23,6 +59,8 @@ protected:
         // Create a BTB with 16 entries, 8-bit tags, 4-way associative, 1-cycle delay
         // The last parameter (true) enables pipelined operation
         abtb = new DefaultBTB(16, 20, 4, 1, 1);
+        assert(!abtb->alignToBlockSize);
+        assert(!abtb->halfAligned);
     }
 
     void TearDown() override {
@@ -32,61 +70,42 @@ protected:
     DefaultBTB* abtb;
 };
 
-// Test basic ahead pipeline functionality
-TEST_F(ABTBTest, BasicPipelineOperation) {
-    // Phase 1: First prediction
-    boost::dynamic_bitset<> history(8, 0);
-    std::vector<FullBTBPrediction> stagePreds(2);  // 2 stages
-    // these fetch streams are predicted by a perfect predictor, no squash is needed, though we train aBTB in the process
-    FetchStream streamA;
-    streamA.startPC = 0x1000;;
-    streamA.resolved = true;
-    streamA.exeBranchInfo.pc = 0x1004;
-    streamA.exeBranchInfo.target = 0x2000;
-    streamA.exeBranchInfo.isCond = true;
-    streamA.exeBranchInfo.size = 4;
-    streamA.exeTaken = true;
-    streamA.updateEndInstPC = 0x1004;
+TEST_F(ABTBTest, BasicPredictionUpdateCycle){
+    // Some constants
+    // Stream A addresses
+    Addr startPC_A = 0x1000;
+    Addr brPC_A = 0x1004;
+    Addr target_A = 0x2000;
 
-    FetchStream streamB;
-    streamB.startPC = 0x2000;
-    streamB.resolved = true;
-    streamB.exeBranchInfo.pc = 0x2004;
-    streamB.exeBranchInfo.target = 0x3000;
-    streamB.exeBranchInfo.isCond = true;
-    streamB.exeBranchInfo.size = 4;
-    streamB.exeTaken = true;
-    streamB.updateEndInstPC = 0x2004;
+    // Stream B addresses
+    Addr startPC_B = 0x2000;
+    Addr brPC_B = 0x2004;
+    Addr target_B = 0x3000;
 
+    // ---------------- training phase ----------------
+    // make predictions and create Fetch Streams
+    auto pred_A = makePrediction(startPC_A, abtb);
+    auto stream_A = createStream(startPC_A, pred_A, abtb);
+    auto pred_B = makePrediction(startPC_B, abtb);
+    auto stream_B = createStream(startPC_B, pred_B, abtb);
+    stream_B.previousPCs.push(stream_A.startPC); // crucial! set previous PC for ahead pipelining
+    // resolve Fetch Stream (FS reached commit stage of backend)
+    resolveStream(stream_A, true, brPC_A, target_A, true);
+    resolveStream(stream_B, true, brPC_B, target_B, true);
+    // update BTB with branch information
+    updateBTB(stream_A, abtb);
+    updateBTB(stream_B, abtb);
 
-    // training phase
-    // Perform initial prediction
-    abtb->putPCHistory(streamA.startPC, history, stagePreds);
-    // Get prediction metadata
-    streamA.predMetas[0] = abtb->getPredictionMeta();
-    // second prediction
-    abtb->putPCHistory(streamB.startPC, history, stagePreds);
-    streamB.predMetas[0] = abtb->getPredictionMeta();
-    // Push the previous PC into previousPCs field (key for ahead pipeline testing)
-    streamB.previousPCs.push(streamA.startPC);
-    // Update BTB with the branch information
-    abtb->getAndSetNewBTBEntry(streamA);
-    abtb->update(streamA);
-    abtb->getAndSetNewBTBEntry(streamB);
-    abtb->update(streamB);
-
-
-    // testing phase
-
-    abtb->putPCHistory(streamA.startPC, history, stagePreds);
-    abtb->putPCHistory(streamB.startPC, history, stagePreds);
-    // Check predictions from streamB
-    ASSERT_FALSE(stagePreds[1].btbEntries.empty());
-    ASSERT_EQ(stagePreds[1].btbEntries.size(), 1);
-    EXPECT_EQ(stagePreds[1].btbEntries[0].pc, 0x2004);
-    EXPECT_EQ(stagePreds[1].btbEntries[0].target, 0x3000);
+    // ---------------- testing phase ----------------
+    // make predictions and check if BTB is updated correctly
+    auto pred_A_test = makePrediction(startPC_A, abtb);
+    auto pred_B_test = makePrediction(startPC_B, abtb);
+    EXPECT_EQ(pred_B_test.btbEntries.size(), 1);
+    EXPECT_EQ(pred_B_test.btbEntries[0].pc, brPC_B);
+    EXPECT_EQ(pred_B_test.btbEntries[0].target, target_B);
 }
 
+// TODO: for now the rest of the tests aren't working
 // Test pipelined prediction with multiple branches
 TEST_F(ABTBTest, MultipleBranchPipeline) {
     // Phase 1: Initial prediction
