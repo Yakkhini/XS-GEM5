@@ -446,10 +446,8 @@ DefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
  * 5. Update MRU information
  */
 void
-DefaultBTB::updateBTBEntry(Addr entryPC, const BTBEntry& entry, const FetchStream &stream)
+DefaultBTB::updateBTBEntry(Addr btb_idx, Addr btb_tag, const BTBEntry& entry, const FetchStream &stream)
 {
-    Addr btb_idx = getIndex(entryPC);
-    Addr btb_tag = getTag(entryPC);
 
     // Look for matching entry
     bool found = false;
@@ -519,8 +517,10 @@ DefaultBTB::update(const FetchStream &stream)
     // 4. Update BTB entries - each entry uses its own PC to calculate index and tag
     for (auto &entry : entries_to_update) {
         // Calculate 32-byte aligned address for this entry
-        Addr entryPC = entry.pc & ~(blockSize - 1);
-        updateBTBEntry(entryPC, entry, stream);
+        Addr entryPC = entry.pc;
+        Addr btb_idx = getIndex(entryPC);
+        Addr btb_tag = getTag(entryPC);
+        updateBTBEntry(btb_idx, btb_tag, entry, stream);
     }
     
     // Verify BTB state

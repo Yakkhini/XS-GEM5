@@ -278,11 +278,12 @@ class DefaultBTB
         const FetchStream &stream);
 
     /** Update or replace BTB entry
-     *  @param entryPC PC of the entry to update/replace
+     *  @param btb_idx Index of the BTB entry
+     *  @param btb_tag Tag of the BTB entry
      *  @param entry Entry to update/replace
      *  @param stream Fetch stream with update info
      */
-    void updateBTBEntry(Addr entryPC, const BTBEntry& entry, const FetchStream &stream);
+    void updateBTBEntry(Addr btb_idx, Addr btb_tag, const BTBEntry& entry, const FetchStream &stream);
 
     /*
      * Comparator for MRU heap
