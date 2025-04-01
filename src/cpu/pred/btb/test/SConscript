@@ -1,16 +1,7 @@
 Import('*')
 
-# Add coverage flags
-# coverage_flags = '--coverage -fprofile-arcs -ftest-coverage'
-# env.Append(CCFLAGS=coverage_flags.split())
-# env.Append(LINKFLAGS=coverage_flags.split())
-
 # Add the test source files
 GTest('uras.test', 'uras_test.cc')
-    # , '../uras.cc')
-    #  '../../../../sim/debug.cc',  # For debug flags
-    #  '../../../../sim/sim_object.cc',  # For SimObject
-    #  '../../../../base/debug.cc')  # For debug system
 
 # Add BTB test with minimal dependencies
 GTest('btb.test', 
@@ -29,5 +20,13 @@ GTest('folded_hist.test',
     '../folded_hist.cc',
 )
 
+GTest('fetch_target_queue.test',
+    'fetch_target_queue.test.cc',
+)
+
 # Add the test to UNITTESTS target
-env.Append(UNITTESTS=['uras.test', 'btb.test', 'tage.test', 'folded_hist.test']) 
+env.Append(UNITTESTS=['uras.test',
+        'btb.test',
+        'tage.test',
+        'folded_hist.test',
+        'fetch_target_queue.test'])
