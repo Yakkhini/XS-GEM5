@@ -42,11 +42,12 @@ class BTBTAGE : public TimedBaseBTBPredictor
             short counter;  // Prediction counter (-4 to 3), 3bits， 0 and -1 are weak
             bool useful;    // Whether this entry is useful for prediction, set true if alt differs from main and main is correct
             Addr pc;        // branch pc, like branch position, for btb entry pc check
+            unsigned lruCounter; // Counter for LRU replacement policy
 
-            TageEntry() : valid(false), tag(0), counter(0), useful(false), pc(0) {}
+            TageEntry() : valid(false), tag(0), counter(0), useful(false), pc(0), lruCounter(0) {}
 
             TageEntry(Addr tag, short counter, Addr pc) :
-                      valid(true), tag(tag), counter(counter), useful(false), pc(pc) {}
+                      valid(true), tag(tag), counter(counter), useful(false), pc(pc), lruCounter(0) {}
             bool taken() const {
                 return counter >= 0;
             }
@@ -61,9 +62,10 @@ class BTBTAGE : public TimedBaseBTBPredictor
             unsigned table; // Which table this entry was found in
             Addr index;     // Index in the table
             Addr tag;       // Tag that was matched
-            TageTableInfo() : found(false), table(0), index(0), tag(0) {}
-            TageTableInfo(bool found, TageEntry entry, unsigned table, Addr index, Addr tag) :
-                        found(found), entry(entry), table(table), index(index), tag(tag) {}
+            unsigned way;    // Which way this entry was found in
+            TageTableInfo() : found(false), table(0), index(0), tag(0), way(0) {}
+            TageTableInfo(bool found, TageEntry entry, unsigned table, Addr index, Addr tag, unsigned way) :
+                        found(found), entry(entry), table(table), index(index), tag(tag), way(way) {}
             bool taken() const {
                 return entry.taken();
             }
@@ -190,8 +192,11 @@ class BTBTAGE : public TimedBaseBTBPredictor
     // Maximum history length
     unsigned maxHistLen;
 
-    // The actual TAGE prediction tables
-    std::vector<std::vector<TageEntry>> tageTable;
+    // Number of ways for set associative design
+    const unsigned numWays;
+
+    // The actual TAGE prediction tables (table x index x way)
+    std::vector<std::vector<std::vector<TageEntry>>> tageTable;
 
     // Table for tracking when to use alternative prediction
     std::vector<std::vector<short>> useAlt;
@@ -287,18 +292,24 @@ private:
     // Metadata for TAGE predictions
     typedef struct TageMeta {
         std::map<Addr, TagePrediction> preds;
-        bitset usefulMask;
+        std::vector<bitset> usefulMask;  // Vector of usefulMasks for different ways
+        unsigned hitWay;      // hit way index
+        bool hitFound;        // whether a hit was found
         std::vector<FoldedHist> tagFoldedHist;
         std::vector<FoldedHist> altTagFoldedHist;
         std::vector<FoldedHist> indexFoldedHist;
-        TageMeta(std::map<Addr, TagePrediction> preds, bitset usefulMask, std::vector<FoldedHist> tagFoldedHist,
-            std::vector<FoldedHist> altTagFoldedHist, std::vector<FoldedHist> indexFoldedHist) :
-            preds(preds), usefulMask(usefulMask), tagFoldedHist(tagFoldedHist),
-            altTagFoldedHist(altTagFoldedHist), indexFoldedHist(indexFoldedHist) {}
-        TageMeta() {}
+        TageMeta(std::map<Addr, TagePrediction> preds, std::vector<bitset> usefulMask,
+                unsigned hitWay, bool hitFound, std::vector<FoldedHist> tagFoldedHist,
+                std::vector<FoldedHist> altTagFoldedHist, std::vector<FoldedHist> indexFoldedHist) :
+            preds(preds), usefulMask(usefulMask), hitWay(hitWay), hitFound(hitFound),
+            tagFoldedHist(tagFoldedHist), altTagFoldedHist(altTagFoldedHist),
+            indexFoldedHist(indexFoldedHist) {}
+        TageMeta() : hitWay(0), hitFound(false) {}
         TageMeta(const TageMeta &other) {
             preds = other.preds;
             usefulMask = other.usefulMask;
+            hitWay = other.hitWay;
+            hitFound = other.hitFound;
             tagFoldedHist = other.tagFoldedHist;
             altTagFoldedHist = other.altTagFoldedHist;
             indexFoldedHist = other.indexFoldedHist;
@@ -307,12 +318,11 @@ private:
     } TageMeta;
 
 private:
-    // Helper method to lookup entries in all TAGE tables
-    std::vector<TageEntry> lookupTageTable(const Addr &startPC);
+    // Helper method to record useful bit in all TAGE tables
+    void recordUsefulMask(const Addr &startPC);
 
     // Helper method to generate prediction for a single BTB entry
     TagePrediction generateSinglePrediction(const BTBEntry &btb_entry, 
-                                           const std::vector<TageEntry> &entries,
                                            const Addr &startPC);
 
     // Helper method to prepare BTB entries for update
@@ -325,19 +335,23 @@ private:
                                  const FetchStream &stream);
 
     // Helper method to handle useful bit reset
-    void handleUsefulBitReset(const bitset &useful_mask);
+    void handleUsefulBitReset(const std::vector<bitset> &useful_mask, unsigned way = 0, bool found = false);
 
     // Helper method to handle new entry allocation
     void handleNewEntryAllocation(const Addr &startPC,
                                  const BTBEntry &entry,
                                  bool actual_taken,
-                                 const bitset &useful_mask,
+                                 const std::vector<bitset> &useful_mask,
                                  unsigned main_table,
                                  std::shared_ptr<TageMeta> meta);
 
     // Helper method to generate allocation mask
     AllocationResult generateAllocationMask(const bitset &useful_mask,
                                           unsigned start_table);
+
+    // Helper methods for LRU management
+    void updateLRU(int table, Addr index, unsigned way);
+    unsigned getLRUVictim(int table, Addr index);
 
     TageMeta meta;
 };

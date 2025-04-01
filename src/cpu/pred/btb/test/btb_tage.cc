@@ -22,12 +22,15 @@ namespace test
 {
 
 // Constructor: Initialize TAGE predictor with given parameters
-BTBTAGE::BTBTAGE() : numPredictors(4), tageStats(4)
+BTBTAGE::BTBTAGE(unsigned numPredictors, unsigned numWays, unsigned tableSize) :
+    numPredictors(numPredictors), numWays(numWays), tageStats(numPredictors)
 {
     DPRINTF(TAGE, "BTBTAGE constructor\n");
-    tableSizes = {1024, 1024, 1024, 1024};
-    tableTagBits = {8, 8, 8, 8};
-    tablePcShifts = {1, 1, 1, 1};
+    for (unsigned i = 0; i < numPredictors; i++) {
+        tableSizes.push_back(tableSize);
+        tableTagBits.push_back(8);
+        tablePcShifts.push_back(1);
+    }
     histLengths = {8, 13, 32, 62}; // max hist < 64 in test
     maxHistLen = 970;
     numTablesToAlloc = 1;
@@ -43,6 +46,9 @@ BTBTAGE::BTBTAGE() : numPredictors(4), tageStats(4)
         //initialize ittage predictor
         assert(tableSizes.size() >= numPredictors);
         tageTable[i].resize(tableSizes[i]);
+        for (unsigned int j = 0; j < tableSizes[i]; ++j) {
+            tageTable[i][j].resize(numWays);
+        }
 
         tableIndexBits[i] = ceilLog2(tableSizes[i]);
         tableIndexMasks[i].resize(tableIndexBits[i], true);
@@ -77,43 +83,47 @@ void
 BTBTAGE::tickStart() {}
 
 /**
- * @brief Helper method to lookup entries in all TAGE tables
- * 
+ * @brief Helper method to record useful bit in all TAGE tables
+ *
  * @param startPC The starting PC address for lookup
- * @return std::vector<TageEntry> containing entries from all tables
  */
-std::vector<BTBTAGE::TageEntry>
-BTBTAGE::lookupTageTable(const Addr &startPC) {
-    std::vector<BTBTAGE::TageEntry> entries(numPredictors);
-    meta.usefulMask.resize(numPredictors);
+void
+BTBTAGE::recordUsefulMask(const Addr &startPC) {
+    // Initialize all usefulMasks
+    meta.usefulMask.resize(numWays);
+    for (unsigned way = 0; way < numWays; way++) {
+        meta.usefulMask[way].resize(numPredictors);
+    }
 
     // Look up entries in all TAGE tables
     for (int i = 0; i < numPredictors; ++i) {
         Addr index = getTageIndex(startPC, i);
-        auto &entry = tageTable[i][index];
-        
-        entries[i] = entry;
-        meta.usefulMask[i] = entry.useful;
-
-        DPRINTF(TAGE, "lookup table %d[%lu]: valid %d, tag %lu, ctr %d, useful %d\n",
-            i, index, entry.valid, entry.tag, entry.counter, entry.useful);
+        for (unsigned way = 0; way < numWays; way++) {
+            auto &entry = tageTable[i][index][way];
+            // Save useful bit to metadata
+            meta.usefulMask[way][i] = entry.useful;
+        }
     }
-    return entries;
+    if (debugFlagOn) {
+        std::string buf;
+        for (unsigned way = 0; way < numWays; way++) {
+            boost::to_string(meta.usefulMask[way], buf);
+            DPRINTF(TAGEUseful, "meta.usefulMask[%u] = %s\n", way, buf.c_str());
+        }
+    }
 }
 
 /**
- * @brief Generate prediction for a single BTB entry using TAGE table results
- * 
+ * @brief Generate prediction for a single BTB entry by searching TAGE tables
+ *
  * @param btb_entry The BTB entry to generate prediction for
- * @param entries Entries from TAGE tables
- * @param startPC The starting PC address for recalculating indices and tags
+ * @param startPC The starting PC address for calculating indices and tags
  * @return TagePrediction containing main and alternative predictions
  */
 BTBTAGE::TagePrediction
 BTBTAGE::generateSinglePrediction(const BTBEntry &btb_entry, 
-                                 const std::vector<BTBTAGE::TageEntry> &entries,
                                  const Addr &startPC) {
-    DPRINTF(TAGE, "lookupHelper btbEntry: %#lx, always taken %d\n",
+    DPRINTF(TAGE, "generateSinglePrediction for btbEntry: %#lx, always taken %d\n",
         btb_entry.pc, btb_entry.alwaysTaken);
     
     // Find main and alternative predictions
@@ -123,28 +133,50 @@ BTBTAGE::generateSinglePrediction(const BTBEntry &btb_entry,
 
     // Search from highest to lowest table for matches
     for (int i = numPredictors - 1; i >= 0; --i) {
-        const auto &entry = entries[i];
         Addr index = getTageIndex(startPC, i);
         Addr tag = getTageTag(startPC, i); // use for tag comparison
+        bool match = false; // for each table, only one way can be matched
+        TageEntry matching_entry;
+        unsigned matching_way = 0;
 
-        bool match = entry.valid &&
-                    tag == entry.tag &&
-                    btb_entry.pc == entry.pc; // entry valid, tag matches, pos matches
+        // Search all ways for a matching entry
+        for (unsigned way = 0; way < numWays; way++) {
+            auto &entry = tageTable[i][index][way];
+            // entry valid, tag match, branch pc/pos match!
+            if (entry.valid && tag == entry.tag && btb_entry.pc == entry.pc) {
+                matching_entry = entry;
+                matching_way = way;
+                match = true;
 
-        DPRINTF(TAGE, "hit %d, table %d, index %lu, lookup tag %lu, tag %lu, useful %d, btb_pc %#lx, entry_pc %#lx\n",
-            match, i, index, tag, entry.tag, entry.useful, btb_entry.pc, entry.pc);
+                // Update LRU counters
+                updateLRU(i, index, way);
+
+                DPRINTF(TAGE, "hit  table %d[%lu][%u]: valid %d, tag %lu, ctr %d, useful %d, btb_pc %#lx\n",
+                    i, index, way, entry.valid, entry.tag, entry.counter, entry.useful, btb_entry.pc);
+                break;  // only one way can be matched, aviod multi hit, TODO: RTL how to do this?
+            }
+        }
 
         if (match) {
+            // Save match information for later recovery
+            if (!provided) {
+                meta.hitWay = matching_way;
+                meta.hitFound = true;
+            }
+
             if (!provided) {
                 // First match becomes main prediction
-                main_info = TageTableInfo(true, entry, i, index, tag);
+                main_info = TageTableInfo(true, matching_entry, i, index, tag, matching_way);
                 provided = true;
             } else if (!alt_provided) {
                 // Second match becomes alternative prediction
-                alt_info = TageTableInfo(true, entry, i, index, tag);
+                alt_info = TageTableInfo(true, matching_entry, i, index, tag, matching_way);
                 alt_provided = true;
                 break;
             }
+        } else {
+            DPRINTF(TAGE, "miss table %d[%lu] for tag %lu, btb_pc %#lx\n",
+                i, index, tag, btb_entry.pc);
         }
     }
 
@@ -159,7 +191,7 @@ BTBTAGE::generateSinglePrediction(const BTBEntry &btb_entry,
     bool taken = use_alt ? alt_pred : main_taken;
 
     DPRINTF(TAGE, "tage predict %#lx taken %d\n", btb_entry.pc, taken);
-    DPRINTF(TAGE, "tage use_alt %d ? alt_provided %d ? alt_taken %d : base_taken %d: main_taken %d\n",
+    DPRINTF(TAGE, "tage use_alt %d ? (alt_provided %d ? alt_taken %d : base_taken %d) : main_taken %d\n",
         use_alt, alt_provided, alt_taken, base_taken, main_taken);
 
     return TagePrediction(btb_entry.pc, main_info, alt_info, use_alt, taken);
@@ -180,18 +212,17 @@ BTBTAGE::lookupHelper(const Addr &startPC, const std::vector<BTBEntry> &btbEntri
     meta.tagFoldedHist = tagFoldedHist;
     meta.altTagFoldedHist = altTagFoldedHist;
     meta.indexFoldedHist = indexFoldedHist;
+    // record useful bit to meta.usefulMask
+    recordUsefulMask(startPC);
 
     DPRINTF(TAGE, "lookupHelper startAddr: %#lx\n", startPC);
-    
-    // Look up all TAGE tables for the given start PC
-    auto entries = lookupTageTable(startPC);
 
     // Process each BTB entry to make predictions
     std::map<Addr, bool> cond_takens;
     for (auto &btb_entry : btbEntries) {
         // Only predict for valid conditional branches
         if (btb_entry.isCond && btb_entry.valid) {
-            auto pred = generateSinglePrediction(btb_entry, entries, startPC);
+            auto pred = generateSinglePrediction(btb_entry, startPC);
             meta.preds[btb_entry.pc] = pred;
             tageStats.updateStatsWithTagePrediction(pred, true);
             cond_takens[btb_entry.pc] = pred.taken || btb_entry.alwaysTaken;
@@ -282,11 +313,11 @@ BTBTAGE::updatePredictorStateAndCheckAllocation(const BTBEntry &entry,
 
     // Update main prediction provider
     if (main_info.found) {
-        DPRINTF(TAGE, "prediction provided by table %d, idx %lu, updating corresponding entry\n",
-            main_info.table, main_info.index);
-        
-        auto &way = tageTable[main_info.table][main_info.index];
-        
+        DPRINTF(TAGE, "prediction provided by table %d, idx %lu, way %u, updating corresponding entry\n",
+            main_info.table, main_info.index, main_info.way);
+
+        auto &way = tageTable[main_info.table][main_info.index][main_info.way];
+
         // Update useful bit if predictions differ
         
         if (main_info.taken() != alt_taken) {
@@ -296,12 +327,16 @@ BTBTAGE::updatePredictorStateAndCheckAllocation(const BTBEntry &entry,
         
         // Update prediction counter
         updateCounter(actual_taken, 3, way.counter);
+
+        // Update LRU counter
+        updateLRU(main_info.table, main_info.index, main_info.way);
     }
 
     // Update alternative prediction provider
     if (used_alt && alt_info.found) {
-        auto &way = tageTable[alt_info.table][alt_info.index];
+        auto &way = tageTable[alt_info.table][alt_info.index][alt_info.way];
         updateCounter(actual_taken, 3, way.counter);
+        updateLRU(alt_info.table, alt_info.index, alt_info.way);
     }
 
     // Update statistics
@@ -327,8 +362,8 @@ BTBTAGE::updatePredictorStateAndCheckAllocation(const BTBEntry &entry,
         }
     }
 
-    // check if we used alt prediction and main was correct
-    bool use_alt_on_main_found_correct = used_alt && main_info.found && 
+    // check if we used alt prediction and main was correct(main is weak so used alt, no need to allocate new entry)
+    bool use_alt_on_main_found_correct = used_alt && main_info.found &&
                                         main_info.taken() == actual_taken;
 
     // return true if need to allocate new entry = mispred and main was incorrect
@@ -339,25 +374,37 @@ BTBTAGE::updatePredictorStateAndCheckAllocation(const BTBEntry &entry,
 /**
  * @brief Handle useful bit reset mechanism
  * 
- * @param useful_mask The mask of useful bits
+ * @param useful_mask The vector of useful masks
+ * @param way The way to process
+ * @param found Whether a hit was found
  */
 void
-BTBTAGE::handleUsefulBitReset(const bitset &useful_mask) {
+BTBTAGE::handleUsefulBitReset(const std::vector<bitset> &useful_mask, unsigned way, bool found) {
+    // Use the provided way or default to way 0 if there was no hit
+    unsigned way_to_use = (found) ? way : 0;
+
+    if (way_to_use >= useful_mask.size()) {
+        way_to_use = 0;
+    }
+
+    const bitset &mask_to_use = useful_mask[way_to_use];
+
     if (debugFlagOn) {
         std::string useful_str;
-        boost::to_string(useful_mask, useful_str);
-        DPRINTF(TAGEUseful, "useful mask: %s\n", useful_str.c_str());
+        boost::to_string(mask_to_use, useful_str);
+        DPRINTF(TAGEUseful, "useful mask for way %u: %s\n", way_to_use, useful_str.c_str());
     }
 
     // Calculate tables that can be allocated
-    int num_tables_can_allocate = (~useful_mask).count();
-    int total_tables_to_allocate = useful_mask.size();
-    // number of tables to allocate
-    int num_tables_to_allocate = total_tables_to_allocate - num_tables_can_allocate;
-    
-    bool incUsefulResetCounter = num_tables_can_allocate < num_tables_to_allocate;
-    bool decUsefulResetCounter = num_tables_can_allocate > num_tables_to_allocate;
-    int changeVal = std::abs(num_tables_can_allocate - num_tables_to_allocate);
+    int num_tables_can_allocate = (~mask_to_use).count(); // useful bit = 0
+    int total_tables_to_allocate = mask_to_use.size();
+    // number of tables is allocated, useful bit = 1
+    int num_tables_is_allocated = total_tables_to_allocate - num_tables_can_allocate;
+
+    // more than half of the tables is allocated, resetCounter++
+    bool incUsefulResetCounter = num_tables_can_allocate < num_tables_is_allocated;
+    bool decUsefulResetCounter = num_tables_can_allocate > num_tables_is_allocated;
+    int changeVal = std::abs(num_tables_can_allocate - num_tables_is_allocated);
 
     // Update reset counter
     if (incUsefulResetCounter) {
@@ -377,8 +424,10 @@ BTBTAGE::handleUsefulBitReset(const bitset &useful_mask) {
         tageStats.updateResetU++;
         DPRINTF(TAGEUseful, "reset useful bit of all entries\n");
         for (auto &table : tageTable) {
-            for (auto &entry : table) {
-                entry.useful = 0;
+            for (auto &set : table) {
+                for (auto &way : set) {
+                    way.useful = 0;
+                }
             }
         }
         usefulResetCnt = 0;
@@ -402,6 +451,7 @@ BTBTAGE::generateAllocationMask(const bitset &useful_mask,
     result.allocate_valid = flipped_usefulMask.any();
     
     if (!result.allocate_valid) {
+        DPRINTF(TAGEUseful, "no valid table to allocate, all of them are useful\n");
         return result;
     }
 
@@ -432,7 +482,7 @@ BTBTAGE::generateAllocationMask(const bitset &useful_mask,
  * @param startPC The starting PC address
  * @param entry The BTB entry being updated
  * @param actual_taken The actual outcome of the branch
- * @param useful_mask The mask of useful bits
+ * @param useful_mask The vector of useful masks
  * @param start_table The starting table for allocation
  * @param meta The metadata of the predictor
  */
@@ -440,11 +490,28 @@ void
 BTBTAGE::handleNewEntryAllocation(const Addr &startPC,
                                  const BTBEntry &entry,
                                  bool actual_taken,
-                                 const bitset &useful_mask,
+                                 const std::vector<bitset> &useful_mask,
                                  unsigned start_table,
                                  std::shared_ptr<TageMeta> meta) {
-    auto alloc_result = generateAllocationMask(useful_mask, start_table);
-    
+    // Select which usefulMask to use based on whether a hit was found
+    unsigned way_to_use = meta->hitFound ? meta->hitWay : 0;
+
+    if (way_to_use >= useful_mask.size()) {
+        way_to_use = 0;
+    }
+
+    // Get a copy of the selected mask
+    bitset working_mask = useful_mask[way_to_use];
+
+    // Adjust mask for the starting table if needed
+    if (start_table > 0) {
+        working_mask >>= start_table; // only allocate tables after the starting table
+        working_mask.resize(numPredictors - start_table);
+    }
+
+    // Generate allocation mask
+    auto alloc_result = generateAllocationMask(working_mask, start_table);
+
     if (!alloc_result.allocate_valid) {
         tageStats.updateAllocFailure++;
         return;
@@ -458,20 +525,31 @@ BTBTAGE::handleNewEntryAllocation(const Addr &startPC,
         if (!alloc_result.allocate_mask[ti - start_table]) {
             continue;
         }
-        auto updateTagFoldedHist = meta->tagFoldedHist;
-        auto updateAltTagFoldedHist = meta->altTagFoldedHist;
-        auto updateIndexFoldedHist = meta->indexFoldedHist;
 
+        // Get necessary history for index and tag computation
+        auto &updateTagFoldedHist = meta->tagFoldedHist;
+        auto &updateAltTagFoldedHist = meta->altTagFoldedHist;
+        auto &updateIndexFoldedHist = meta->indexFoldedHist;
+
+        // Compute index and tag for the new entry
         Addr newIndex = getTageIndex(startPC, ti, updateIndexFoldedHist[ti].get());
         Addr newTag = getTageTag(startPC, ti, updateTagFoldedHist[ti].get(), updateAltTagFoldedHist[ti].get());
-        auto &entry_to_update = tageTable[ti][newIndex];
 
+        // Find a way to allocate (invalid entry or LRU victim)
+        unsigned way = getLRUVictim(ti, newIndex);
+
+        // Update the entry
+        auto &entry_to_update = tageTable[ti][newIndex][way];
         short newCounter = actual_taken ? 0 : -1;
 
-        DPRINTF(TAGE, "found allocatable entry, table %d, index %lu, tag %lu, counter %d\n",
-            ti, newIndex, newTag, newCounter);
-        
+        DPRINTF(TAGE, "allocating entry in table %d[%lu][%u], tag %lu, counter %d\n",
+            ti, newIndex, way, newTag, newCounter);
+
         entry_to_update = TageEntry(newTag, newCounter, entry.pc);
+
+        // Reset LRU counter for the new entry
+        updateLRU(ti, newIndex, way);
+
         break;  // allocate only 1 entry
     }
 }
@@ -504,24 +582,20 @@ BTBTAGE::update(const FetchStream &stream) {
 
         // Update predictor state and check if need to allocate new entry
         bool need_allocate = updatePredictorStateAndCheckAllocation(btb_entry, actual_taken, pred_it->second, stream);
-        
-        if (need_allocate) {
-        // Handle useful bit reset
-            handleUsefulBitReset(meta->usefulMask);
-        }
 
         // Handle new entry allocation if needed
         if (need_allocate) {
+            // Handle useful bit reset
+            handleUsefulBitReset(meta->usefulMask, meta->hitWay, meta->hitFound);
+
+            // Handle allocation of new entries
             uint start_table = 0;
-            auto useful_mask = meta->usefulMask;
             auto main_info = pred_it->second.mainInfo;
             if (main_info.found) {
                 start_table = main_info.table + 1; // start from the table after the main prediction table
-                useful_mask >>= main_info.table + 1;
-                useful_mask.resize(numPredictors - start_table); // resize the mask to the number of tables to allocate
             }
             handleNewEntryAllocation(startAddr, btb_entry, actual_taken, 
-                                   useful_mask, 
+                                   meta->usefulMask,
                                    start_table, meta);
         }
     }
@@ -760,6 +834,40 @@ BTBTAGE::TageStats::updateStatsWithTagePrediction(const TagePrediction &pred, bo
             updateUseAlt++;
         }
     }
+}
+
+// Update LRU counters for a set
+void
+BTBTAGE::updateLRU(int table, Addr index, unsigned way)
+{
+    // Increment LRU counters for all entries in the set
+    for (unsigned i = 0; i < numWays; i++) {
+        if (i != way && tageTable[table][index][i].valid) {
+            tageTable[table][index][i].lruCounter++;
+        }
+    }
+    // Reset LRU counter for the accessed entry
+    tageTable[table][index][way].lruCounter = 0;
+}
+
+// Find the LRU victim in a set
+unsigned
+BTBTAGE::getLRUVictim(int table, Addr index)
+{
+    unsigned victim = 0;
+    unsigned maxLRU = 0;
+
+    // Find the entry with the highest LRU counter
+    for (unsigned i = 0; i < numWays; i++) {
+        if (!tageTable[table][index][i].valid) {
+            return i; // Use invalid entry if available
+        }
+        if (tageTable[table][index][i].lruCounter > maxLRU) {
+            maxLRU = tageTable[table][index][i].lruCounter;
+            victim = i;
+        }
+    }
+    return victim;
 }
 
 // void

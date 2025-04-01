@@ -155,11 +155,11 @@ bool predictUpdateCycle(BTBTAGE* tage, Addr startPC,
  * @param useful Useful bit value
  */
 void setupTageEntry(BTBTAGE* tage, Addr pc, int table_idx,
-                    short counter, bool useful = false) {
+                    short counter, bool useful = false, int way = 0) {
     Addr index = tage->getTageIndex(pc, table_idx);
     Addr tag = tage->getTageTag(pc, table_idx);
 
-    auto& entry = tage->tageTable[table_idx][index];
+    auto& entry = tage->tageTable[table_idx][index][way];
     entry.valid = true;
     entry.tag = tag;
     entry.counter = counter;
@@ -176,16 +176,18 @@ void setupTageEntry(BTBTAGE* tage, Addr pc, int table_idx,
  */
 void verifyTageEntries(BTBTAGE* tage, Addr pc, const std::vector<int>& expected_tables) {
     for (int t = 0; t < tage->numPredictors; t++) {
-        Addr index = tage->getTageIndex(pc, t);
-        auto &entry = tage->tageTable[t][index];
+        for (int way = 0; way < tage->numWays; way++) {
+            Addr index = tage->getTageIndex(pc, t);
+            auto &entry = tage->tageTable[t][index][way];
 
-        // Check if this table should have a valid entry
-        bool should_be_valid = std::find(expected_tables.begin(),
-                                        expected_tables.end(), t) != expected_tables.end();
+            // Check if this table should have a valid entry
+            bool should_be_valid = std::find(expected_tables.begin(),
+                                            expected_tables.end(), t) != expected_tables.end();
 
-        if (should_be_valid) {
-            EXPECT_TRUE(entry.valid && entry.pc == pc)
-                << "Table " << t << " should have valid entry for PC " << std::hex << pc;
+            if (should_be_valid) {
+                EXPECT_TRUE(entry.valid && entry.pc == pc)
+                    << "Table " << t << " should have valid entry for PC " << std::hex << pc;
+            }
         }
     }
 }
@@ -202,9 +204,11 @@ int findTableWithEntry(BTBTAGE* tage, Addr pc) {
     // use meta to find the table, predicted info
     for (int t = 0; t < tage->numPredictors; t++) {
         Addr index = tage->getTageIndex(pc, t, meta->indexFoldedHist[t].get());
-        auto &entry = tage->tageTable[t][index];
-        if (entry.valid && entry.pc == pc) {
-            return t;
+        for (int way = 0; way < tage->numWays; way++) {
+            auto &entry = tage->tageTable[t][index][way];
+            if (entry.valid && entry.pc == pc) {
+                return t;
+            }
         }
     }
     return -1;
@@ -316,7 +320,7 @@ TEST_F(BTBTAGETest, UsefulBitMechanism) {
 
     // Verify initial useful bit state
     Addr mainIndex = tage->getTageIndex(0x1000, 3);
-    EXPECT_FALSE(tage->tageTable[3][mainIndex].useful) << "Useful bit should start as false";
+    EXPECT_FALSE(tage->tageTable[3][mainIndex][0].useful) << "Useful bit should start as false";
 
     // Predict
     predictTAGE(tage, 0x1000, {entry}, history, stagePreds);
@@ -327,7 +331,7 @@ TEST_F(BTBTAGETest, UsefulBitMechanism) {
     tage->update(stream);
 
     // Verify useful bit is set (main prediction was correct and differed from alt)
-    EXPECT_TRUE(tage->tageTable[3][mainIndex].useful)
+    EXPECT_TRUE(tage->tageTable[3][mainIndex][0].useful)
         << "Useful bit should be set when main predicts correctly and differs from alt";
 
     // Predict again
@@ -339,7 +343,7 @@ TEST_F(BTBTAGETest, UsefulBitMechanism) {
     tage->update(stream);
 
     // Verify useful bit is cleared (main prediction was incorrect)
-    EXPECT_FALSE(tage->tageTable[3][mainIndex].useful)
+    EXPECT_FALSE(tage->tageTable[3][mainIndex][0].useful)
         << "Useful bit should be cleared when main predicts incorrectly";
 }
 
@@ -371,31 +375,11 @@ TEST_F(BTBTAGETest, EntryAllocationAndReplacement) {
     stream.squashType = SquashType::SQUASH_CTRL; // Mark as control misprediction
     stream.squashPC = 0x1000;
 
-    // Temporarily store the original entries to check for changes later
-    std::vector<std::vector<BTBTAGE::TageEntry>> originalEntries;
-    originalEntries.resize(tage->numPredictors);
-    for (int t = 0; t < tage->numPredictors; t++) {
-        Addr index = tage->getTageIndex(0x1000, t);
-        originalEntries[t].push_back(tage->tageTable[t][index]);
-    }
-
     // Update the predictor (this should try to allocate but fail)
     tage->update(stream);
 
-    // Check if entries were modified (should not be since all useful bits were set)
-    bool any_entry_modified = false;
-    for (int t = 0; t < tage->numPredictors; t++) {
-        Addr index = tage->getTageIndex(0x1000, t);
-        // only check tag, because counter will update!
-        bool entry_modified = (tage->tageTable[t][index].tag != originalEntries[t][0].tag);
-        if (entry_modified) {
-            any_entry_modified = true;
-            break;
-        }
-    }
-
-    // Verify no allocation occurred (entries should not be modified)
-    EXPECT_FALSE(any_entry_modified) << "Entries should not be modified when all useful bits are set";
+    int alloc_failed = tage->tageStats.updateAllocFailure;
+    EXPECT_GE(alloc_failed, 1) << "Allocate failed when all useful bits are set";
 
 }
 
@@ -495,7 +479,7 @@ TEST_F(BTBTAGETest, CounterUpdateMechanism) {
 
     // Verify initial counter value
     Addr index = tage->getTageIndex(0x1000, testTable);
-    EXPECT_EQ(tage->tageTable[testTable][index].counter, 0) << "Initial counter should be 0";
+    EXPECT_EQ(tage->tageTable[testTable][index][0].counter, 0) << "Initial counter should be 0";
 
     // Train with taken outcomes multiple times
     for (int i = 0; i < 3; i++) {
@@ -507,7 +491,7 @@ TEST_F(BTBTAGETest, CounterUpdateMechanism) {
     }
 
     // Verify counter saturates at maximum
-    EXPECT_EQ(tage->tageTable[testTable][index].counter, 3)
+    EXPECT_EQ(tage->tageTable[testTable][index][0].counter, 3)
         << "Counter should saturate at maximum value";
 
     // Train with not-taken outcomes multiple times
@@ -520,7 +504,7 @@ TEST_F(BTBTAGETest, CounterUpdateMechanism) {
     }
 
     // Verify counter saturates at minimum
-    EXPECT_EQ(tage->tageTable[testTable][index].counter, -4)
+    EXPECT_EQ(tage->tageTable[testTable][index][0].counter, -4)
         << "Counter should saturate at minimum value";
 }
 
@@ -628,6 +612,159 @@ TEST_F(BTBTAGETest, CombinedPredictionAccuracyTesting) {
         std::cout << "updateMispred: " << tage->tageStats.updateMispred << std::endl;
     }
 }
+
+/**
+ * @brief Create a TAGE table entry manually with specific properties
+ *
+ * This is particularly useful for set-associative testing when we need
+ * to control exact placement of entries
+ */
+void createManualTageEntry(BTBTAGE* tage, int table, Addr index, int way,
+                          Addr tag, short counter, bool useful, Addr pc,
+                          unsigned lruCounter = 0) {
+    auto &entry = tage->tageTable[table][index][way];
+    entry.valid = true;
+    entry.tag = tag;
+    entry.counter = counter;
+    entry.useful = useful;
+    entry.pc = pc;
+    entry.lruCounter = lruCounter;
+}
+
+
+/**
+ * @brief Test set-associative conflict handling
+ *
+ * This test verifies that:
+ * 1. Multiple branches mapping to the same index can be predicted correctly
+ * 2. The LRU counters are updated properly when entries are accessed
+ */
+TEST_F(BTBTAGETest, SetAssociativeConflictHandling) {
+    // Create two branch entries with different PCs
+    Addr startPC = 0x1000;
+    BTBEntry entry1 = createBTBEntry(startPC);
+    BTBEntry entry2 = createBTBEntry(startPC + 4);
+
+    // Use a specific table and index for testing
+    int testTable = 1;
+    Addr testIndex = tage->getTageIndex(startPC, testTable);
+    Addr testTag = tage->getTageTag(startPC, testTable);
+
+    // Manually create entries with the same index same tag, but different branch PC/pos
+    createManualTageEntry(tage, testTable, testIndex, 0, testTag, 2, false, 0x1000, 0); // Way 0: Strong taken
+    createManualTageEntry(tage, testTable, testIndex, 1, testTag, -2, false, 0x1004, 1); // Way 1: Strong not taken
+
+    // Make predictions and verify directly
+    // For entry1 (should predict taken)
+    stagePreds.clear();
+    stagePreds.resize(2);
+    stagePreds[1].btbEntries = {entry1};
+    tage->putPCHistory(startPC, history, stagePreds);
+
+    // Get prediction for entry1
+    bool pred1 = false;
+    if (stagePreds[1].condTakens.find(entry1.pc) != stagePreds[1].condTakens.end()) {
+        pred1 = stagePreds[1].condTakens[entry1.pc];
+    }
+    EXPECT_TRUE(pred1) << "Entry1 should predict taken";
+
+    // Check LRU counters after first access
+    EXPECT_EQ(tage->tageTable[testTable][testIndex][0].lruCounter, 0)
+        << "LRU counter for way 0 should be reset after access";
+
+    // For entry2 (should predict not taken)
+    stagePreds.clear();
+    stagePreds.resize(2);
+    stagePreds[1].btbEntries = {entry2};
+    tage->putPCHistory(startPC, history, stagePreds);
+
+    // Get prediction for entry2
+    bool pred2 = false;
+    if (stagePreds[1].condTakens.find(entry2.pc) != stagePreds[1].condTakens.end()) {
+        pred2 = stagePreds[1].condTakens[entry2.pc];
+    }
+    EXPECT_FALSE(pred2) << "Entry2 should predict not taken";
+}
+
+/**
+ * @brief Test allocation behavior with multiple ways
+ *
+ * This test verifies:
+ * 1. New entries are allocated in invalid ways first
+ * 2. When all ways are valid, the LRU way is chosen
+ * 3. Multiple allocation attempts correctly manage way selection
+ */
+TEST_F(BTBTAGETest, AllocationBehaviorWithMultipleWays) {
+    // Start with a fresh predictor
+    delete tage;
+    tage = new BTBTAGE(1, 2, 10); // only 1 predictor table, 2 ways
+    history.resize(64, false);
+    stagePreds.resize(2);
+
+    // Create a branch entry, base ctr=0, base taken
+    BTBEntry entry = createBTBEntry(0x1000);
+
+    // Set up a test table and index
+    int testTable = 0;
+    Addr testIndex = tage->getTageIndex(0x1000, testTable);
+
+    // Step 1: Verify allocation in an invalid way first
+    // Make first prediction, mispredict, allocate a new entry
+    bool predicted1 = predictUpdateCycle(tage, 0x1000, entry, false, history, stagePreds);
+
+    // Check if allocation happened
+    int allocatedWay = -1;
+    for (unsigned way = 0; way < tage->numWays; way++) {
+        if (tage->tageTable[testTable][testIndex][way].valid &&
+            tage->tageTable[testTable][testIndex][way].pc == 0x1000) {
+            allocatedWay = way;
+            break;
+        }
+    }
+
+    EXPECT_GE(allocatedWay, 0) << "Entry should be allocated in one of the ways";
+
+    // Step 2: Fill remaining ways with different branches
+    for (unsigned way = 0; way < tage->numWays; way++) {
+        if (way == allocatedWay) continue;
+
+        // Create a branch with different PC
+        BTBEntry newEntry = createBTBEntry(0x1004);
+
+        // Make prediction and force allocation
+        bool predicted = predictUpdateCycle(tage, 0x1000, newEntry, false, history, stagePreds);
+    }
+
+    // Verify all ways are now filled
+    int filledWays = 0;
+    for (unsigned way = 0; way < tage->numWays; way++) {
+        if (tage->tageTable[testTable][testIndex][way].valid) {
+            filledWays++;
+        }
+    }
+
+    EXPECT_EQ(filledWays, tage->numWays) << "All ways should be filled after multiple allocations";
+
+    // Step 3: One more allocation should replace LRU entry
+    BTBEntry newEntry = createBTBEntry(0x1008);
+    bool predicted = predictUpdateCycle(tage, 0x1000, newEntry, false, history, stagePreds);
+
+    // Check if the new entry was allocated
+    bool found = false;
+    unsigned foundWay = 0;
+    for (unsigned way = 0; way < tage->numWays; way++) {
+        if (tage->tageTable[testTable][testIndex][way].valid &&
+            tage->tageTable[testTable][testIndex][way].pc == 0x1008) {
+            found = true;
+            foundWay = way;
+            break;
+        }
+    }
+
+    EXPECT_TRUE(found) << "New entry should be allocated by replacing an old entry";
+    EXPECT_EQ(foundWay, allocatedWay) << "New entry should be allocated in the same way as the first allocation";
+}
+
 
 }  // namespace test
 

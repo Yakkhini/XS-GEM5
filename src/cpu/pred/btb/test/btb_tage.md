@@ -70,7 +70,7 @@ The `TageMeta` structure stores metadata for predictions, which is essential for
 
 The prediction process involves:
 
-1. Looking up entries in all TAGE tables using the `lookupTageTable` method
+1. Looking up entries in all TAGE tables
 2. Finding the main and alternative predictions
 3. Determining whether to use the alternative prediction
 4. Generating the final prediction
@@ -83,14 +83,11 @@ std::map<Addr, bool> lookupHelper(const Addr &startPC, const std::vector<BTBEntr
     meta.altTagFoldedHist = altTagFoldedHist;
     meta.indexFoldedHist = indexFoldedHist;
 
-    // Look up all TAGE tables
-    auto table_result = lookupTageTable(startPC);
-    meta.usefulMask = table_result.useful_mask;
-
     // Generate predictions for each BTB entry
     std::map<Addr, bool> cond_takens;
     for (auto &btb_entry : btbEntries) {
         if (btb_entry.isCond && btb_entry.valid) {
+            // Look up all TAGE tables and generate predictions
             auto pred = generateSinglePrediction(btb_entry, table_result);
             meta.preds[btb_entry.pc] = pred;
             cond_takens[btb_entry.pc] = pred.taken || btb_entry.alwaysTaken;
@@ -107,6 +104,7 @@ The table lookup process involves:
 1. Calculating indices and tags for each table
 2. Checking for matching entries
 3. Collecting the entries and updating useful masks
+4. now this function is integrated into generateSinglePrediction
 
 ```cpp
 std::vector<BTBTAGE::TageEntry> lookupTageTable(const Addr &startPC) {
@@ -340,7 +338,7 @@ recoverStream.exeBranchInfo = branch_info;
 recoverStream.exeTaken = actual_taken;
 recoverStream.predMetas[0] = meta;  // Must include metadata from prediction
 
-// Manually update global history register to match
+
 history >>= shamt;  // Undo speculative update
 // Recover history to checkpoint state, then update with actual outcome
 tage->recoverHist(history, recoverStream, shamt, actual_taken);
@@ -348,3 +346,184 @@ tage->recoverHist(history, recoverStream, shamt, actual_taken);
 history <<= shamt;  // Re-shift
 history[0] = actual_taken;  // Set with actual outcome
 ```
+
+
+## 11. N-Way Set Associative Extension
+
+### 11.1 Overview
+
+The original BTBTAGE design uses directly-mapped (1-way) tables, where each index maps to exactly one entry. This extension modifies the design to use N-way set associative tables, where each index can map to N different entries. This reduces conflicts and potentially improves prediction accuracy.
+
+### 11.2 Key Modifications
+
+#### 11.2.1 Data Structures
+
+```cpp
+// Modified TageEntry structure with LRU information
+struct TageEntry {
+    bool valid;      // Whether this entry is valid
+    Addr tag;        // Tag for matching
+    short counter;   // Prediction counter (-4 to 3), 3 bits
+    bool useful;     // Whether this entry is useful for prediction
+    Addr pc;         // Branch PC, for BTB entry PC check
+    unsigned lruCounter; // Counter for LRU replacement policy
+};
+
+// Modified TageTableInfo with way information
+struct TageTableInfo {
+    bool found;      // Whether a matching entry was found
+    TageEntry entry; // The matching entry
+    unsigned table;  // Which table this entry was found in
+    Addr index;      // Index in the table
+    Addr tag;        // Tag that was matched
+    unsigned way;    // Which way this entry was found in
+};
+```
+
+The main changes to the data structures include:
+- Adding an LRU counter to each table entry
+- Adding a way field to the TageTableInfo structure
+- Changing the tageTable from a 2D array to a 3D array (table × index × way)
+
+#### 11.2.2 Table Organization
+
+In the N-way set associative design:
+- The number of sets in each table remains the same (no reduction in index bits)
+- Each set contains N ways (entries), resulting in N times the storage capacity
+- The total number of entries in each table increases by a factor of N
+
+#### 11.2.3 LRU Replacement Policy
+
+The Least Recently Used (LRU) replacement policy is used to determine which entry to replace when all ways in a set are occupied. Each entry has an LRU counter that is:
+- Incremented for all entries in the set when any entry is accessed
+- Reset to 0 for the accessed entry
+- Used to identify the least recently used entry (highest counter value) for replacement
+
+#### 11.2.4 Lookup Process
+
+The lookup process changes to:
+1. Calculate the index for a given PC and table
+2. Check all ways at that index for a matching valid entry
+3. If a match is found, update LRU counters and return the entry
+4. If no match is found, return an invalid entry
+
+#### 11.2.5 Allocation Process
+
+The allocation process changes to:
+1. Calculate the index for a given PC and table
+2. Check if any way at that index is invalid (not yet used)
+3. If an invalid way exists, use it for the new entry
+4. If all ways are valid, use the LRU replacement policy to select a victim
+5. Update the selected entry with the new information and reset its LRU counter
+
+### 11.3 Implementation Details
+
+#### 11.3.1 LRU Management Methods
+
+```cpp
+// Update LRU counters for a set
+void updateLRU(int table, Addr index, unsigned way) {
+    // Increment LRU counters for all entries in the set
+    for (unsigned i = 0; i < numWays; i++) {
+        if (i != way && tageTable[table][index][i].valid) {
+            tageTable[table][index][i].lruCounter++;
+        }
+    }
+    // Reset LRU counter for the accessed entry
+    tageTable[table][index][way].lruCounter = 0;
+}
+
+// Find the LRU victim in a set
+unsigned getLRUVictim(int table, Addr index) {
+    unsigned victim = 0;
+    unsigned maxLRU = 0;
+    
+    // Find the entry with the highest LRU counter
+    for (unsigned i = 0; i < numWays; i++) {
+        if (!tageTable[table][index][i].valid) {
+            return i; // Use invalid entry if available
+        }
+        if (tageTable[table][index][i].lruCounter > maxLRU) {
+            maxLRU = tageTable[table][index][i].lruCounter;
+            victim = i;
+        }
+    }
+    return victim;
+}
+```
+
+#### 11.3.2 Constructor Changes
+
+The constructor is modified to initialize the 3D tageTable and set the default number of ways:
+
+```cpp
+BTBTAGE::BTBTAGE() : numPredictors(4), numWays(2), tageStats(4) {
+    // ... existing initialization ...
+    
+    tageTable.resize(numPredictors);
+    for (unsigned int i = 0; i < numPredictors; ++i) {
+        tageTable[i].resize(tableSizes[i]);
+        for (unsigned int j = 0; j < tableSizes[i]; ++j) {
+            tageTable[i][j].resize(numWays);
+        }
+        // ... other initializations ...
+    }
+    
+    // ... rest of constructor ...
+}
+```
+
+#### 11.3.3 Modified Lookup and Update Methods
+
+The lookup and update methods are modified to handle multiple ways:
+
+```cpp
+// Look up entries in all TAGE tables
+std::vector<BTBTAGE::TageEntry> lookupTageTable(const Addr &startPC) {
+    // ... existing code ...
+    
+    for (int i = 0; i < numPredictors; ++i) {
+        Addr index = getTageIndex(startPC, i);
+        Addr tag = getTageTag(startPC, i);
+        
+        // Check all ways for a match
+        bool found = false;
+        for (unsigned way = 0; way < numWays; way++) {
+            auto &entry = tageTable[i][index][way];
+            if (entry.valid && matchTag(tag, entry.tag)) {
+                entries[i] = entry;
+                meta.usefulMask[i] = entry.useful;
+                updateLRU(i, index, way);
+                found = true;
+                break;
+            }
+        }
+        
+        // If no match, return invalid entry
+        if (!found) {
+            entries[i] = TageEntry();
+        }
+    }
+    return entries;
+}
+```
+
+### 11.4 Expected Benefits
+
+The N-way set associative design is expected to provide several benefits:
+
+1. **Reduced Conflicts**: Multiple entries at the same index reduce conflicts between different branches
+2. **Higher Prediction Accuracy**: Fewer conflicts lead to better prediction accuracy
+3. **Better Utilization**: LRU replacement ensures that frequently used entries are retained
+4. **Scalability**: The design can be easily scaled to different numbers of ways (2-way, 4-way, etc.)
+
+### 11.5 Trade-offs
+
+The N-way set associative design introduces some trade-offs:
+
+1. **Increased Storage**: The storage requirement increases by a factor of N
+2. **Higher Complexity**: The lookup and update logic becomes more complex
+3. **Additional State**: LRU counters add extra state bits to each entry
+4. **Potential Timing Impact**: The more complex lookup may impact timing in hardware implementations
+
+Despite these trade-offs, the N-way set associative design is expected to provide a net benefit in terms of prediction accuracy and overall performance.

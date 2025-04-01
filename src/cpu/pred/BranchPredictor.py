@@ -1021,6 +1021,7 @@ class BTBTAGE(TimedBaseBTBPredictor):
     histLengths = VectorParam.Unsigned([8, 13, 32, 119], "the FTB TAGE T0~Tn history length")
     maxHistLen = Param.Unsigned(970, "The length of history passed from DBP")
     numTablesToAlloc = Param.Unsigned(1,"The number of table to allocated each time")
+    numWays = Param.Unsigned(2, "Number of ways per set")
     numDelay = 1
 
 class BTBITTAGE(TimedBaseBTBPredictor):
