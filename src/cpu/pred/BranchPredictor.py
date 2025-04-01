@@ -996,6 +996,7 @@ class UBTB(DefaultBTB):
     tagBits = 38
     numWays = 32
     numDelay = 0
+    # TODO: change to 64
     blockSize = 32  # max 64 byte block, 32 byte aligned
     entryHalfAligned = False
 class BTBRAS(TimedBaseBTBPredictor):
@@ -1063,6 +1064,7 @@ class DecoupledBPUWithBTB(BranchPredictor):
     alignToBlockSize = Param.Bool(False, "Whether the prediction ends at the end of blockSize boundaries")
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")
     ubtb = Param.DefaultBTB(UBTB(), "UBTB predictor")
+    abtb = Param.DefaultBTB(ABTB(), "ABTB predictor")
     btb = Param.DefaultBTB(DefaultBTB(), "BTB")
     tage = Param.BTBTAGE(BTBTAGE(), "TAGE predictor")
     ittage = Param.BTBITTAGE(BTBITTAGE(), "ITTAGE predictor")

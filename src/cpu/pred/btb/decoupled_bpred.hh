@@ -241,6 +241,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     const Addr MaxAddr{~(0ULL)};
 
     DefaultBTB *ubtb{};
+    DefaultBTB *abtb{};
     DefaultBTB *btb{};
     BTBTAGE *tage{};
     BTBITTAGE *ittage{};

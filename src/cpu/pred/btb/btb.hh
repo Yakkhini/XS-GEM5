@@ -410,6 +410,10 @@ class DefaultBTB : public TimedBaseBTBPredictor
         statistics::Scalar predUseL0OnL1Miss;
         statistics::Scalar updateUseL0OnL1Miss;
 
+        statistics::Scalar S0Predmiss;
+        statistics::Scalar S0PredUseUBTB;
+        statistics::Scalar S0PredUseABTB;
+
         // per branch statistics
         statistics::Scalar allBranchHits;
         statistics::Scalar allBranchHitTakens;

@@ -61,13 +61,17 @@ protected:
         abtb = new DefaultBTB(16, 20, 4, 1, 1);
         assert(!abtb->alignToBlockSize);
         assert(!abtb->halfAligned);
+
+        bigAbtb = new DefaultBTB(1024, 20, 1, 1, 1);
     }
 
     void TearDown() override {
         delete abtb;
+        delete bigAbtb;
     }
 
     DefaultBTB* abtb;
+    DefaultBTB* bigAbtb;
 };
 
 TEST_F(ABTBTest, BasicPredictionUpdateCycle){
@@ -103,6 +107,48 @@ TEST_F(ABTBTest, BasicPredictionUpdateCycle){
     EXPECT_EQ(pred_B_test.btbEntries.size(), 1);
     EXPECT_EQ(pred_B_test.btbEntries[0].pc, brPC_B);
     EXPECT_EQ(pred_B_test.btbEntries[0].target, target_B);
+}
+
+TEST_F(ABTBTest, AliasAvoidance){
+    // Some constants
+    // Stream A addresses
+    Addr startPC_A = 0x100;
+    Addr brPC1_A = 0x104;
+    Addr brPC2_A = 0x108;
+    Addr target1_A = 0x200;
+    Addr target2_A = 0x300;
+    // Stream B addresses
+    Addr startPC_B = 0x300;
+    Addr brPC_B = 0x304;
+    Addr target_B = 0x3000;
+
+    // Stream C addresses
+    Addr startPC_C = 0x200;
+    Addr brPC_C = 0x204;
+    Addr target_C = 0x2000;
+
+    // ---------------- training phase ----------------
+    // make predictions and create Fetch Streams
+    auto pred_A = makePrediction(startPC_A, bigAbtb);
+    auto stream_A = createStream(startPC_A, pred_A, bigAbtb);
+    auto pred_B = makePrediction(startPC_B, bigAbtb);
+    auto stream_B = createStream(startPC_B, pred_B, bigAbtb);
+    stream_B.previousPCs.push(stream_A.startPC); // crucial! set previous PC for ahead pipelining
+    // resolve Fetch Stream (FS reached commit stage of backend)
+    resolveStream(stream_A, true, brPC1_A, target1_A, true);
+    resolveStream(stream_B, true, brPC_B, target_B, true);
+    // update BTB with branch information
+    // now aBTB ought to have a entry, indexed by startPC_A, tagged with startPC_B
+    updateBTB(stream_A, bigAbtb);
+    updateBTB(stream_B, bigAbtb);
+
+    // ---------------- testing phase ----------------
+    // when we've arrived at Fetch Block C, aBTB shouldn't return the entry trained with Fetch Block B
+    // though the mistake is likely to happen, because FB C and FB B share the same tag bits
+    // the solution is to store the startPC in a aBTB entry
+    auto pred_A_test = makePrediction(startPC_A, bigAbtb);
+    auto pred_C_test = makePrediction(startPC_C, bigAbtb);
+    EXPECT_EQ(pred_C_test.btbEntries.size(), 0);
 }
 
 // TODO: for now the rest of the tests aren't working

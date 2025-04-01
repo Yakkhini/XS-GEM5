@@ -2,6 +2,7 @@
 
 #include "base/output.hh"
 #include "base/debug_helper.hh"
+#include "base/trace.hh"
 #include "cpu/o3/cpu.hh"
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/pred/btb/stream_common.hh"
@@ -31,6 +32,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       alignToBlockSize(p.alignToBlockSize),
       historyBits(p.maxHistLen),
       ubtb(p.ubtb),
+      abtb(p.abtb),
       btb(p.btb),
       tage(p.tage),
       ittage(p.ittage),
@@ -94,6 +96,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     // TODO: better impl (use vector to assign in python)
     // problem: btb->getAndSetNewBTBEntry
     components.push_back(ubtb);
+    components.push_back(abtb);
     // components.push_back(uras);
     components.push_back(btb);
     components.push_back(tage);
@@ -716,6 +719,8 @@ DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
     auto current_loop_iter = fetchTargetQueue.getCurrentLoopIter();
     currentLoopIter = current_loop_iter;
 
+    DPRINTF(DecoupleBP, "pc.instAddr() %#lx, end %#lx, start %#lx, taken_pc %#lx, target_to_fetch.taken %d\n",
+        pc.instAddr(), end, start, taken_pc, target_to_fetch.taken);
     // supplying ftq entry might be taken before pc
     // because it might just be updated last cycle
     // but last cycle ftq tells fetch that this is a miss stream
@@ -1222,6 +1227,7 @@ void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
         if (stream.isHit || stream.exeTaken) {
             stream.setUpdateInstEndPC(predictWidth);
             stream.setUpdateBTBEntries();
+            //abtb->getAndSetNewBTBEntry(stream);
             btb->getAndSetNewBTBEntry(stream);
             for (int i = 0; i < numComponents; ++i) {
                 components[i]->update(stream);

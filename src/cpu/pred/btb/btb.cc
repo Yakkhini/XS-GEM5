@@ -71,7 +71,7 @@ DefaultBTB::DefaultBTB(const Params &p)
 
     assert(numEntries % numWays == 0);
     numSets = numEntries / numWays;
-    aheadPipelinedStages = p.aheadPipelinedStages;
+    this->aheadPipelinedStages = p.aheadPipelinedStages;
     // half-aligned should not be used with ahead-pipelined stages
     assert(aheadPipelinedStages == 0 || !entryHalfAligned);
 
@@ -192,6 +192,15 @@ void
 DefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
                                     std::vector<FullBTBPrediction>& stagePreds)
 {
+    // S0 prediction source statistic is tracked by ABTB
+    if (aheadPipelinedStages > 0) {
+        if (stagePreds[0].btbEntries.size() > 0) {
+            DPRINTF(BTB, "BTB: predsOfEachStage are already filled by uBTB, skipping ABTB prediction\n");
+            btbStats.S0PredUseUBTB++;
+            return;
+        }
+    }
+
     for (int s = getDelay(); s < stagePreds.size(); ++s) {
         // if (!isL0() && !hit && stagePreds[s].valid) {
         //     DPRINTF(BTB, "BTB: ubtb hit and btb miss, use ubtb result");
@@ -226,6 +235,13 @@ DefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
         }
 
         stagePreds[s].predTick = curTick();
+    }
+
+    // Update S0 prediction source statistics, if the control flow reached this point, we know that uBTB miss
+    if (entries.size() > 0) {
+        btbStats.S0PredUseABTB++;
+    } else {
+        btbStats.S0Predmiss++;
     }
 }
 
@@ -828,6 +844,9 @@ DefaultBTB::BTBStats::BTBStats(statistics::Group* parent) :
     ADD_STAT(eraseSlotBehindUncond, statistics::units::Count::get(), "erase slots behind unconditional slot"),
     ADD_STAT(predUseL0OnL1Miss, statistics::units::Count::get(), "use l0 result on l1 miss when pred"),
     ADD_STAT(updateUseL0OnL1Miss, statistics::units::Count::get(), "use l0 result on l1 miss when update"),
+    ADD_STAT(S0Predmiss, statistics::units::Count::get(), "misses encountered on S0 prediction, i.e. uBTB and ABTB miss"),
+    ADD_STAT(S0PredUseUBTB, statistics::units::Count::get(), "uBTB prediction used, i.e. uBTB hit"),
+    ADD_STAT(S0PredUseABTB, statistics::units::Count::get(), "aBTB prediction used, i.e. uBTB miss and ABTB hit"),
 
     ADD_STAT(allBranchHits, statistics::units::Count::get(), "all types of branches committed that was predicted hit"),
     ADD_STAT(allBranchHitTakens, statistics::units::Count::get(), "all types of taken branches committed was that predicted hit"),
