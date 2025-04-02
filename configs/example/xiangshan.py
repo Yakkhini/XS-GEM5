@@ -367,10 +367,12 @@ def setKmhV3IdealParams(args, system):
             else:
                 cpu.branchPred.predictWidth = 64              # max width of a fetch block
                 cpu.branchPred.alignToBlockSize = False     # TODO: ubtb not aligned, btb aligned 16byte
-                cpu.branchPred.ubtb.numEntries = 1024
                 cpu.branchPred.btb.numEntries = 16384
                 # TODO: BTB TAGE do not bave base table, do not support SC
                 cpu.branchPred.tage.tableSizes = [4096] * 14  # BTB TAGE may need larger table
+                if not args.abtb:
+                    cpu.branchPred.abtb.numDelay = 9
+                    cpu.branchPred.ubtb.numEntries = 1024
             cpu.branchPred.tage.enableSC = False # TODO(bug): When numBr changes, enabling SC will trigger an assert
             cpu.branchPred.ftq_size = 256
             cpu.branchPred.fsq_size = 256
