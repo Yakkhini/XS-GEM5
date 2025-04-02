@@ -988,6 +988,7 @@ class ABTB(DefaultBTB):
     tagBits = 38
     numWays = 8
     numDelay = 0
+    blockSize = 64 # blockSize does't make a difference when entryHalfAligned is False
     aheadPipelinedStages = 1
     entryHalfAligned = False
 
@@ -996,8 +997,7 @@ class UBTB(DefaultBTB):
     tagBits = 38
     numWays = 32
     numDelay = 0
-    # TODO: change to 64
-    blockSize = 32  # max 64 byte block, 32 byte aligned
+    blockSize = 64  # blockSize does't make a difference when entryHalfAligned is False
     entryHalfAligned = False
 class BTBRAS(TimedBaseBTBPredictor):
     type = 'BTBRAS'

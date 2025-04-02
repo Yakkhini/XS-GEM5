@@ -105,8 +105,11 @@ TEST_F(ABTBTest, BasicPredictionUpdateCycle){
     auto pred_A_test = makePrediction(startPC_A, abtb);
     auto pred_B_test = makePrediction(startPC_B, abtb);
     EXPECT_EQ(pred_B_test.btbEntries.size(), 1);
-    EXPECT_EQ(pred_B_test.btbEntries[0].pc, brPC_B);
-    EXPECT_EQ(pred_B_test.btbEntries[0].target, target_B);
+    if (!pred_B_test.btbEntries.empty()) {
+        EXPECT_EQ(pred_B_test.btbEntries[0].pc, brPC_B);
+        EXPECT_EQ(pred_B_test.btbEntries[0].target, target_B);
+    }
+
 }
 
 TEST_F(ABTBTest, AliasAvoidance){

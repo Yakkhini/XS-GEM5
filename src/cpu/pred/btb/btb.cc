@@ -98,7 +98,8 @@ DefaultBTB::DefaultBTB(const Params &p)
     idxMask = numSets - 1;
 
     tagMask = (1UL << tagBits) - 1;
-    tagShiftAmt = idxShiftAmt + floorLog2(numSets);
+    // if ahead-pipelined stages are enabled, tag starts from the second bit (PC[tagBits+1 :2])
+    tagShiftAmt = (aheadPipelinedStages > 0) ? idxShiftAmt : idxShiftAmt + floorLog2(numSets);
 
     DPRINTF(BTB, "numEntries %d, numSets %d, numWays %d, tagBits %d, tagShiftAmt %d, idxMask %#lx, tagMask %#lx\n",
         numEntries, numSets, numWays, tagBits, tagShiftAmt, idxMask, tagMask);
@@ -238,10 +239,12 @@ DefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
     }
 
     // Update S0 prediction source statistics, if the control flow reached this point, we know that uBTB miss
-    if (entries.size() > 0) {
-        btbStats.S0PredUseABTB++;
-    } else {
-        btbStats.S0Predmiss++;
+    if (aheadPipelinedStages > 0) {
+        if (entries.size() > 0) {
+            btbStats.S0PredUseABTB++;
+        } else {
+            btbStats.S0Predmiss++;
+        }
     }
 }
 
@@ -673,8 +676,18 @@ DefaultBTB::update(const FetchStream &stream)
     for (auto &entry : entries_to_update) {
         // Calculate 32-byte aligned address for this entry
         Addr entryPC = entry.pc;
-        Addr btb_idx = getIndex(entryPC);
-        Addr btb_tag = getTag(entryPC);
+        Addr btb_idx;
+        Addr btb_tag;
+
+        if (entryHalfAligned) {
+            btb_idx = getIndex(entryPC);
+            btb_tag = getTag(entryPC);
+        } else{
+            Addr startPC = stream.getRealStartPC();
+            btb_idx = getIndex(startPC);
+            btb_tag = getTag(startPC);
+        }
+
         if (aheadPipelinedStages > 0) {
             Addr previousPC = getPreviousPC(stream);
             if (previousPC == 0) {

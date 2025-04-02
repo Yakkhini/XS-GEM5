@@ -96,7 +96,8 @@ DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, 
     idxMask = numSets - 1;
 
     tagMask = (1UL << tagBits) - 1;
-    tagShiftAmt = idxShiftAmt + floorLog2(numSets);
+    // if ahead-pipelined stages are enabled, tag starts from the second bit (PC[tagBits+1 :2])
+    tagShiftAmt = (aheadPipelinedStages > 0) ? idxShiftAmt : idxShiftAmt + floorLog2(numSets);
 }
 
 /**
@@ -592,8 +593,18 @@ DefaultBTB::update(const FetchStream &stream)
     for (auto &entry : entries_to_update) {
         // Calculate 32-byte aligned address for this entry
         Addr entryPC = entry.pc;
-        Addr btb_idx = getIndex(entryPC);
-        Addr btb_tag = getTag(entryPC);
+        Addr btb_idx;
+        Addr btb_tag;
+
+        if (halfAligned) {
+            btb_idx = getIndex(entryPC);
+            btb_tag = getTag(entryPC);
+        } else{
+            Addr startPC = stream.getRealStartPC();
+            btb_idx = getIndex(startPC);
+            btb_tag = getTag(startPC);
+        }
+
         if (aheadPipelinedStages > 0) {
             Addr previousPC = getPreviousPC(stream);
             if (previousPC == 0) {

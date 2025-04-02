@@ -2,7 +2,6 @@
 
 #include "base/output.hh"
 #include "base/debug_helper.hh"
-#include "base/trace.hh"
 #include "cpu/o3/cpu.hh"
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/pred/btb/stream_common.hh"
@@ -719,8 +718,6 @@ DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
     auto current_loop_iter = fetchTargetQueue.getCurrentLoopIter();
     currentLoopIter = current_loop_iter;
 
-    DPRINTF(DecoupleBP, "pc.instAddr() %#lx, end %#lx, start %#lx, taken_pc %#lx, target_to_fetch.taken %d\n",
-        pc.instAddr(), end, start, taken_pc, target_to_fetch.taken);
     // supplying ftq entry might be taken before pc
     // because it might just be updated last cycle
     // but last cycle ftq tells fetch that this is a miss stream
