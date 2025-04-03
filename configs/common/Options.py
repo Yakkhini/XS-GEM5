@@ -326,8 +326,14 @@ def addCommonOptions(parser, configure_xiangshan=False):
     parser.add_argument("--ideal-kmhv3", action= "store_true",
                         help="Use KunminghuV3 ideal params, which take priority over command-line arguments.")
 
-    parser.add_argument("--abtb", action="store_true", default=False,
-                        help="Enable ABTB")
+    parser.add_argument("--pure-abtb", action="store_true", default=False,
+                        help="s0 prediction is produced only by ABTB")
+
+    parser.add_argument("--pure-ubtb", action="store_true", default=False,
+                        help="s0 prediction is produced only by UBTB")
+
+    parser.add_argument("--huge-ubtb", action="store_true", default=False,
+                        help="use huge UBTB")
 
     # for warmup without switching cpu
     parser.add_argument("--warmup-insts-no-switch", action="store", type=int,
