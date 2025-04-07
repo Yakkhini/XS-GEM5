@@ -54,12 +54,14 @@ DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, 
                         bool halfAligned, unsigned aheadPipelinedStages)
     : numEntries(numEntries),
     numWays(numWays),
-    numDelay(numDelay),
     halfAligned(halfAligned),
     aheadPipelinedStages(aheadPipelinedStages),
     tagBits(tagBits),
     log2NumThreads(1)
 {
+    setNumDelay(numDelay);
+    // for test, TODO: remove this
+    alignToBlockSize = true;
     // Calculate shift amounts for index calculation
     if (halfAligned) { // if half-aligned, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);

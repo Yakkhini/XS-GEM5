@@ -3,14 +3,15 @@
 
 #include <deque>
 #include <map>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include "base/sat_counter.hh"
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
 #include "cpu/pred/btb/folded_hist.hh"
 #include "cpu/pred/btb/stream_struct.hh"
+
 // #include "cpu/pred/btb/timed_base_pred.hh"
 // #include "debug/DecoupleBP.hh"
 // #include "debug/TAGEUseful.hh"
@@ -18,6 +19,7 @@
 // #include "sim/sim_object.hh"
 
 #include "cpu/pred/btb/test/test_dprintf.hh"
+#include "cpu/pred/btb/test/timed_base_pred.hh"
 
 namespace gem5
 {
@@ -31,7 +33,7 @@ namespace btb_pred
 namespace test
 {
 
-class BTBTAGE
+class BTBTAGE : public TimedBaseBTBPredictor
 {
     using defer = std::shared_ptr<void>;
     using bitset = boost::dynamic_bitset<>;
@@ -287,13 +289,9 @@ class BTBTAGE
     // TraceManager *tageMissTrace;
 
     // below are for test
-    int getComponentIdx() {
-        return 0;
-    }
-
-    int getDelay() {
-        return 1;
-    }
+    // int getComponentIdx() {
+    //     return 0;
+    // }
 
 public:
 

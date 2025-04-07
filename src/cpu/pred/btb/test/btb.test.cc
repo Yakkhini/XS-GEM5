@@ -139,10 +139,6 @@ protected:
         mbtb = new DefaultBTB (1024, 20, 8, 1, true);
     }
     
-    void TearDown() override {
-        delete mbtb_small;
-        delete mbtb;
-    }
     
     DefaultBTB* mbtb_small;
     DefaultBTB* mbtb;

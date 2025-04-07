@@ -5,7 +5,11 @@ GTest('uras.test', 'uras_test.cc')
 
 # Add BTB test with minimal dependencies
 GTest('btb.test', 
-    'mockbtb.cc', 'btb.test.cc', '../stream_common.cc')
+    'mockbtb.cc',
+    'btb.test.cc',
+    '../stream_common.cc',
+    'timed_base_pred.cc',
+)
 
 GTest('abtb.test',
     'mockbtb.cc', 'abtb.test.cc', '../stream_common.cc')
@@ -16,6 +20,7 @@ GTest('tage.test',
     'btb_tage.test.cc', 
     '../stream_common.cc',
     '../folded_hist.cc',
+    'timed_base_pred.cc',
 )
 
 GTest('folded_hist.test',
@@ -27,9 +32,21 @@ GTest('fetch_target_queue.test',
     'fetch_target_queue.test.cc',
 )
 
+GTest('decoupled_bpred.test',
+    'decoupled_bpred.test.cc',
+    'decoupled_bpred.cc',
+    '../stream_common.cc',
+    'mockbtb.cc',
+    'btb_tage.cc',
+    '../folded_hist.cc',
+    'timed_base_pred.cc',
+    # '../../../../sim/serialize.cc',     # for PCStateBase
+)
+
 # Add the test to UNITTESTS target
 env.Append(UNITTESTS=['uras.test',
         'btb.test',
         'tage.test',
         'folded_hist.test',
-        'fetch_target_queue.test'])
+        'fetch_target_queue.test',
+        'decoupled_bpred.test'])

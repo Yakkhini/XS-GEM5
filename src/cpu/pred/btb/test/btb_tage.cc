@@ -23,8 +23,10 @@ namespace test
 
 // Constructor: Initialize TAGE predictor with given parameters
 BTBTAGE::BTBTAGE(unsigned numPredictors, unsigned numWays, unsigned tableSize) :
+    TimedBaseBTBPredictor(),
     numPredictors(numPredictors), numWays(numWays), tageStats(numPredictors)
 {
+    setNumDelay(1);
     DPRINTF(TAGE, "BTBTAGE constructor\n");
     for (unsigned i = 0; i < numPredictors; i++) {
         tableSizes.push_back(tableSize);

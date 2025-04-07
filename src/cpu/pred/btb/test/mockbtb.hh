@@ -1,30 +1,5 @@
-/*
- * Copyright (c) 2004-2005 The Regents of The University of Michigan
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met: redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer;
- * redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution;
- * neither the name of the copyright holders nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+#ifndef __CPU_PRED_BTB_TEST_MOCKBTB_HH__
+#define __CPU_PRED_BTB_TEST_MOCKBTB_HH__
 
 /*
  * Branch Target Buffer (BTB) Implementation
@@ -54,6 +29,7 @@
 
 // Include test DPRINTF definitions at last, override the default DPRINTF
 #include "cpu/pred/btb/test/test_dprintf.hh"
+#include "cpu/pred/btb/test/timed_base_pred.hh"
 
 namespace gem5
 {
@@ -67,7 +43,7 @@ namespace btb_pred
 namespace test
 {
 
-class DefaultBTB
+class DefaultBTB : public TimedBaseBTBPredictor
 {
   private:
 
@@ -100,7 +76,7 @@ class DefaultBTB
     using BTBSetIter = typename BTBSet::iterator;
     // MRU heap for each set
     using BTBHeap = std::vector<BTBSetIter>;
-    void tickStart();
+    // void tickStart() override;
     
     // void tick();
 
@@ -116,17 +92,17 @@ class DefaultBTB
      * 3. Fills predictions for each pipeline stage
      */
     void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
-                      std::vector<FullBTBPrediction> &stagePreds);
+                      std::vector<FullBTBPrediction> &stagePreds) override;
 
     /** Get prediction BTBMeta
      *  @return Returns the prediction meta
      */
-    std::shared_ptr<void> getPredictionMeta();
+    std::shared_ptr<void> getPredictionMeta() override;
 
     // not used
-    void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred);
+    void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override;
     void recoverHist(const boost::dynamic_bitset<> &history,
-        const FetchStream &entry, int shamt, bool cond_taken);
+        const FetchStream &entry, int shamt, bool cond_taken) override;
     /** Creates a BTB with the given number of entries, number of bits per
      *  tag, and number of ways.
      *  @param numEntries Number of entries for the BTB.
@@ -154,9 +130,9 @@ class DefaultBTB
      *  2. Adds new entries if necessary
      *  3. Updates MRU information
      */
-    void update(const FetchStream &stream);
+    void update(const FetchStream &stream) override;
 
-    unsigned getDelay() { return numDelay; }   // for testing, L0 BTB, L1BTB both need to test
+    // unsigned getDelay() { return numDelay; }   // for testing, L0 BTB, L1BTB both need to test
 
     uint64_t curTick() { return tick++; }    // for testing, LRU needs it!
     void printBTBEntry(const BTBEntry &e, uint64_t tick = 0) {
@@ -362,7 +338,7 @@ class DefaultBTB
     unsigned numEntries;    // Total number of entries
     unsigned numWays;       // Number of ways per set
     unsigned numSets;       // Number of sets (numEntries/numWays)
-    unsigned numDelay;      // Number of delay cycles
+    // unsigned numDelay;      // Number of delay cycles
     // fully aligned mode is not supported in test
     // bool alignToBlockSize;
     bool halfAligned;      // Whether to use half-aligned mode (64B prediction)
@@ -454,3 +430,4 @@ class DefaultBTB
 } // namespace branch_prediction
 } // namespace gem5
 
+#endif // __CPU_PRED_BTB_TEST_MOCKBTB_HH__

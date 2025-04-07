@@ -223,10 +223,6 @@ protected:
         stagePreds.resize(2);  // 2 stages
     }
 
-    void TearDown() override {
-        delete tage;
-    }
-
     BTBTAGE* tage;
     boost::dynamic_bitset<> history;
     std::vector<FullBTBPrediction> stagePreds;
@@ -581,7 +577,6 @@ TEST_F(BTBTAGETest, CombinedPredictionAccuracyTesting) {
     // Test each pattern
     for (const auto& pattern_test : patterns) {
         // Reset predictor and history
-        delete tage;
         tage = new BTBTAGE();
         // clear history
         history.reset();
@@ -696,7 +691,6 @@ TEST_F(BTBTAGETest, SetAssociativeConflictHandling) {
  */
 TEST_F(BTBTAGETest, AllocationBehaviorWithMultipleWays) {
     // Start with a fresh predictor
-    delete tage;
     tage = new BTBTAGE(1, 2, 10); // only 1 predictor table, 2 ways
     history.resize(64, false);
     stagePreds.resize(2);
