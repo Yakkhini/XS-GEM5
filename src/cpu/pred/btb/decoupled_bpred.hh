@@ -440,6 +440,8 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Scalar staticBranchNumEverTaken;  ///< Static branches ever taken
 
         statistics::Vector predsOfEachStage;
+        statistics::Scalar overrideBubbleNum;
+        statistics::Scalar overrideCount;
         statistics::Vector commitPredsFromEachStage;
         statistics::Distribution fsqEntryDist;
         statistics::Scalar fsqEntryEnqueued;

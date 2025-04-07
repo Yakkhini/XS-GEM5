@@ -439,7 +439,10 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     ADD_STAT(staticBranchNum, statistics::units::Count::get(), "the number of all (different) static branches"),
     ADD_STAT(staticBranchNumEverTaken, statistics::units::Count::get(), "the number of all (different) static branches that are once taken"),
     ADD_STAT(predsOfEachStage, statistics::units::Count::get(), "the number of preds of each stage that account for final pred"),
-    ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(), "the number of preds of each stage that account for a committed stream"),
+    ADD_STAT(overrideBubbleNum,  statistics::units::Count::get(), "the number of override bubbles"),
+    ADD_STAT(overrideCount, statistics::units::Count::get(), "the number of overrides"),
+    ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
+    "the number of preds of each stage that account for a committed stream"),
     ADD_STAT(fsqEntryDist, statistics::units::Count::get(), "the distribution of number of entries in fsq"),
     ADD_STAT(fsqEntryEnqueued, statistics::units::Count::get(), "the number of fsq entries enqueued"),
     ADD_STAT(fsqEntryCommitted, statistics::units::Count::get(), "the number of fsq entries committed at last"),
@@ -553,6 +556,7 @@ DecoupledBPUWithBTB::tick()
     // Decrement override bubbles counter
     if (numOverrideBubbles > 0) {
         numOverrideBubbles--;
+        dbpBtbStats.overrideBubbleNum++;
     }
 
     sentPCHist = false;
@@ -635,6 +639,9 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
         }
         // generate bubbles
         numOverrideBubbles = first_hit_stage;
+        if (numOverrideBubbles > 0){
+            dbpBtbStats.overrideCount++;
+        }
         // assign pred source
         finalPred.predSource = first_hit_stage;
         receivedPred = true;
