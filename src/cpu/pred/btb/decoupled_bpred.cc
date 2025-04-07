@@ -624,7 +624,7 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
     if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
         // predsOfEachStage should be ready now
         for (int i = 0; i < numStages; i++) {
-            printFullBTBPrediction(predsOfEachStage[i]);
+            printFullBTBPrediction(i, predsOfEachStage[i]);
         }
         // choose the most accurate prediction
         FullBTBPrediction *chosen = &predsOfEachStage[0];
@@ -676,26 +676,6 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
         finalPred.predSource = first_hit_stage;
         receivedPred = true;
 
-        // if stage 2 has ret (handled by main RAS)
-        // check if we have handled in stage 1
-        // auto taken_slot_s1 = predsOfEachStage[1].getTakenSlot();
-        // if (taken_slot_s1.isReturn) {
-        //     for (int i = 0; i < predsOfEachStage[1].btbEntry.slots.size(); i++) {
-        //         DPRINTF(URAS, "s2 slot valid %d isCond %d\n", predsOfEachStage[1].btbEntry.slots[i].valid, predsOfEachStage[1].btbEntry.slots[i].isCond);
-        //     }
-        //     DPRINTF(URAS, "pred to be ret on s2 with choose stage %d\n", first_hit_stage);
-        //     DPRINTF(URAS, "s1 btbEntry valid %d\n", predsOfEachStage[0].btbEntry.valid);
-        //     auto taken_slot_s0 = predsOfEachStage[0].getTakenSlot();
-        //     for (int i = 0; i < predsOfEachStage[0].btbEntry.slots.size(); i++) {
-        //         DPRINTF(URAS, "s1 slot valid %d isCond %d\n", predsOfEachStage[0].btbEntry.slots[i].valid, predsOfEachStage[0].btbEntry.slots[i].isCond);
-        //     }
-        //     if (!taken_slot_s0.isReturn) {
-        //         DPRINTF(URAS, "pc %llx pred to be ret on s2, but not on s1\n", predsOfEachStage[1].bbStart);
-        //     }
-        //     if (predsOfEachStage[1].returnTarget != predsOfEachStage[0].returnTarget) {
-        //         DPRINTF(URAS, "pc %llx pred to be ret but s1 target %llx, s2 target %llx\n", predsOfEachStage[1].bbStart, predsOfEachStage[0].returnTarget, predsOfEachStage[1].returnTarget);
-        //     }
-        // }
 
         // printFullBTBPrediction(*chosen);
         dbpBtbStats.predsOfEachStage[first_hit_stage]++;
@@ -792,7 +772,7 @@ DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
         rtarget.npc(target_to_fetch.target + 4);
         rtarget.uReset();
         DPRINTF(DecoupleBP,
-                "Predicted pc: %#lx, upc: %#lx, npc(meaningless): %#lx, instSeqNum: %d\n",
+                "Predicted pc: %#lx, upc: %u, npc(meaningless): %#lx, instSeqNum: %lu\n",
                 target->instAddr(), rtarget.upc(), rtarget.npc(), seqNum);
         set(pc, *target);
     } else {
@@ -891,11 +871,10 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     }
 
     DPRINTF(DecoupleBPHist,
-            "stream start=%#lx, predict on hist: %s\n", stream.startPC,
-            stream.history);
+            "stream start=%#lx, predict on hist\n", stream.startPC);
 
     DPRINTF(DecoupleBP || debugFlagOn,
-            "Control squash: ftq_id=%lu, fsq_id=%lu,"
+            "Control squash: ftq_id=%d, fsq_id=%d,"
             " control_pc=%#lx, real_target=%#lx, is_conditional=%u, "
             "is_indirect=%u, actually_taken=%u, branch seq: %lu\n",
             target_id, stream_id, control_pc.instAddr(),
@@ -953,8 +932,8 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     stream.resolved = true;
 
     // recover history to the moment doing prediction
-    DPRINTF(DecoupleBPHist,
-             "Recover history %s\nto %s\n", s0History, stream.history);
+    // DPRINTF(DecoupleBPHist,
+    //          "Recover history %s\nto %s\n", s0History, stream.history);
     s0History = stream.history;
 
     // recover history info
@@ -969,8 +948,8 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     checkHistory(s0History);
     tage->checkFoldedHist(s0History, "control squash");
 
-    DPRINTF(DecoupleBPHist,
-                "Shift in history %s\n", s0History);
+    // DPRINTF(DecoupleBPHist,
+    //             "Shift in history %s\n", s0History);
 
     printStream(stream);
 
@@ -1008,7 +987,7 @@ DecoupledBPUWithBTB::nonControlSquash(unsigned target_id, unsigned stream_id,
 {
     dbpBtbStats.nonControlSquash++;
     DPRINTFV(this->debugFlagOn || ::gem5::debug::DecoupleBP,
-            "non control squash: target id: %lu, stream id: %lu, inst_pc: %x, "
+            "non control squash: target id: %d, stream id: %d, inst_pc: %#lx, "
             "seq: %lu\n",
             target_id, stream_id, inst_pc.instAddr(), seq);
     squashing = true;
@@ -1111,7 +1090,7 @@ DecoupledBPUWithBTB::trapSquash(unsigned target_id, unsigned stream_id,
 {
     dbpBtbStats.trapSquash++;
     DPRINTF(DecoupleBP || debugFlagOn,
-            "Trap squash: target id: %lu, stream id: %lu, inst_pc: %#lx\n",
+            "Trap squash: target id: %d, stream id: %d, inst_pc: %#lx\n",
             target_id, stream_id, inst_pc.instAddr());
     squashing = true;
 
@@ -1724,7 +1703,7 @@ DecoupledBPUWithBTB::squashStreamAfter(unsigned squash_stream_id)
     auto erase_it = fetchStreamQueue.upper_bound(squash_stream_id);
     while (erase_it != fetchStreamQueue.end()) {
         DPRINTF(DecoupleBP || debugFlagOn || erase_it->second.startPC == ObservingPC,
-                "Erasing stream %lu when squashing %lu\n", erase_it->first,
+                "Erasing stream %lu when squashing %d\n", erase_it->first,
                 squash_stream_id);
         printStream(erase_it->second);
         if (enableLoopPredictor) {
@@ -1851,7 +1830,7 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
     if (it == fetchStreamQueue.end()) {
         dbpBtbStats.fsqNotValid++;
         // desired stream not found in fsq
-        DPRINTF(DecoupleBP, "FTQ enq desired Stream ID %u is not found\n",
+        DPRINTF(DecoupleBP, "FTQ enq desired Stream ID %lu is not found\n",
                 ftq_enq_state.streamId);
         return;
     }
@@ -1931,75 +1910,6 @@ DecoupledBPUWithBTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> 
     history[0] = taken;
 }
 
-void
-DecoupledBPUWithBTB::makeLoopPredictions(FetchStream &entry, bool &endLoop, bool &isDouble, bool &loopConf,
-    std::vector<LoopRedirectInfo> &lpRedirectInfos, std::vector<bool> &fixNotExits,
-    std::vector<LoopRedirectInfo> &unseenLpRedirectInfos, bool &taken)
-{
-    // query loop predictor and modify taken result
-    // TODO: What if loop branch is predicted not taken?
-    // Ans: assume it is loop exit indeed and 
-    //      use it to sychronize loop specCnt
-//     if (finalPred.valid) {
-//         int i = 0;
-//         for (auto &slot: finalPred.btbEntry.slots) {
-//             if (slot.isCond && (finalPred.getTakenBranchIdx() >= i || finalPred.getTakenBranchIdx() == -1)) {
-//                 assert(finalPred.condTakens.size() > i);
-//                 bool this_cond_pred_taken = finalPred.condTakens[i];
-//                 std::tie(endLoop, lpRedirectInfos[i], isDouble, loopConf) = lp.shouldEndLoop(this_cond_pred_taken, slot.pc, false);
-//                 // for bpu predicted taken branch we need to check
-//                 // whether it is an undetected loop exit
-//                 if (lpRedirectInfos[i].e.valid) {
-//                     if (loopConf) {
-//                         // we should only modify the direction of the loop branch, because
-//                         // a latter branch (outside loop branch) may have other situation
-//                         finalPred.condTakens[i] = !endLoop;
-//                         if (endLoop) {
-//                             DPRINTF(DecoupleBP || debugFlagOn, "Loop predictor says end loop at %#lx\n", slot.pc);
-//                             dbpBtbStats.predLoopPredictorExit++;
-//                             entry.isExit = true;
-//                         } else {
-//                             if (!this_cond_pred_taken) {
-//                                 dbpBtbStats.predLoopPredictorConfFixNotExit++;
-//                                 fixNotExits[i] = true;
-//                                 DPRINTF(DecoupleBP || debugFlagOn, "Loop predictor says do not end loop at %#lx\n", slot.pc);
-//                             }
-//                         }
-//                         // if (this_cond_pred_taken) {
-//                         //     if (endLoop) {
-//                         //         finalPred.condTakens[i] = false;
-//                         //     }
-//                         // }
-//                     } else {
-//                         if (endLoop) {
-//                             dbpBtbStats.predLoopPredictorUnconfNotExit++;
-//                         }
-//                     }
-//                 }
-
-//             }
-//             i++;
-//         }
-//         taken = finalPred.isTaken();
-//     }
-//     // check if current prediction block has an unseen loop branch
-//     Addr end = finalPred.getEnd();
-//     for (Addr pc = entry.startPC; pc < end; pc += 2) {
-//         bool inBTB = finalPred.btbEntry.getSlot(pc).valid;
-//         if (inBTB) {
-//             continue;
-//         }
-//         LoopRedirectInfo unseenLpInfo;
-//         std::tie(endLoop, unseenLpInfo, isDouble, loopConf) = lp.shouldEndLoop(false, pc, false);
-//         if (unseenLpInfo.e.valid) {
-//             dbpBtbStats.predBTBUnseenLoopBranchInLp++;
-//             if (endLoop) {
-//                 dbpBtbStats.predBTBUnseenLoopBranchExitInLp++;
-//             }
-//             unseenLpRedirectInfos.push_back(unseenLpInfo);
-//         }
-//     }
-}
 
 // this function enqueues fsq and update s0PC and s0History
 // use loop predictor and loop buffer here
@@ -2034,10 +1944,7 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
         bool taken = finalPred.isTaken();
         // bool predReasonable = finalPred.isReasonable();
         // if (predReasonable) {
-        if (enableLoopPredictor) {
-            makeLoopPredictions(entry, endLoop, isDouble, loopConf, lpRedirectInfos,
-                fixNotExits, unseenLpRedirectInfos, taken);
-        }
+
         Addr fallThroughAddr = finalPred.getFallThrough();
         entry.isHit = finalPred.btbEntries.size() > 0; // TODO: fix isHit and falseHit
         entry.falseHit = false;
@@ -2215,7 +2122,7 @@ DecoupledBPUWithBTB::checkHistory(const boost::dynamic_bitset<> &history)
     for (const auto entry: historyManager.getSpeculativeHist()) {
         if (entry.shamt != 0) {
             ideal_size += entry.shamt;
-            DPRINTF(DecoupleBPVerbose, "pc: %#lx, shamt: %d, cond_taken: %d\n", entry.pc,
+            DPRINTF(DecoupleBPVerbose, "pc: %#lx, shamt: %lu, cond_taken: %d\n", entry.pc,
                     entry.shamt, entry.cond_taken);
             ideal_hash_hist <<= entry.shamt;
             ideal_hash_hist[0] = entry.cond_taken;
