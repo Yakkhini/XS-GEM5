@@ -7,10 +7,16 @@
 #include <utility> 
 #include <vector>
 
-#include "cpu/pred/bpred_unit.hh"
 #include "cpu/pred/btb/stream_struct.hh"
+
+#ifdef UNIT_TEST
+#include "cpu/pred/btb/test/test_dprintf.hh"
+
+#else
 #include "debug/LoopPredictor.hh"
 #include "debug/LoopPredictorVerbose.hh"
+
+#endif
 
 
 namespace gem5
@@ -68,9 +74,9 @@ class LoopPredictor
       if (it != loopStorage[idx].end()) {
         auto &way = it->second;
         info.e = way;
-      
+
         int remaining_iter = way.tripCnt - way.specCnt;
-        DPRINTF(LoopPredictor, "found loop entry idx %d, tag %#x: tripCnt: %d, specCnt: %d, conf: %d\n", idx, tag, way.tripCnt, way.specCnt, way.conf);
+        DPRINTF(LoopPredictor, "found loop entry idx %d, tag %#lx: tripCnt: %d, specCnt: %d, conf: %d\n", idx, tag, way.tripCnt, way.specCnt, way.conf);
         bool exit = false;
         bool is_double = false;
         bool conf = way.conf == maxConf;
@@ -146,7 +152,7 @@ class LoopPredictor
               // not in main storage, write into main storage
               // if (way.specCnt > minTripCnt) {
                 int idx = getIndex(pc);
-                DPRINTF(LoopPredictor, "loop end detected, specCnt %d, writting to loopStorage idx %d, tag %d\n",
+                DPRINTF(LoopPredictor, "loop end detected, specCnt %d, writting to loopStorage idx %d, tag %ld\n",
                   way.specCnt, idx, tag);
                 loopStorage[idx][tag].valid = true;
                 loopStorage[idx][tag].specCnt = 0;
@@ -165,7 +171,7 @@ class LoopPredictor
             // we should invalidate it
             if (main_found) {
               int idx = getIndex(pc);
-              DPRINTF(LoopPredictor, "loop end with tripCnt less than %d, invalidating loopStorage idx %d, tag %d\n",
+              DPRINTF(LoopPredictor, "loop end with tripCnt less than %d, invalidating loopStorage idx %d, tag %ld\n",
                 minTripCnt, idx, tag);
               loopStorage[idx][tag].valid = false;
               loopStorage[idx][tag].conf = 0;
@@ -183,7 +189,7 @@ class LoopPredictor
         }
       } else {
         // not found, create new entry
-        DPRINTF(LoopPredictor, "creating new entry for loop branch %#lx, tag %#x\n", pc, tag);
+        DPRINTF(LoopPredictor, "creating new entry for loop branch %#lx, tag %#lx\n", pc, tag);
         LoopEntry entry;
         entry.valid = true;
         entry.tripCnt = 0;

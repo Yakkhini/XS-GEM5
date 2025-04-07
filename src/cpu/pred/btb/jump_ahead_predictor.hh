@@ -7,9 +7,15 @@
 #include <utility> 
 #include <vector>
 
-#include "cpu/pred/bpred_unit.hh"
 #include "cpu/pred/btb/stream_struct.hh"
+
+#ifdef UNIT_TEST
+#include "cpu/pred/btb/test/test_dprintf.hh"
+
+#else
 #include "debug/JumpAheadPredictor.hh"
+
+#endif
 
 
 namespace gem5

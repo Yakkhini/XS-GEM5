@@ -7,11 +7,16 @@
 #include <utility>
 #include <vector>
 
-#include "cpu/pred/bpred_unit.hh"
-#include "cpu/pred/btb/stream_struct.hh"
 #include "cpu/pred/btb/loop_predictor.hh"
+#include "cpu/pred/btb/stream_struct.hh"
+
+#ifdef UNIT_TEST
+#include "cpu/pred/btb/test/test_dprintf.hh"
+
+#else
 #include "debug/LoopBuffer.hh"
 
+#endif
 
 namespace gem5
 {
@@ -75,7 +80,7 @@ class LoopBuffer
         DPRINTF(LoopBuffer, "query loop buffer with start pc %#lx\n", start_pc);
         if (loopInsts.first == start_pc && streamBeforeLoop.predTaken &&
                 loopBranchPC == branch_pc) {
-            DPRINTF(LoopBuffer, "found loop buffer entry for pc %#lx, branch_pc %#lx, entry has %d insts\n",
+            DPRINTF(LoopBuffer, "found loop buffer entry for pc %#lx, branch_pc %#lx, entry has %ld insts\n",
                 start_pc, branch_pc, loopInsts.second.size());
             if (lp->isLoopBranchConf(loopBranchPC)) {
                 DPRINTF(LoopBuffer, "loop branch %#lx conf in lp, loop buffer activated\n", loopBranchPC);
@@ -153,7 +158,7 @@ class LoopBuffer
         // TODO: use replacement policy
         const auto &it = specLoopInsts.find(pc);
         if (it != specLoopInsts.end() && insts.size() == it->second.size()) {
-            DPRINTF(LoopBuffer, "found identical spec loop buffer entry for pc %#lx, don't fill, entry has %d insts\n",
+            DPRINTF(LoopBuffer, "found identical spec loop buffer entry for pc %#lx, don't fill, entry has %ld insts\n",
                 pc, it->second.size());
             return false;
         } else {
@@ -171,7 +176,7 @@ class LoopBuffer
                     loopInsts.first = pc;
                     loopInsts.second = it->second;
                     loopBranchPC = branch_pc;
-                    DPRINTF(LoopBuffer, "found spec loop buffer entry for pc %#lx, branch pc %#lx, entry has %d insts\n",
+                    DPRINTF(LoopBuffer, "found spec loop buffer entry for pc %#lx, branch pc %#lx, entry has %ld insts\n",
                         pc, branch_pc, loopInsts.second.size());
                     // specLoopInsts.erase(it);
                 } else {
@@ -184,7 +189,7 @@ class LoopBuffer
     }
 
     InstDesc supplyInst() {
-        DPRINTF(LoopBuffer, "supplying inst from loop buffer, loopInstCounter %d, buffer size %d, loop buffer pc %#lx\n",
+        DPRINTF(LoopBuffer, "supplying inst from loop buffer, loopInstCounter %d, buffer size %ld, loop buffer pc %#lx\n",
             loopInstCounter, loopInsts.second.size(), loopInsts.first);
         if (loopInstCounter < loopInsts.second.size()) {
             auto instDesc = loopInsts.second[loopInstCounter];
