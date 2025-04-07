@@ -64,11 +64,6 @@ protected:
         bigAbtb = new DefaultBTB(1024, 20, 1, 1, false, 1);
     }
 
-    void TearDown() override {
-        delete abtb;
-        delete bigAbtb;
-    }
-
     DefaultBTB* abtb;
     DefaultBTB* bigAbtb;
 };

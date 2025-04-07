@@ -12,7 +12,11 @@ GTest('btb.test',
 )
 
 GTest('abtb.test',
-    'mockbtb.cc', 'abtb.test.cc', '../stream_common.cc')
+    'mockbtb.cc',
+    'abtb.test.cc',
+    '../stream_common.cc',
+    'timed_base_pred.cc',
+)
 
 # Add TAGE test with necessary dependencies
 GTest('tage.test', 
