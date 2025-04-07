@@ -50,7 +50,8 @@ namespace test
  * - MRU tracking for each set
  * - Address calculation parameters (index/tag masks and shifts)
  */
-DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay, unsigned aheadPipelinedStages, bool halfAligned)
+DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay,
+                        bool halfAligned, unsigned aheadPipelinedStages)
     : numEntries(numEntries),
     numWays(numWays),
     numDelay(numDelay),
@@ -59,12 +60,10 @@ DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, 
     tagBits(tagBits),
     log2NumThreads(1)
 {
-    // for test, TODO: remove this
-    //alignToBlockSize = true;
     // Calculate shift amounts for index calculation
-    if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
-        idxShiftAmt = floorLog2(predictWidth);
-    } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
+    if (halfAligned) { // if half-aligned, | tag | idx | block offset | instShiftAmt
+        idxShiftAmt = floorLog2(blockSize);
+    } else { // if not half-aligned, | tag | idx | instShiftAmt
         idxShiftAmt = 1;
     }
 
@@ -349,11 +348,11 @@ DefaultBTB::lookup(Addr block_pc)
 
     if (halfAligned) {
         // Calculate 32B aligned address
-        Addr alignedPC = block_pc & ~(predictWidth - 1);
+        Addr alignedPC = block_pc & ~(blockSize - 1);
         // Lookup first 32B block
         res = lookupSingleBlock(alignedPC);
         // Lookup next 32B block
-        auto nextBlockRes = lookupSingleBlock(alignedPC + predictWidth);
+        auto nextBlockRes = lookupSingleBlock(alignedPC + blockSize);
         // Merge results
         res.insert(res.end(), nextBlockRes.begin(), nextBlockRes.end());
 

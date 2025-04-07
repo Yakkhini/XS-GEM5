@@ -46,7 +46,7 @@ FullBTBPrediction makePrediction(Addr startPC, DefaultBTB *abtb) {
 }
 
 void updateBTB(FetchStream &stream, DefaultBTB *abtb) {
-    abtb->getAndSetNewBTBEntry(stream);
+    abtb->getAndSetNewBTBEntry(stream); // usually called by mbtb, here for testing purpose
     abtb->update(stream);
 }
 
@@ -58,11 +58,10 @@ protected:
     void SetUp() override {
         // Create a BTB with 16 entries, 8-bit tags, 4-way associative, 1-cycle delay
         // The last parameter (true) enables pipelined operation
-        abtb = new DefaultBTB(16, 20, 4, 1, 1);
-        assert(!abtb->alignToBlockSize);
+        abtb = new DefaultBTB(16, 20, 4, 1, false, 1);
         assert(!abtb->halfAligned);
 
-        bigAbtb = new DefaultBTB(1024, 20, 1, 1, 1);
+        bigAbtb = new DefaultBTB(1024, 20, 1, 1, false, 1);
     }
 
     void TearDown() override {

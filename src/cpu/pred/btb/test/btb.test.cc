@@ -135,16 +135,16 @@ class BTBTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create a BTB with 16 entries, 8-bit tags, and 4-way set associative
-        ubtb = new DefaultBTB(16, 8, 4, 0);  // ubtb (L0 BTB)
-        mbtb = new DefaultBTB(16, 8, 4, 1); // mbtb (L1 BTB)
+        mbtb_small = new DefaultBTB(16, 8, 4, 1, true); // mbtb (L1 BTB)
+        mbtb = new DefaultBTB (1024, 20, 8, 1, true);
     }
     
     void TearDown() override {
-        delete ubtb;
+        delete mbtb_small;
         delete mbtb;
     }
     
-    DefaultBTB* ubtb;
+    DefaultBTB* mbtb_small;
     DefaultBTB* mbtb;
 };
 
@@ -255,21 +255,21 @@ TEST_F(BTBTest, ReplacementPolicy) {
     // Fill up a BTB set completely with branches in same set but different ways
     for (int i = 0; i < 4; i++) {
         BranchInfo branch = createBranchInfo(0x1000 + i * 0x1000, 0x2000 + i * 0x1000, true);
-        predictUpdateCycle(mbtb, branch.pc, branch, true);
+        predictUpdateCycle(mbtb_small, branch.pc, branch, true);
     }
     
     // Add one more branch to force replacement
     BranchInfo newBranch = createBranchInfo(0x5000, 0x6000, true);
-    predictUpdateCycle(mbtb, newBranch.pc, newBranch, true);
+    predictUpdateCycle(mbtb_small, newBranch.pc, newBranch, true);
 
     // The oldest entry (0x1000) should be replaced
     // Check by trying to find it
     std::vector<FullBTBPrediction> stagePreds(4);
     boost::dynamic_bitset<> history(8, 0);
-    mbtb->putPCHistory(0x1000, history, stagePreds);
+    mbtb_small->putPCHistory(0x1000, history, stagePreds);
 
     // 0x1000 should be evicted, so no entry should be found
-    EXPECT_TRUE(stagePreds[mbtb->getDelay()].btbEntries.empty());
+    EXPECT_TRUE(stagePreds[mbtb_small->getDelay()].btbEntries.empty());
 }
 
 // Test indirect branch prediction
@@ -350,8 +350,6 @@ TEST_F(BTBTest, MispredictionRecovery) {
 
 // Test half-aligned mode basic functionality
 TEST_F(BTBTest, HalfAlignedBasicTest) {
-    // Create a BTB with half-aligned mode enabled
-    DefaultBTB btb(1024, 20, 8, 1, true);  // numEntries=1024, tagBits=20, numWays=8, numDelay=1, halfAligned=true
 
     // Create branches in two consecutive 32B blocks
     BranchInfo branch1 = createBranchInfo(0x100, 0x200, true);
@@ -359,20 +357,18 @@ TEST_F(BTBTest, HalfAlignedBasicTest) {
 
     // Add first branch
     std::vector<FullBTBPrediction> stagePreds =
-        predictUpdateCycle(&btb, 0x100, branch1, true, boost::dynamic_bitset<>(64, 0), 0x140);
+        predictUpdateCycle(mbtb, 0x100, branch1, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Add second branch
-    stagePreds = predictUpdateCycle(&btb, 0x100, branch2, true, boost::dynamic_bitset<>(64, 0), 0x140);
+    stagePreds = predictUpdateCycle(mbtb, 0x100, branch2, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Verify both branches are predicted
     std::vector<BranchInfo> expectedBranches = {branch1, branch2};
-    verifyPrediction(stagePreds, btb.getDelay(), expectedBranches);
+    verifyPrediction(stagePreds, mbtb->getDelay(), expectedBranches);
 }
 
 // Test half-aligned mode with unaligned addresses
 TEST_F(BTBTest, HalfAlignedUnalignedTest) {
-    // Create a BTB with half-aligned mode enabled
-    DefaultBTB btb(1024, 20, 8, 1, true);
 
     // Create unaligned branches in two consecutive 32B blocks
     BranchInfo branch1 = createBranchInfo(0x104, 0x200, true);
@@ -380,45 +376,41 @@ TEST_F(BTBTest, HalfAlignedUnalignedTest) {
 
     // Add first branch
     std::vector<FullBTBPrediction> stagePreds =
-        predictUpdateCycle(&btb, 0x104, branch1, true, boost::dynamic_bitset<>(64, 0), 0x144);
+        predictUpdateCycle(mbtb, 0x104, branch1, true, boost::dynamic_bitset<>(64, 0), 0x144);
 
     // Add second branch
-    stagePreds = predictUpdateCycle(&btb, 0x104, branch2, true, boost::dynamic_bitset<>(64, 0), 0x144);
+    stagePreds = predictUpdateCycle(mbtb, 0x104, branch2, true, boost::dynamic_bitset<>(64, 0), 0x144);
 
     // Verify both branches are predicted
     std::vector<BranchInfo> expectedBranches = {branch1, branch2};
-    verifyPrediction(stagePreds, btb.getDelay(), expectedBranches);
+    verifyPrediction(stagePreds, mbtb->getDelay(), expectedBranches);
 }
 
 // Test half-aligned mode update with branch in second block
 TEST_F(BTBTest, HalfAlignedUpdateSecondBlock) {
-    // Create a BTB with half-aligned mode enabled
-    DefaultBTB btb(1024, 20, 8, 1, true);
 
     // Create branch in second 32B block
     BranchInfo branch = createBranchInfo(0x124, 0x200, true);
 
     // Execute prediction-update cycle
     std::vector<FullBTBPrediction> stagePreds =
-        predictUpdateCycle(&btb, 0x100, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
+        predictUpdateCycle(mbtb, 0x100, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Verify branch is predicted from first block
-    verifyPrediction(stagePreds, btb.getDelay(), {branch});
+    verifyPrediction(stagePreds, mbtb->getDelay(), {branch});
 
     // Also verify prediction from second block
     stagePreds.clear();
     stagePreds.resize(2);
-    btb.putPCHistory(0x120, boost::dynamic_bitset<>(64, 0), stagePreds);
+    mbtb->putPCHistory(0x120, boost::dynamic_bitset<>(64, 0), stagePreds);
 
     // Should still find the branch
     std::vector<BranchInfo> expectedBranches = {branch};
-    verifyPrediction(stagePreds, btb.getDelay(), expectedBranches);
+    verifyPrediction(stagePreds, mbtb->getDelay(), expectedBranches);
 }
 
 // Test half-aligned mode with branches in both blocks
 TEST_F(BTBTest, HalfAlignedBothBlocks) {
-    // Create a BTB with half-aligned mode enabled
-    DefaultBTB btb(1024, 20, 8, 1, true);
 
     // Create branches in both 32B blocks
     BranchInfo branch1 = createBranchInfo(0x108, 0x200, true);
@@ -426,50 +418,46 @@ TEST_F(BTBTest, HalfAlignedBothBlocks) {
 
     // Add first branch
     std::vector<FullBTBPrediction> stagePreds =
-        predictUpdateCycle(&btb, 0x100, branch1, true, boost::dynamic_bitset<>(64, 0), 0x140);
+        predictUpdateCycle(mbtb, 0x100, branch1, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Add second branch
-    stagePreds = predictUpdateCycle(&btb, 0x100, branch2, true, boost::dynamic_bitset<>(64, 0), 0x140);
+    stagePreds = predictUpdateCycle(mbtb, 0x100, branch2, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Verify both branches are predicted
     std::vector<BranchInfo> expectedBranches = {branch1, branch2};
-    verifyPrediction(stagePreds, btb.getDelay(), expectedBranches);
+    verifyPrediction(stagePreds, mbtb->getDelay(), expectedBranches);
 }
 
 // Test half-aligned mode with unaligned start address
 TEST_F(BTBTest, HalfAlignedUnalignedStart) {
-    // Create a BTB with half-aligned mode enabled
-    DefaultBTB btb(1024, 20, 8, 1, true);
 
     // Create branch in second block
     BranchInfo branch = createBranchInfo(0x12C, 0x200, true);
 
     // Execute prediction-update cycle from unaligned start address
     std::vector<FullBTBPrediction> stagePreds =
-        predictUpdateCycle(&btb, 0x10A, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
+        predictUpdateCycle(mbtb, 0x10A, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Verify branch is predicted
-    verifyPrediction(stagePreds, btb.getDelay(), {branch});
+    verifyPrediction(stagePreds, mbtb->getDelay(), {branch});
 }
 
 // Test half-aligned mode with multiple updates to same branch
 TEST_F(BTBTest, HalfAlignedMultipleUpdates) {
-    // Create a BTB with half-aligned mode enabled
-    DefaultBTB btb(1024, 20, 8, 1, true);
 
     // Create indirect branch in second block with initial target
     BranchInfo branch = createBranchInfo(0x124, 0x200, false, true);
 
     // Execute first prediction-update cycle
     std::vector<FullBTBPrediction> stagePreds =
-        predictUpdateCycle(&btb, 0x100, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
+        predictUpdateCycle(mbtb, 0x100, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Update with new target
     branch.target = 0x300;
-    stagePreds = predictUpdateCycle(&btb, 0x100, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
+    stagePreds = predictUpdateCycle(mbtb, 0x100, branch, true, boost::dynamic_bitset<>(64, 0), 0x140);
 
     // Verify branch is predicted with new target
-    verifyPrediction(stagePreds, btb.getDelay(), {branch});
+    verifyPrediction(stagePreds, mbtb->getDelay(), {branch});
 }
 
 

@@ -135,7 +135,8 @@ class DefaultBTB
      *  @param numDelay Number of delay for the BTB, separate L0 and L1 BTB
      *  @param halfAligned Whether to use half-aligned mode (64B prediction)
      */
-    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay, unsigned aheadPipelinedStages = 0, bool halfAligned = false);
+    DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, unsigned numDelay,
+                bool halfAligned = false, unsigned aheadPipelinedStages = 0);
 
     void reset();
     
@@ -357,11 +358,13 @@ class DefaultBTB
     std::queue<std::tuple<Addr, Addr, BTBSet>> aheadReadBtbEntries;
 
     /** BTB configuration parameters */
+    unsigned blockSize{32};  // max size in byte of a Fetch Block
     unsigned numEntries;    // Total number of entries
     unsigned numWays;       // Number of ways per set
     unsigned numSets;       // Number of sets (numEntries/numWays)
     unsigned numDelay;      // Number of delay cycles
-    bool alignToBlockSize;  // Whether to align to block size
+    // fully aligned mode is not supported in test
+    // bool alignToBlockSize;
     bool halfAligned;      // Whether to use half-aligned mode (64B prediction)
     unsigned aheadPipelinedStages;
 
