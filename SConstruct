@@ -149,6 +149,8 @@ AddOption('--pgo-prof', action='store_true',
           help='Enable pgo profiling generation')
 AddOption('--pgo-use', action='store', default=None,
           help='Use pgo profiling results')
+AddOption('--unit-test', action='store_true',
+          help='Enable unit test build')
 
 # Inject the built_tools directory into the python path.
 sys.path[1:1] = [ Dir('#build_tools').abspath ]
@@ -369,6 +371,12 @@ for variant_path in variant_paths:
     # Make a copy of the build-root environment to use for this config.
     env = main.Clone()
     env['BUILDDIR'] = variant_path
+
+    # Check for unit test mode and define UNIT_TEST macro if enabled
+    # This is used to replace debug/DecoupleBP.hh with test_dprintf.hh
+    if GetOption('unit_test'):
+        print("Unit test mode enabled - defining UNIT_TEST for", variant_path)
+        env.Append(CPPDEFINES=['UNIT_TEST'])
 
     # Enable compilation database generation for this variant
     env.Tool('compilation_db')

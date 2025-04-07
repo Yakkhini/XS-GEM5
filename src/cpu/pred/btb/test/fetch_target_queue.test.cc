@@ -11,10 +11,6 @@
 #include "cpu/pred/btb/stream_struct.hh"
 #include "cpu/pred/btb/test/test_dprintf.hh"
 
-// a hack way to include the source file for unit test
-// use UNIT_TEST to replace debug/DecoupleBP.hh with test_dprintf.hh
-#define UNIT_TEST
-#include "../fetch_target_queue.cc"
 
 namespace gem5
 {
