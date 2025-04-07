@@ -441,6 +441,14 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     ADD_STAT(predsOfEachStage, statistics::units::Count::get(), "the number of preds of each stage that account for final pred"),
     ADD_STAT(overrideBubbleNum,  statistics::units::Count::get(), "the number of override bubbles"),
     ADD_STAT(overrideCount, statistics::units::Count::get(), "the number of overrides"),
+    ADD_STAT(overrideValidityMismatch, statistics::units::Count::get(),
+    "Number of overrides due to validity mismatches"),
+    ADD_STAT(overrideControlAddrMismatch, statistics::units::Count::get(),
+    "Number of overrides due to control address mismatches"),
+    ADD_STAT(overrideTargetMismatch, statistics::units::Count::get(),"Number of overrides due to target mismatches"),
+    ADD_STAT(overrideEndMismatch, statistics::units::Count::get(),"Number of overrides due to end address mismatches"),
+    ADD_STAT(overrideHistInfoMismatch, statistics::units::Count::get(),
+    "Number of overrides due to history info mismatches"),
     ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
     "the number of preds of each stage that account for a committed stream"),
     ADD_STAT(fsqEntryDist, statistics::units::Count::get(), "the distribution of number of entries in fsq"),
@@ -631,16 +639,38 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
         finalPred = *chosen;
         // calculate bubbles
         unsigned first_hit_stage = 0;
+        OverrideReason overrideReason = OverrideReason::no_override;
         while (first_hit_stage < numStages-1) {
-            if (predsOfEachStage[first_hit_stage].match(*chosen)) {
+            auto matchResult = predsOfEachStage[first_hit_stage].match(*chosen);
+            if (matchResult.first) {
                 break;
             }
             first_hit_stage++;
+            overrideReason = matchResult.second;
         }
         // generate bubbles
         numOverrideBubbles = first_hit_stage;
         if (numOverrideBubbles > 0){
             dbpBtbStats.overrideCount++;
+            switch (overrideReason) {
+                case OverrideReason::validity:
+                    dbpBtbStats.overrideValidityMismatch++;
+                    break;
+                case OverrideReason::controlAddr:
+                    dbpBtbStats.overrideControlAddrMismatch++;
+                    break;
+                case OverrideReason::target:
+                    dbpBtbStats.overrideTargetMismatch++;
+                    break;
+                case OverrideReason::end:
+                    dbpBtbStats.overrideEndMismatch++;
+                    break;
+                case OverrideReason::histInfo:
+                    dbpBtbStats.overrideHistInfoMismatch++;
+                    break;
+                default:
+                    break;
+            }
         }
         // assign pred source
         finalPred.predSource = first_hit_stage;

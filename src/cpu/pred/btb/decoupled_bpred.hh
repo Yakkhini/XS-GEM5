@@ -442,7 +442,14 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Vector predsOfEachStage;
         statistics::Scalar overrideBubbleNum;
         statistics::Scalar overrideCount;
+        // Track override reasons
+        statistics::Scalar overrideValidityMismatch;
+        statistics::Scalar overrideControlAddrMismatch;
+        statistics::Scalar overrideTargetMismatch;
+        statistics::Scalar overrideEndMismatch;
+        statistics::Scalar overrideHistInfoMismatch;
         statistics::Vector commitPredsFromEachStage;
+
         statistics::Distribution fsqEntryDist;
         statistics::Scalar fsqEntryEnqueued;
         statistics::Scalar fsqEntryCommitted;

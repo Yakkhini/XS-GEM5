@@ -504,22 +504,32 @@ typedef struct FullBTBPrediction
     //     return -1;
     // }
 
-    bool match(FullBTBPrediction &other)
+    std::pair<bool, OverrideReason> match(FullBTBPrediction &other)
     {
         auto this_taken_entry = this->getTakenEntry();
         auto other_taken_entry = other.getTakenEntry();
         if (this_taken_entry.valid != other_taken_entry.valid) {
-            return false;
+            return std::make_pair(false, OverrideReason::validity);
         } else {
             // all taken or all not taken, check target and end
             if (this_taken_entry.valid && other_taken_entry.valid) {
-                return this->controlAddr() == other.controlAddr() &&
-                       this->getTarget() == other.getTarget() &&
-                    //    this->getEnd() == other.getEnd();
-                       this->getEnd() == other.getEnd() &&
-                       this->getHistInfo() == other.getHistInfo();
+                if (this->controlAddr() != other.controlAddr()) {
+                    return std::make_pair(false, OverrideReason::controlAddr);
+                }
+                else if (this->getTarget() != other.getTarget()) {
+                    return std::make_pair(false, OverrideReason::target);
+                }
+                else if (this->getEnd() != other.getEnd()) {
+                    return std::make_pair(false, OverrideReason::end);
+                }
+                else if (this->getHistInfo() != other.getHistInfo()) {
+                    return std::make_pair(false, OverrideReason::histInfo);
+                }
+                else {
+                    return std::make_pair(true, btb_pred::OverrideReason::no_override);
+                }
             } else {
-                return true;
+                return std::make_pair(true, btb_pred::OverrideReason::no_override);
             }
         }
     }

@@ -10,6 +10,16 @@ namespace branch_prediction {
 
 namespace btb_pred {
 
+enum class OverrideReason
+{
+    no_override,
+    validity,
+    controlAddr,
+    target,
+    end,
+    histInfo
+};
+
 extern unsigned streamChunkSize;
 
 extern unsigned fetchTargetSize;
