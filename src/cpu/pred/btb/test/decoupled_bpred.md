@@ -173,19 +173,75 @@ Main prediction cycle function that:
 
 ### Prediction Pipeline
 
-The prediction process follows this sequence:
-1. Each component makes a prediction via `putPCHistory()`
-2. Final prediction is generated using `generateFinalPredAndCreateBubbles()`
-3. Fetch stream is enqueued via `tryEnqFetchStream()`
-4. Fetch target is enqueued via `tryEnqFetchTarget()`
+The prediction process is pipelined, with multiple predictions in flight simultaneously at different stages:
 
-### Recovery Mechanism
+```
+clock   gen Pred N    enq FSQ    enq FTQ and use
+------  ---------   ---------   --------- 
+0       gen Pred 0   -           -        
+1       gen Pred 1   FSQ0        -        
+2       gen Pred 2   FSQ1        FTQ0     
+3       gen Pred 3   FSQ2        FTQ1     
+4       gen Pred 4   FSQ3        FTQ2     
+```
 
-When a misprediction occurs:
-1. The corresponding stream is identified
-2. History is recovered to the point of prediction
-3. All components recover their internal state
-4. New predictions start from the corrected path
+important variables:
+- `sentPCHist`: Indicates that PC and history have been sent to predictors, get prediction from BP, waiting for final prediction
+- `receivedPred`: Indicates that final prediction has been generated, waiting to be enqueued
+- `squashing`: Prevents new final predictions enqueued to FSQ/FTQ when a branch prediction error occurs
+- `numOverrideBubbles`: Controls the delay bubbles when higher-stage predictors cover lower-stage predictions
+
+
+In each clock cycle:
+1. `tick()`: Process all pipeline stages
+   - If `sentPCHist==true`, call `generateFinalPredAndCreateBubbles()`
+   - If `!squashing`, try enqueue FSQ and FTQ
+   - If new prediction is needed, call `putPCHistory()` of each component and set `sentPCHist=true`
+
+
+### Detailed pipeline operations
+
+1. **Generate prediction stage** (`putPCHistory`)
+   - Each predictor component generates predictions based on current PC and history
+   - Results are stored in the `predsOfEachStage` array
+
+2. **Final prediction formation stage** (`generateFinalPredAndCreateBubbles`)
+   - Selects the most accurate prediction from each stage
+   - Calculates the number of needed coverage bubbles
+   - Stores results in `finalPred`
+   - Sets `receivedPred = true`
+
+3. **FSQ enqueue stage** (`tryEnqFetchStream`)
+   - Creates new `FetchStream` entries
+   - Adds entries to `fetchStreamQueue`, assigns `fsqId`
+   - Updates global history based on predictions
+   - Resets `receivedPred = false`
+   - Increments `fsqId` for the next stream
+
+4. **FTQ enqueue stage** (`tryEnqFetchTarget`)
+   - Converts FSQ entries to FTQ entries
+   - Adds entries to `fetchTargetQueue` for the fetch unit
+
+### Typical Timing State Transitions
+
+Assuming normal prediction pipeline operation, the main operations and states for each clock cycle are as follows:
+
+| Clk | Gen Pred  |  FSQ Queue | FTQ Queue | sentPCHist | receivedPred |
+|-----|-----------|------------|-----------|------------|--------------|
+| 0   | Gen Pred0 |  -         | -         | true       | false        |
+| 1   | Gen Pred1 |  FSQ0      | -         | true       | true         |
+| 2   | Gen Pred2 |  FSQ1      | FTQ0      | true       | true         |
+| 3   | Gen Pred3 |  FSQ2      | FTQ1      | true       | true         |
+
+This pipelined processing allows the predictor to generate a new prediction each cycle while handling subsequent stages of previous predictions, increasing throughput.
+
+### Recovery Process
+
+When a misprediction is detected:
+1. `squashing` is set to true, which prevents new predictions
+2. Branch history is restored to the point of the misprediction
+3. All downstream fetch streams and targets are flushed
+4. State flags are reset and prediction resumes from the correct path
 
 ### BTB Configuration
 

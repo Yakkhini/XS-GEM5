@@ -14,6 +14,7 @@
 #include "cpu/pred/btb/loop_predictor.hh"
 #include "cpu/pred/btb/stream_struct.hh"
 #include "cpu/pred/btb/test/btb_tage.hh"
+#include "cpu/pred/btb/test/mock_PCState.hh"
 #include "cpu/pred/btb/test/mockbtb.hh"
 #include "cpu/pred/btb/test/test_dprintf.hh"
 #include "cpu/pred/btb/test/timed_base_pred.hh"
@@ -54,7 +55,7 @@ class DecoupledBPUWithBTB
     bool enableLoopPredictor{false};
 
     JumpAheadPredictor jap;
-    bool enableJumpAheadPredictor{true};
+    bool enableJumpAheadPredictor{false};
 
 // for testing
   public:

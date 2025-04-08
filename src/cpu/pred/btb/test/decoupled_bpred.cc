@@ -301,22 +301,22 @@ DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
         }
     }
 
-    if (taken) {
-        auto &rtarget = target->as<GenericISA::PCStateWithNext>();
-        rtarget.pc(target_to_fetch.target);
-        // TODO: how about compressed?
-        rtarget.npc(target_to_fetch.target + 4);
-        rtarget.uReset();
-        DPRINTF(DecoupleBP,
-                "Predicted pc: %#lx, upc: %u, npc(meaningless): %#lx, instSeqNum: %lu\n",
-                target->instAddr(), rtarget.upc(), rtarget.npc(), seqNum);
-        set(pc, *target);
-    } else {
-        inst->advancePC(*target);
-        if (target->instAddr() >= end) {
-            run_out_of_this_entry = true;
-        }
-    }
+    // if (taken) {
+    //     auto &rtarget = target->as<GenericISA::PCStateWithNext>();
+    //     rtarget.pc(target_to_fetch.target);
+    //     // TODO: how about compressed?
+    //     rtarget.npc(target_to_fetch.target + 4);
+    //     rtarget.uReset();
+    //     DPRINTF(DecoupleBP,
+    //             "Predicted pc: %#lx, upc: %u, npc(meaningless): %#lx, instSeqNum: %lu\n",
+    //             target->instAddr(), rtarget.upc(), rtarget.npc(), seqNum);
+    //     set(pc, *target);
+    // } else {
+    //     inst->advancePC(*target);
+    //     if (target->instAddr() >= end) {
+    //         run_out_of_this_entry = true;
+    //     }
+    // }
     DPRINTF(DecoupleBP, "Predict it %staken to %#lx\n", taken ? "" : "not ",
             target->instAddr());
 
@@ -386,7 +386,7 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     s0PC = real_target;
 
     // Create branch info for squash
-    auto squashBranchInfo = BranchInfo(control_pc.instAddr(), real_target, static_inst, control_inst_size);
+    auto squashBranchInfo = BranchInfo(control_pc.instAddr(), real_target, false);
     if (stream.isExit) {
         dbpBtbStats.controlSquashOnLoopPredictorPredExit++;
     }
