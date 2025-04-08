@@ -179,7 +179,14 @@ DefaultBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr star
                                return e.pc < startAddr;
                            });
     processed_entries.erase(it, processed_entries.end());
-    
+
+    // remove entries after the range of mBTB
+    Addr mbtb_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+    it = std::remove_if(processed_entries.begin(), processed_entries.end(),
+                        [mbtb_end](const BTBEntry &e) {
+                            return e.pc >= mbtb_end;
+                        });
+    processed_entries.erase(it, processed_entries.end());
     return processed_entries;
 }
 
