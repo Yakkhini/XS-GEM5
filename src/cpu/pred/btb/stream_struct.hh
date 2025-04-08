@@ -192,8 +192,8 @@ typedef struct LoopRedirectInfo {
 
 typedef struct JAEntry {
     // jump target: indexPC + jumpAheadBlockNum * blockSize
-    int jumpAheadBlockNum;
-    int conf;
+    int jumpAheadBlockNum; // number of non-predicted blocks ahead
+    int conf; // confidence
     JAEntry() : jumpAheadBlockNum(0), conf(0) {}
     Addr getJumpTarget(Addr indexPC, int blockSize) {
         return indexPC + jumpAheadBlockNum * blockSize;
