@@ -259,8 +259,8 @@ class DecoupledBPUWithBTB : public BPredUnit
             e.valid, e.pc, e.tag, e.size, e.target, e.isCond, e.isIndirect, e.isCall, e.isReturn, e.alwaysTaken);
     }
 
-    void printFullBTBPrediction(const int stage, const FullBTBPrediction &pred) {
-        DPRINTF(DecoupleBP, "dumping FullBTBPrediction stage %d\n", stage);
+    void printFullBTBPrediction(const FullBTBPrediction &pred) {
+        DPRINTF(DecoupleBP, "dumping FullBTBPrediction\n");
         DPRINTF(DecoupleBP, "bbStart: %#lx, btbEntry:\n", pred.bbStart);
         for (auto &e: pred.btbEntries) {
             printBTBEntry(e);
@@ -490,6 +490,9 @@ class DecoupledBPUWithBTB : public BPredUnit
     }
 
     bool lookup(ThreadID tid, Addr instPC, void *&bp_history) override { return false; }
+    // end Dummy overriding
+
+    void OverrideStats(OverrideReason overrideReason);
 
     void checkHistory(const boost::dynamic_bitset<> &history);
 

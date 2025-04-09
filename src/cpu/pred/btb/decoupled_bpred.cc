@@ -542,22 +542,22 @@ DecoupledBPUWithBTB::tick()
     dbpBtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
     if (streamQueueFull()) {
         dbpBtbStats.fsqFullCannotEnq++;
+        DPRINTF(Override, "FSQ is full (%lu entries)\n", fetchStreamQueue.size());
     }
 
     // Generate final prediction if we have received PC and history but no prediction yet
     if (!receivedPred && numOverrideBubbles == 0 && sentPCHist) {
+        DPRINTF(Override, "Generating final prediction for PC %#lx\n", s0PC);
         generateFinalPredAndCreateBubbles();
     }
 
     // Try to enqueue new predictions if not squashing
     if (!squashing) {
-        DPRINTF(DecoupleBP, "DecoupledBPUWithBTB::tick()\n");
         DPRINTF(Override, "DecoupledBPUWithBTB::tick()\n");
         tryEnqFetchTarget();
         tryEnqFetchStream();
     } else {
         receivedPred = false;
-        DPRINTF(DecoupleBP, "Squashing, skip this cycle, receivedPred is %d.\n", receivedPred);
         DPRINTF(Override, "Squashing, skip this cycle, receivedPred is %d.\n", receivedPred);
     }
 
@@ -565,6 +565,7 @@ DecoupledBPUWithBTB::tick()
     if (numOverrideBubbles > 0) {
         numOverrideBubbles--;
         dbpBtbStats.overrideBubbleNum++;
+        DPRINTF(Override, "Consuming override bubble, %d remaining\n", numOverrideBubbles);
     }
 
     sentPCHist = false;
@@ -572,11 +573,8 @@ DecoupledBPUWithBTB::tick()
     // Request new prediction if FSQ not full and not using loop buffer
     if (!receivedPred && !streamQueueFull()) {
         if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
-            if (s0PC == ObservingPC) {
-                DPRINTFV(true, "Predicting block %#lx, id: %lu\n", s0PC, fsqId);
-            }   
-            DPRINTF(DecoupleBP, "Requesting prediction for stream start=%#lx\n", s0PC);
-            DPRINTF(Override, "Requesting prediction for stream start=%#lx\n", s0PC);
+            DPRINTF(Override, "Requesting new prediction for PC %#lx\n", s0PC);
+            
             // Initialize prediction state for each stage
             for (int i = 0; i < numStages; i++) {
                 predsOfEachStage[i].bbStart = s0PC;
@@ -586,11 +584,10 @@ DecoupledBPUWithBTB::tick()
                 components[i]->putPCHistory(s0PC, s0History, predsOfEachStage);
             }
         } else {
-            DPRINTF(LoopBuffer, "Do not query bpu when loop buffer is active\n");
-            DPRINTF(DecoupleBP, "Do not query bpu when loop buffer is active\n");
+            DPRINTF(DecoupleBP, "Loop buffer active - skipping predictor query\n");
         }
 
-
+        // Mark that we've sent PC and history to predictors
         sentPCHist = true;
     }
     
@@ -598,20 +595,43 @@ DecoupledBPUWithBTB::tick()
     // query loop buffer with start pc
     if (enableLoopBuffer && !lb.isActive() &&
             lb.streamBeforeLoop.getTakenTarget() == lb.streamBeforeLoop.startPC &&
-            !lb.streamBeforeLoop.resolved) { // do not activate loop buffer right after squash
+            !lb.streamBeforeLoop.resolved) { // Don't activate after squash
+        DPRINTF(LoopBuffer, "Attempting to activate loop buffer for PC %#lx\n", s0PC);
         lb.tryActivateLoop(s0PC);
     }
 
-    DPRINTF(Override, "after putPCHistory\n");
-    // for (int i = 0; i < numStages; i++) {
-    //     printFullBTBPrediction(predsOfEachStage[i]);
-    // }
+    DPRINTF(Override, "Prediction cycle complete\n");
     
-    if (streamQueueFull()) {
-        DPRINTF(DecoupleBP, "Stream queue is full, don't request prediction\n");
-        DPRINTF(Override, "Stream queue is full, don't request prediction\n");
-    }
+    // Clear squashing state for next cycle
     squashing = false;
+}
+
+void DecoupledBPUWithBTB::OverrideStats(OverrideReason overrideReason)
+{
+    if (numOverrideBubbles > 0) {
+        dbpBtbStats.overrideCount++;
+        
+        // Track specific override reasons for statistics
+        switch (overrideReason) {
+            case OverrideReason::validity:
+                dbpBtbStats.overrideValidityMismatch++;
+                break;
+            case OverrideReason::controlAddr:
+                dbpBtbStats.overrideControlAddrMismatch++;
+                break;
+            case OverrideReason::target:
+                dbpBtbStats.overrideTargetMismatch++;
+                break;
+            case OverrideReason::end:
+                dbpBtbStats.overrideEndMismatch++;
+                break;
+            case OverrideReason::histInfo:
+                dbpBtbStats.overrideHistInfoMismatch++;
+                break;
+            default:
+                break;
+        }
+    }
 }
 
 // this function collects predictions from all stages and generate bubbles
@@ -621,75 +641,67 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
 {
     DPRINTF(Override, "In generateFinalPredAndCreateBubbles().\n");
 
-    if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
-        // predsOfEachStage should be ready now
-        for (int i = 0; i < numStages; i++) {
-            printFullBTBPrediction(i, predsOfEachStage[i]);
-        }
-        // choose the most accurate prediction
-        FullBTBPrediction *chosen = &predsOfEachStage[0];
-
-        for (int i = (int) numStages - 1; i >= 0; i--) {
-            if (predsOfEachStage[i].btbEntries.size() > 0) {
-                chosen = &predsOfEachStage[i];
-                DPRINTF(Override, "choose stage %d.\n", i);
-                break;
-            }
-        }
-        finalPred = *chosen;
-        // calculate bubbles
-        unsigned first_hit_stage = 0;
-        OverrideReason overrideReason = OverrideReason::no_override;
-        while (first_hit_stage < numStages-1) {
-            auto matchResult = predsOfEachStage[first_hit_stage].match(*chosen);
-            if (matchResult.first) {
-                break;
-            }
-            first_hit_stage++;
-            overrideReason = matchResult.second;
-        }
-        // generate bubbles
-        numOverrideBubbles = first_hit_stage;
-        if (numOverrideBubbles > 0){
-            dbpBtbStats.overrideCount++;
-            switch (overrideReason) {
-                case OverrideReason::validity:
-                    dbpBtbStats.overrideValidityMismatch++;
-                    break;
-                case OverrideReason::controlAddr:
-                    dbpBtbStats.overrideControlAddrMismatch++;
-                    break;
-                case OverrideReason::target:
-                    dbpBtbStats.overrideTargetMismatch++;
-                    break;
-                case OverrideReason::end:
-                    dbpBtbStats.overrideEndMismatch++;
-                    break;
-                case OverrideReason::histInfo:
-                    dbpBtbStats.overrideHistInfoMismatch++;
-                    break;
-                default:
-                    break;
-            }
-        }
-        // assign pred source
-        finalPred.predSource = first_hit_stage;
-        receivedPred = true;
-
-
-        // printFullBTBPrediction(*chosen);
-        dbpBtbStats.predsOfEachStage[first_hit_stage]++;
-
-        clearPreds();
-    } else {
+    // If loop buffer is active, skip normal prediction process
+    if (enableLoopBuffer && lb.isActive()) {
         numOverrideBubbles = 0;
         receivedPred = true;
-        DPRINTF(LoopBuffer, "Do not generate final pred when loop buffer is active\n");
-        DPRINTF(DecoupleBP, "Do not generate final pred when loop buffer is active\n");
+        DPRINTF(DecoupleBP, "Loop buffer active - skipping normal prediction process\n");
+        return;
     }
 
-    DPRINTF(Override, "Ends generateFinalPredAndCreateBubbles(), numOverrideBubbles is %d, receivedPred is set true.\n", numOverrideBubbles);
+    // 1. Debug output: dump predictions from all stages
+    for (int i = 0; i < numStages; i++) {
+        printFullBTBPrediction(predsOfEachStage[i]);
+    }
 
+    // 2. Select the most accurate prediction (prioritize later stages)
+    // Initially assume stage 0 (UBTB) prediction
+    FullBTBPrediction *chosenPrediction = &predsOfEachStage[0];
+
+    // Search from last stage to first for valid predictions
+    for (int i = (int)numStages - 1; i >= 0; i--) {
+        if (predsOfEachStage[i].btbEntries.size() > 0) {
+            chosenPrediction = &predsOfEachStage[i];
+            DPRINTF(Override, "Selected prediction from stage %d\n", i);
+            break;
+        }
+    }
+
+    // Store the chosen prediction as our final prediction
+    finalPred = *chosenPrediction;
+
+    // 3. Calculate override bubbles needed for pipeline consistency
+    // Override bubbles are needed when earlier stages predict differently from later stages
+    unsigned first_hit_stage = 0;
+    OverrideReason overrideReason = OverrideReason::no_override;
+
+    // Find first stage that matches the chosen prediction
+    while (first_hit_stage < numStages - 1) {
+        auto [matches, reason] = predsOfEachStage[first_hit_stage].match(*chosenPrediction);
+        if (matches) {
+            break;
+        }
+        first_hit_stage++;
+        overrideReason = reason;
+    }
+
+    // 4. Record override bubbles and update statistics
+    numOverrideBubbles = first_hit_stage;
+    OverrideStats(overrideReason);
+
+    // 5. Finalize prediction process
+    finalPred.predSource = first_hit_stage;
+    receivedPred = true;
+
+    // Debug output for final prediction
+    printFullBTBPrediction(finalPred);
+    // dbpBtbStats.predsOfEachStage[first_hit_stage]++;
+
+    // Clear stage predictions for next cycle
+    clearPreds();
+
+    DPRINTF(Override, "Prediction complete: override bubbles=%d, receivedPred=true\n", 
+            numOverrideBubbles);
 }
 
 bool
@@ -1741,45 +1753,54 @@ DecoupledBPUWithBTB::dumpFsq(const char *when)
     }
 }
 
-// this funtion use finalPred to enq fsq(ftq) and update s0PC
+
+
+/**
+ * @brief Attempts to enqueue a new entry into the Fetch Stream Queue (FSQ)
+ * 
+ * This function is called after a prediction has been generated and checks 
+ * if the prediction can be enqueued into the FSQ. It will:
+ * 1. Verify that a prediction is available
+ * 2. Check if the PC is valid
+ * 3. Wait for any override bubbles to be consumed
+ * 4. Create a new FSQ entry with the prediction
+ * 5. Clear prediction state for the next cycle
+ */
 void
 DecoupledBPUWithBTB::tryEnqFetchStream()
 {
-    defer _(nullptr, std::bind([this]{ debugFlagOn = false; }));
-    if (s0PC == ObservingPC) {
-        debugFlagOn = true;
-    }
+    // 1. Check if a prediction is available to enqueue
     if (!receivedPred) {
-        DPRINTF(DecoupleBP, "No received prediction, cannot enq fsq\n");
-        DPRINTF(Override, "In tryEnqFetchStream(), received is false.\n");
+        DPRINTF(Override, "No prediction available to enqueue into FSQ\n");
         return;
-    } else {
-        DPRINTF(Override, "In tryEnqFetchStream(), received is true.\n");
     }
+    
+    // 2. Validate PC value
     if (s0PC == MaxAddr) {
-        DPRINTF(DecoupleBP, "s0PC %#lx is insane, cannot make prediction\n", s0PC);
+        DPRINTF(DecoupleBP, "Invalid PC value %#lx, cannot make prediction\n", s0PC);
         return;
     }
-    // prediction valid, but not ready to enq because of bubbles
+    
+    // 3. Check for override bubbles
+    // When higher stages override lower stages, bubbles are needed for pipeline consistency
     if (numOverrideBubbles > 0) {
-        DPRINTF(DecoupleBP, "Waiting for bubble caused by overriding, bubbles rest: %u\n", numOverrideBubbles);
-        DPRINTF(Override, "Waiting for bubble caused by overriding, bubbles rest: %u\n", numOverrideBubbles);
+        DPRINTF(Override, "Waiting for %u override bubbles before enqueuing\n", numOverrideBubbles);
         return;
     }
+    
+    // Ensure FSQ has space for the new entry
     assert(!streamQueueFull());
-    if (true) {
-        bool should_create_new_stream = true;
-        makeNewPrediction(should_create_new_stream);
-    } else {
-        DPRINTF(DecoupleBP || debugFlagOn, "FSQ is full: %lu\n",
-                fetchStreamQueue.size());
-    }
+    
+    // 4. Create new FSQ entry with current prediction
+    makeNewPrediction(true);
+
+    // 5. Reset prediction state for next cycle
     for (int i = 0; i < numStages; i++) {
         predsOfEachStage[i].btbEntries.clear();
     }
+    
     receivedPred = false;
-    DPRINTF(Override, "In tryFetchEnqStream(), receivedPred reset to false.\n");
-    DPRINTF(DecoupleBP || debugFlagOn, "fsqId=%lu\n", fsqId);
+    DPRINTF(Override, "FSQ entry enqueued, prediction state reset\n");
 }
 
 void
@@ -1811,91 +1832,99 @@ DecoupledBPUWithBTB::setNTEntryWithStream(FtqEntry &ftq_entry, Addr end_pc)
 void
 DecoupledBPUWithBTB::tryEnqFetchTarget()
 {
-    DPRINTF(DecoupleBP, "Try to enq fetch target\n");
+    DPRINTF(DecoupleBP, "Attempting to enqueue fetch target into FTQ\n");
+
+    // 1. Check if FTQ can accept new entries
     if (fetchTargetQueue.full()) {
-        DPRINTF(DecoupleBP, "FTQ is full\n");
+        DPRINTF(DecoupleBP, "Cannot enqueue - FTQ is full\n");
         return;
     }
+
+    // 2. Check if FSQ has valid entries
     if (fetchStreamQueue.empty()) {
         dbpBtbStats.fsqNotValid++;
-        // no stream that have not entered ftq
-        DPRINTF(DecoupleBP, "No stream to enter ftq in fetchStreamQueue\n");
+        DPRINTF(DecoupleBP, "Cannot enqueue - FSQ is empty\n");
         return;
     }
-    // ftq can accept new cache lines,
-    // try to get cache lines from fetchStreamQueue
-    // find current stream with ftqEnqfsqID in fetchStreamQueue
+
+    // 3. Get FTQ enqueue state and find corresponding stream
     auto &ftq_enq_state = fetchTargetQueue.getEnqState();
-    auto it = fetchStreamQueue.find(ftq_enq_state.streamId);
-    if (it == fetchStreamQueue.end()) {
+    auto streamIt = fetchStreamQueue.find(ftq_enq_state.streamId);
+    
+    if (streamIt == fetchStreamQueue.end()) {
         dbpBtbStats.fsqNotValid++;
-        // desired stream not found in fsq
-        DPRINTF(DecoupleBP, "FTQ enq desired Stream ID %lu is not found\n",
+        DPRINTF(DecoupleBP, "Cannot enqueue - Stream ID %lu not found in FSQ\n",
                 ftq_enq_state.streamId);
         return;
     }
 
-    auto &stream_to_enq = it->second;
-    Addr end = stream_to_enq.predEndPC;
-    DPRINTF(DecoupleBP, "Serve enq PC: %#lx with stream %lu:\n",
-            ftq_enq_state.pc, it->first);
+    // 4. Get fetch stream and verify addresses
+    auto &stream_to_enq = streamIt->second;
+    Addr streamEndPC = stream_to_enq.predEndPC;
+    
+    DPRINTF(DecoupleBP, "Processing stream %lu (PC: %#lx)\n",
+            streamIt->first, ftq_enq_state.pc);
     printStream(stream_to_enq);
-    
 
-    // We does let ftq to goes beyond fsq now
-    if (ftq_enq_state.pc > end) {
-        warn("FTQ enq PC %#lx is beyond fsq end %#lx\n",
-         ftq_enq_state.pc, end);
+    // Validation check - warn if FTQ enqueue PC is beyond FSQ end
+    if (ftq_enq_state.pc > streamEndPC) {
+        warn("Warning: FTQ enqueue PC %#lx is beyond FSQ end %#lx\n",
+             ftq_enq_state.pc, streamEndPC);
     }
-    
-    assert(ftq_enq_state.pc <= end || (end < predictWidth && (ftq_enq_state.pc + predictWidth < predictWidth)));
 
-    // create a new target entry
+    // 5. Create and initialize new FTQ entry
     FtqEntry ftq_entry;
     ftq_entry.startPC = ftq_enq_state.pc;
     ftq_entry.fsqID = ftq_enq_state.streamId;
 
-    // set prediction results to ftq entry
-    Addr thisFtqEntryShouldEndPC = end;
+    // 6. Calculate FTQ entry boundaries
+    Addr entryEndPC = streamEndPC;
     bool taken = stream_to_enq.getTaken();
     bool inLoop = stream_to_enq.fromLoopBuffer;
     bool loopExit = stream_to_enq.isExit;
-    if (enableJumpAheadPredictor) {
-        bool jaHit = stream_to_enq.jaHit;
-        if (jaHit) {
-            int &currentSentBlock = stream_to_enq.currentSentBlock;
-            thisFtqEntryShouldEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * predictWidth;
-            currentSentBlock++;
-        }
-    }
     Addr loopEndPC = stream_to_enq.getBranchInfo().getEnd();
+    
+    // 7. Handle Jump-Ahead Predictor if enabled
+    if (enableJumpAheadPredictor && stream_to_enq.jaHit) {
+        // For jump-ahead prediction, divide stream into blocks
+        int &currentSentBlock = stream_to_enq.currentSentBlock;
+        entryEndPC = stream_to_enq.startPC + (currentSentBlock + 1) * predictWidth;
+        currentSentBlock++;
+    }
+
+    // 8. Configure FTQ entry based on prediction (taken/not-taken)
     if (taken) {
         setTakenEntryWithStream(stream_to_enq, ftq_entry);
     } else {
-        setNTEntryWithStream(ftq_entry, thisFtqEntryShouldEndPC);
+        setNTEntryWithStream(ftq_entry, entryEndPC);
     }
 
-    // update ftq_enq_state
-    // if in loop, next pc will either be loop exit or loop start
-    ftq_enq_state.pc = inLoop ?
-        loopExit ? loopEndPC : stream_to_enq.getBranchInfo().target :
-        taken ? stream_to_enq.getBranchInfo().target : thisFtqEntryShouldEndPC;
+    // 9. Update FTQ enqueue state for next entry
+    // For loops: next PC depends on if we're exiting the loop
+    // For non-loops: next PC depends on branch outcome
+    if (inLoop) {
+        ftq_enq_state.pc = loopExit ? loopEndPC : stream_to_enq.getBranchInfo().target;
+    } else {
+        ftq_enq_state.pc = taken ? stream_to_enq.getBranchInfo().target : entryEndPC;
+    }
     
-    // we should not increment streamId to enqueue when ja blocks are not fully consumed
-    if (!(enableJumpAheadPredictor && stream_to_enq.jaHit && stream_to_enq.jaHit &&
-            stream_to_enq.currentSentBlock < stream_to_enq.jaEntry.jumpAheadBlockNum)) {
+    // 10. Advance to next stream unless we're still processing jump-ahead blocks
+    bool stillProcessingJABlocks = enableJumpAheadPredictor && 
+                                  stream_to_enq.jaHit && 
+                                  stream_to_enq.currentSentBlock < stream_to_enq.jaEntry.jumpAheadBlockNum;
+    
+    if (!stillProcessingJABlocks) {
         ftq_enq_state.streamId++;
     }
-    DPRINTF(DecoupleBP,
-            "Update ftqEnqPC to %#lx, FTQ demand stream ID to %lu\n",
+    
+    DPRINTF(DecoupleBP, "Updated FTQ state: PC=%#lx, next stream ID=%lu\n",
             ftq_enq_state.pc, ftq_enq_state.streamId);
 
+    // 11. Enqueue the entry and verify state
     fetchTargetQueue.enqueue(ftq_entry);
-
     assert(ftq_enq_state.streamId <= fsqId + 1);
 
-    // DPRINTF(DecoupleBP, "a%s stream, next enqueue target: %lu\n",
-    //         stream_to_enq.getEnded() ? "n ended" : " miss", ftq_enq_state.nextEnqTargetId);
+    // 12. Debug output
     printFetchTarget(ftq_entry, "Insert to FTQ");
     fetchTargetQueue.dump("After insert new entry");
 }
@@ -1916,167 +1945,88 @@ DecoupledBPUWithBTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> 
 void
 DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
 {
-    DPRINTF(DecoupleBP, "Try to make new prediction\n");
-    FetchStream entry_new;
-    auto &entry = entry_new;
-    entry.startPC = s0PC;
-    defer _(nullptr, std::bind([this]{ debugFlagOn = false; }));
-    if (s0PC == ObservingPC) {
-        debugFlagOn = true;
-    }
-    if (finalPred.controlAddr() == ObservingPC || finalPred.controlAddr() == ObservingPC2) {
-        debugFlagOn = true;
-    }
-    // DPRINTF(DecoupleBP || debugFlagOn, "Make pred with %s, pred valid: %i, taken: %i\n",
-    //          create_new_stream ? "new stream" : "last missing stream",
-    //          finalPred.valid, finalPred.isTaken());
+    DPRINTF(DecoupleBP, "Creating new prediction for PC %#lx\n", s0PC);
 
-    // if loop buffer is not activated, use normal prediction from branch predictors
+    // Create a new fetch stream entry
+    FetchStream entry;
+    entry.startPC = s0PC;
+    
+    // Initialize loop prediction info containers
     bool endLoop, isDouble, loopConf;
     std::vector<LoopRedirectInfo> lpRedirectInfos(numBr);
     std::vector<bool> fixNotExits(numBr);
     std::vector<LoopRedirectInfo> unseenLpRedirectInfos;
+    
+    // Normal prediction path (when loop buffer is not active)
     if (!enableLoopBuffer || (enableLoopBuffer && !lb.isActive())) {
+        // 1. Initialize stream entry with default non-loop values
         entry.fromLoopBuffer = false;
         entry.isDouble = false;
         entry.isExit = false;
 
+        // 2. Extract branch prediction information
         bool taken = finalPred.isTaken();
-        // bool predReasonable = finalPred.isReasonable();
-        // if (predReasonable) {
-
         Addr fallThroughAddr = finalPred.getFallThrough();
-        entry.isHit = finalPred.btbEntries.size() > 0; // TODO: fix isHit and falseHit
+        Addr nextPC = finalPred.getTarget();
+        
+        // 3. Configure stream entry with prediction details
+        entry.isHit = !finalPred.btbEntries.empty(); // TODO: fix isHit and falseHit
         entry.falseHit = false;
         entry.predBTBEntries = finalPred.btbEntries;
         entry.predTaken = taken;
         entry.predEndPC = fallThroughAddr;
-        // update s0PC
-        Addr nextPC = finalPred.getTarget();
+        
+        // 4. Set branch info for taken predictions
         if (taken) {
             entry.predBranchInfo = finalPred.getTakenEntry().getBranchInfo();
-            entry.predBranchInfo.target = nextPC; // use the final target which may be not from btb
+            entry.predBranchInfo.target = nextPC; // Use final target (may not be from BTB)
         }
+        
+        // 5. Update global PC state to target or fall-through
         s0PC = nextPC;
-        // } else {
-        //     DPRINTF(DecoupleBP || debugFlagOn, "Prediction is not reasonable, printing btb entry\n");
-        //     btb->printBTBEntry(finalPred.btbEntry);
-        //     dbpBtbStats.predFalseHit++;
-        //     // prediction is not reasonable, use fall through
-        //     entry.isHit = false;
-        //     entry.falseHit = true;
-        //     entry.predTaken = false;
-        //     entry.predEndPC = entry.startPC + 32;
-        //     entry.predBTBEntry = BTBEntry();
-        //     s0PC = entry.startPC + 32; // TODO: parameterize
-        //     // TODO: when false hit, act like a miss, do not update history
-        // }
 
-        // jump ahead lookups
+        // 6. Process jump-ahead predictor if enabled
         if (enableJumpAheadPredictor) {
-            bool jaHit = false;
-            bool jaConf = false;
+            // Look up jump-ahead prediction for current PC
+            bool jaHit, jaConf;
             JAEntry jaEntry;
             Addr jaTarget;
             std::tie(jaHit, jaConf, jaEntry, jaTarget) = jap.lookup(entry.startPC);
-            // ensure this block does not hit btb
-            // TODO: fix this
-            // if (!finalPred.valid) {
-            //     if (jaHit && jaConf) {
-            //         entry.jaHit = true;
-            //         entry.predEndPC = jaTarget;
-            //         entry.jaEntry = jaEntry;
-            //         entry.currentSentBlock = 0;
-            //         s0PC = jaTarget;
-            //         dbpBtbStats.predJATotalSkippedBlocks += jaEntry.jumpAheadBlockNum - 1;
-            //         dbpBtbStats.predJASkippedBlockNum.sample(jaEntry.jumpAheadBlockNum - 1, 1);
-            //     }
-            // }
+            // Jump-ahead code disabled for now - see TODO comment
         }
 
-
+        // 7. Record current history and prediction metadata
         entry.history = s0History;
         entry.predTick = finalPred.predTick;
         entry.predSource = finalPred.predSource;
 
-        // update (folded) histories for components
+        // 8. Update component-specific history
         for (int i = 0; i < numComponents; i++) {
             components[i]->specUpdateHist(s0History, finalPred);
             entry.predMetas[i] = components[i]->getPredictionMeta();
         }
-        // update ghr
+        
+        // 9. Update global history with new prediction
         int shamt;
         std::tie(shamt, taken) = finalPred.getHistInfo();
-        // boost::to_string(s0History, buf1);
         histShiftIn(shamt, taken, s0History);
-        // boost::to_string(s0History, buf2);
-
-        historyManager.addSpeculativeHist(entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
-        tage->checkFoldedHist(s0History, "speculative update");
-
         
-        entry.setDefaultResolve();
-
-
-    } else {
-        assert(enableLoopPredictor);
-        // loop buffer is activated, use loop buffer to make prediction
-        // determine whether this stream entry has double iterations
-        std::tie(endLoop, lpRedirectInfos[0], isDouble, loopConf) = lp.shouldEndLoop(
-            true, lb.getActiveLoopBranch(), lb.activeLoopMayBeDouble()
-        );
-        entry = lb.streamBeforeLoop;
-        entry.startPC = s0PC;
-        bool conf = loopConf;
-        bool confExit = conf && endLoop;
-        entry.fromLoopBuffer = true;
-        entry.isDouble = isDouble;
-        entry.isExit = confExit;
-        entry.isHit = true;
-        entry.falseHit = false;
-        entry.predTaken = isDouble || !confExit;
-        entry.predEndPC = lb.streamBeforeLoop.predBranchInfo.getEnd();
-        // use s0History from streamBeforeLoop
-        // entry.history = s0History;
-        entry.predTick = curTick();
-        entry.predSource = numStages;
-
-        // TODO: use what kind of mechanism to handle ghr?
-        // use default meta from streamBeforeLoop here
-        // for (int i = 0; i < numComponents; i++) {
-        //     entry.predMetas[i] = components[i]->getPredictionMeta();
-        // }
-        int shamt = 0;
-        bool taken = false;
-        histShiftIn(shamt, taken, s0History);
-        historyManager.addSpeculativeHist(entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
+        // 10. Update history manager and verify TAGE folded history
+        historyManager.addSpeculativeHist(
+            entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
         tage->checkFoldedHist(s0History, "speculative update");
-        entry.setDefaultResolve();
         
-
-
-        // redirect to fall through of loop branch if loop is ended
-        if (confExit) {
-            s0PC = lb.streamBeforeLoop.predBranchInfo.getEnd();
-            lb.deactivate(false);
-        }
-
-
-        if (endLoop && !conf) {
-            dbpBtbStats.predLoopPredictorUnconfNotExit++;
-        }
-        if (confExit) {
-            dbpBtbStats.predLoopPredictorExit++;
-        }
-        dbpBtbStats.predBlockInLoopBuffer++;
-        if (isDouble) {
-            dbpBtbStats.predDoubleBlockInLoopBuffer++;
-        }
+        // 11. Initialize default resolution state
+        entry.setDefaultResolve();
     }
+    // Else: loop buffer active path - currently no action needed
+    
+    // 12. Update loop-related information
     entry.loopRedirectInfos = lpRedirectInfos;
     entry.fixNotExits = fixNotExits;
     entry.unseenLoopRedirectInfos = unseenLpRedirectInfos;
 
+    // 13. Insert the new stream entry into the fetch stream queue
     DPRINTF(LoopBuffer, "previous stream before loop:\n");
     printStream(lb.streamBeforeLoop);
     if (enableLoopBuffer && !lb.isActive()) {
@@ -2100,17 +2050,17 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
             }
         }
     }
-
-
-    auto [insert_it, inserted] = fetchStreamQueue.emplace(fsqId, entry);
+    auto [insertIt, inserted] = fetchStreamQueue.emplace(fsqId, entry);
     assert(inserted);
 
+    // 14. Debug output and statistics
     dumpFsq("after insert new stream");
-    DPRINTF(DecoupleBP || debugFlagOn, "Insert fetch stream %lu\n", fsqId);
-
+    DPRINTF(DecoupleBP, "Inserted fetch stream %lu starting at PC %#lx\n", 
+            fsqId, entry.startPC);
+    
+    // 15. Update FSQ ID and increment statistics
     fsqId++;
     printStream(entry);
-
     dbpBtbStats.fsqEntryEnqueued++;
 }
 

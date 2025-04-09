@@ -45,6 +45,7 @@ class TimedBaseBTBPredictor
     // virtual void commitBranch(const FetchStream &entry, const DynInstPtr &inst) {}
 
     int componentIdx = 0;
+    unsigned aheadPipelinedStages{0};
     int getComponentIdx() { return componentIdx; }
     void setComponentIdx(int idx) { componentIdx = idx; }
 
