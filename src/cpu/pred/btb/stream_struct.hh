@@ -362,14 +362,14 @@ typedef struct FetchStream
     }
     
     // should be called before components update
-    void setUpdateInstEndPC(unsigned blockSize)
+    void setUpdateInstEndPC(unsigned predictWidth)
     {
         if (squashType == SQUASH_NONE) {
             if (exeTaken) { // taken inst pc
                 updateEndInstPC = getControlPC();
             } else { // natural fall through, align to the next block
-                Addr alignBlockMask = ~((Addr)blockSize - 1);
-                updateEndInstPC = (startPC & alignBlockMask) + blockSize;
+                assert(halfAligned);
+                updateEndInstPC = (startPC + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
             }
         } else {
             updateEndInstPC = squashPC;
