@@ -175,6 +175,10 @@ class DecoupledBPUWithBTB : public BPredUnit
 
     void fillAheadPipeline(FetchStream &entry);
 
+    // Tick helper functions
+    void processEnqueueAndBubbles();
+    void requestNewPrediction();
+
     Addr computePathHash(Addr br, Addr target);
 
     // TODO: compare phr and ghr

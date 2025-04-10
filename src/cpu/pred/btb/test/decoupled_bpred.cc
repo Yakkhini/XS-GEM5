@@ -65,19 +65,39 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB()
 void
 DecoupledBPUWithBTB::tick()
 {
-    // Monitor FSQ size for statistics
+    // 1. Monitor FSQ size for statistics
     // dbpBtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
     if (streamQueueFull()) {
         dbpBtbStats.fsqFullCannotEnq++;
         DPRINTF(Override, "FSQ is full (%lu entries)\n", fetchStreamQueue.size());
     }
 
-    // Generate final prediction if we have received PC and history but no prediction yet
+    // 2. Handle pending prediction if available
     if (!receivedPred && numOverrideBubbles == 0 && sentPCHist) {
         DPRINTF(Override, "Generating final prediction for PC %#lx\n", s0PC);
         generateFinalPredAndCreateBubbles();
     }
 
+    // 3. Process enqueue operations and bubble counter
+    processEnqueueAndBubbles();
+
+    // 4. Request new prediction if needed
+    requestNewPrediction();
+
+    DPRINTF(Override, "Prediction cycle complete\n");
+
+    // 5. Clear squashing state for next cycle
+    squashing = false;
+}
+
+/**
+ * @brief Processes prediction enqueue operations and bubble counter
+ *
+ * Tries to enqueue new predictions if not squashing and decrements override bubbles
+ */
+void
+DecoupledBPUWithBTB::processEnqueueAndBubbles()
+{
     // Try to enqueue new predictions if not squashing
     if (!squashing) {
         DPRINTF(Override, "DecoupledBPUWithBTB::tick()\n");
@@ -96,7 +116,17 @@ DecoupledBPUWithBTB::tick()
     }
 
     sentPCHist = false;
+}
 
+/**
+ * @brief Requests new predictions from predictor components
+ *
+ * If no prediction is in progress and FSQ has space, requests new predictions
+ * from each predictor component by sending the current PC and history
+ */
+void
+DecoupledBPUWithBTB::requestNewPrediction()
+{
     // Request new prediction if FSQ not full and not using loop buffer
     if (!receivedPred && !streamQueueFull()) {
         DPRINTF(Override, "Requesting new prediction for PC %#lx\n", s0PC);
@@ -113,13 +143,7 @@ DecoupledBPUWithBTB::tick()
 
         // Mark that we've sent PC and history to predictors
         sentPCHist = true;
-
     }
-
-    DPRINTF(Override, "Prediction cycle complete\n");
-    
-    // Clear squashing state for next cycle
-    squashing = false;
 }
 
 void DecoupledBPUWithBTB::OverrideStats(OverrideReason overrideReason)
@@ -676,7 +700,6 @@ DecoupledBPUWithBTB::validateFSQEnqueue()
     return true;
 }
 
-
 /**
  * @brief Attempts to enqueue a new entry into the Fetch Stream Queue (FSQ)
  * 
@@ -722,9 +745,6 @@ DecoupledBPUWithBTB::setNTEntryWithStream(FtqEntry &ftq_entry, Addr end_pc)
     ftq_entry.target = 0;
     ftq_entry.endPC = end_pc;
 }
-
-
-
 
 /**
  * @brief Validate FTQ and FSQ state before enqueueing a fetch target
@@ -847,8 +867,6 @@ DecoupledBPUWithBTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> 
     history <<= shamt;
     history[0] = taken;
 }
-
-
 
 /**
  * @brief Creates a new FetchStream entry with prediction information
