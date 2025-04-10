@@ -1317,6 +1317,32 @@ DecoupledBPUWithBTB::dumpFsq(const char *when)
     }
 }
 
+bool
+DecoupledBPUWithBTB::validateFSQEnqueue()
+{
+    // 1. Check if a prediction is available to enqueue
+    if (!receivedPred) {
+        DPRINTF(Override, "No prediction available to enqueue into FSQ\n");
+        return false;
+    }
+
+    // 2. Validate PC value
+    if (s0PC == MaxAddr) {
+        DPRINTF(DecoupleBP, "Invalid PC value %#lx, cannot make prediction\n", s0PC);
+        return false;
+    }
+
+    // 3. Check for override bubbles
+    // When higher stages override lower stages, bubbles are needed for pipeline consistency
+    if (numOverrideBubbles > 0) {
+        DPRINTF(Override, "Waiting for %u override bubbles before enqueuing\n", numOverrideBubbles);
+        return false;
+    }
+
+    // Ensure FSQ has space for the new entry
+    assert(!streamQueueFull());
+    return true;
+}
 
 
 /**
@@ -1324,41 +1350,21 @@ DecoupledBPUWithBTB::dumpFsq(const char *when)
  * 
  * This function is called after a prediction has been generated and checks 
  * if the prediction can be enqueued into the FSQ. It will:
- * 1. Verify that a prediction is available
- * 2. Check if the PC is valid
- * 3. Wait for any override bubbles to be consumed
- * 4. Create a new FSQ entry with the prediction
- * 5. Clear prediction state for the next cycle
+ * 1. Verify that FTQ has space for new entries
+ * 2. Create a new FSQ entry with the prediction
+ * 3. Clear prediction state for the next cycle
  */
 void
 DecoupledBPUWithBTB::tryEnqFetchStream()
 {
-    // 1. Check if a prediction is available to enqueue
-    if (!receivedPred) {
-        DPRINTF(Override, "No prediction available to enqueue into FSQ\n");
+    if (!validateFSQEnqueue()) {
         return;
     }
-    
-    // 2. Validate PC value
-    if (s0PC == MaxAddr) {
-        DPRINTF(DecoupleBP, "Invalid PC value %#lx, cannot make prediction\n", s0PC);
-        return;
-    }
-    
-    // 3. Check for override bubbles
-    // When higher stages override lower stages, bubbles are needed for pipeline consistency
-    if (numOverrideBubbles > 0) {
-        DPRINTF(Override, "Waiting for %u override bubbles before enqueuing\n", numOverrideBubbles);
-        return;
-    }
-    
-    // Ensure FSQ has space for the new entry
-    assert(!streamQueueFull());
-    
-    // 4. Create new FSQ entry with current prediction
+
+    // Create new FSQ entry with current prediction
     makeNewPrediction(true);
 
-    // 5. Reset prediction state for next cycle
+    // Reset prediction state for next cycle
     for (int i = 0; i < numStages; i++) {
         predsOfEachStage[i].btbEntries.clear();
     }
@@ -1368,12 +1374,12 @@ DecoupledBPUWithBTB::tryEnqFetchStream()
 }
 
 void
-DecoupledBPUWithBTB::setTakenEntryWithStream(const FetchStream &stream_entry, FtqEntry &ftq_entry)
+DecoupledBPUWithBTB::setTakenEntryWithStream(FtqEntry &ftq_entry, const FetchStream &stream_entry)
 {
     ftq_entry.taken = true;
     ftq_entry.takenPC = stream_entry.getControlPC();
-    ftq_entry.endPC = stream_entry.predEndPC;
     ftq_entry.target = stream_entry.getTakenTarget();
+    ftq_entry.endPC = stream_entry.predEndPC;
 }
 
 void
@@ -1385,22 +1391,33 @@ DecoupledBPUWithBTB::setNTEntryWithStream(FtqEntry &ftq_entry, Addr end_pc)
     ftq_entry.endPC = end_pc;
 }
 
-void
-DecoupledBPUWithBTB::tryEnqFetchTarget()
-{
-    DPRINTF(DecoupleBP, "Attempting to enqueue fetch target into FTQ\n");
 
+
+
+/**
+ * @brief Validate FTQ and FSQ state before enqueueing a fetch target
+ *
+ * This function checks:
+ * 1. If FTQ has space for new entries
+ * 2. If FSQ has valid entries
+ * 3. If the requested stream exists in the FSQ
+ *
+ * @return true if validation passes, false otherwise
+ */
+bool
+DecoupledBPUWithBTB::validateFTQEnqueue()
+{
     // 1. Check if FTQ can accept new entries
     if (fetchTargetQueue.full()) {
         DPRINTF(DecoupleBP, "Cannot enqueue - FTQ is full\n");
-        return;
+        return false;
     }
 
     // 2. Check if FSQ has valid entries
     if (fetchStreamQueue.empty()) {
         dbpBtbStats.fsqNotValid++;
         DPRINTF(DecoupleBP, "Cannot enqueue - FSQ is empty\n");
-        return;
+        return false;
     }
 
     // 3. Get FTQ enqueue state and find corresponding stream
@@ -1411,52 +1428,80 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
         dbpBtbStats.fsqNotValid++;
         DPRINTF(DecoupleBP, "Cannot enqueue - Stream ID %lu not found in FSQ\n",
                 ftq_enq_state.streamId);
-        return;
+        return false;
     }
-
-    // 4. Get fetch stream and verify addresses
-    auto &stream_to_enq = streamIt->second;
-    Addr streamEndPC = stream_to_enq.predEndPC;
-    
-    DPRINTF(DecoupleBP, "Processing stream %lu (PC: %#lx)\n",
-            streamIt->first, ftq_enq_state.pc);
-    printStream(stream_to_enq);
 
     // Validation check - warn if FTQ enqueue PC is beyond FSQ end
-    if (ftq_enq_state.pc > streamEndPC) {
+    if (ftq_enq_state.pc > streamIt->second.predEndPC) {
         warn("Warning: FTQ enqueue PC %#lx is beyond FSQ end %#lx\n",
-             ftq_enq_state.pc, streamEndPC);
+             ftq_enq_state.pc, streamIt->second.predEndPC);
     }
 
-    // 5. Create and initialize new FTQ entry
+    return true;
+}
+
+/**
+ * @brief Creates a FTQ entry from a stream entry at specific PC
+ *
+ * @param stream The fetch stream to use as source
+ * @param ftq_enq_state The fetch target enqueue state to use
+ * @return FtqEntry The created fetch target queue entry
+ */
+FtqEntry
+DecoupledBPUWithBTB::createFtqEntryFromStream(
+    const FetchStream &stream, const FetchTargetEnqState &ftq_enq_state)
+{
     FtqEntry ftq_entry;
     ftq_entry.startPC = ftq_enq_state.pc;
     ftq_entry.fsqID = ftq_enq_state.streamId;
 
-    // 6. Calculate FTQ entry boundaries
-    Addr entryEndPC = streamEndPC;
-    bool taken = stream_to_enq.getTaken();
-
-    // 8. Configure FTQ entry based on prediction (taken/not-taken)
-    if (taken) {
-        setTakenEntryWithStream(stream_to_enq, ftq_entry);
+    // Configure based on taken/not-taken
+    if (stream.getTaken()) {
+        setTakenEntryWithStream(ftq_entry, stream);
     } else {
-        setNTEntryWithStream(ftq_entry, entryEndPC);
+        setNTEntryWithStream(ftq_entry, stream.predEndPC);
     }
 
-    // 9. Update FTQ enqueue state for next entry
-    // For non-loops: next PC depends on branch outcome
-    ftq_enq_state.pc = taken ? stream_to_enq.getBranchInfo().target : entryEndPC;
+    return ftq_entry;
+}
+
+void
+DecoupledBPUWithBTB::tryEnqFetchTarget()
+{
+    DPRINTF(DecoupleBP, "Attempting to enqueue fetch target into FTQ\n");
+
+    // 1. Validate FTQ and FSQ state before proceeding
+    if (!validateFTQEnqueue()) {
+        return; // Validation failed, cannot proceed
+    }
+
+    // 2. Get FTQ enqueue state and find corresponding stream
+    auto &ftq_enq_state = fetchTargetQueue.getEnqState();
+    auto streamIt = fetchStreamQueue.find(ftq_enq_state.streamId);
+    assert(streamIt != fetchStreamQueue.end()); // This should never fail since we validated
+
+    // 3. Get fetch stream and process it
+    auto &stream_to_enq = streamIt->second;
+
+    DPRINTF(DecoupleBP, "Processing stream %lu (PC: %#lx)\n",
+            streamIt->first, ftq_enq_state.pc);
+    printStream(stream_to_enq);
+
+    // 4. Create FTQ entry from stream
+    FtqEntry ftq_entry = createFtqEntryFromStream(stream_to_enq, ftq_enq_state);
+
+    // 5. Update FTQ enqueue state for next entry
+    ftq_enq_state.pc = ftq_entry.taken ? stream_to_enq.getBranchInfo().target : ftq_entry.endPC;
     ftq_enq_state.streamId++;
 
     DPRINTF(DecoupleBP, "Updated FTQ state: PC=%#lx, next stream ID=%lu\n",
             ftq_enq_state.pc, ftq_enq_state.streamId);
 
-    // 11. Enqueue the entry and verify state
+    // 6. Enqueue the entry and verify state
     fetchTargetQueue.enqueue(ftq_entry);
     assert(ftq_enq_state.streamId <= fsqId + 1);
 
-    // 12. Debug output
+    // 7. Debug output
     printFetchTarget(ftq_entry, "Insert to FTQ");
     fetchTargetQueue.dump("After insert new entry");
 }
@@ -1472,73 +1517,93 @@ DecoupledBPUWithBTB::histShiftIn(int shamt, bool taken, boost::dynamic_bitset<> 
 }
 
 
-// this function enqueues fsq and update s0PC and s0History
-// use loop predictor and loop buffer here
-void
-DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
-{
-    DPRINTF(DecoupleBP, "Creating new prediction for PC %#lx\n", s0PC);
 
+/**
+ * @brief Creates a new FetchStream entry with prediction information
+ *
+ * @return FetchStream The created fetch stream
+ */
+FetchStream
+DecoupledBPUWithBTB::createFetchStreamEntry()
+{
     // Create a new fetch stream entry
     FetchStream entry;
     entry.startPC = s0PC;
-    
-    // Initialize loop prediction info containers
-    bool endLoop, isDouble, loopConf;
-    std::vector<LoopRedirectInfo> lpRedirectInfos(numBr);
-    std::vector<bool> fixNotExits(numBr);
-    std::vector<LoopRedirectInfo> unseenLpRedirectInfos;
-    
-    // Normal prediction path (when loop buffer is not active)
-    // 2. Extract branch prediction information
+
+    // Extract branch prediction information
     bool taken = finalPred.isTaken();
     Addr fallThroughAddr = finalPred.getFallThrough();
     Addr nextPC = finalPred.getTarget();
 
-    // 3. Configure stream entry with prediction details
-    entry.isHit = !finalPred.btbEntries.empty(); // TODO: fix isHit and falseHit
+    // Configure stream entry with prediction details
+    entry.isHit = !finalPred.btbEntries.empty();
     entry.falseHit = false;
     entry.predBTBEntries = finalPred.btbEntries;
     entry.predTaken = taken;
     entry.predEndPC = fallThroughAddr;
 
-    // 4. Set branch info for taken predictions
+    // Set branch info for taken predictions
     if (taken) {
         entry.predBranchInfo = finalPred.getTakenEntry().getBranchInfo();
         entry.predBranchInfo.target = nextPC; // Use final target (may not be from BTB)
     }
 
-    // 5. Update global PC state to target or fall-through
-    s0PC = nextPC;
-    // 7. Record current history and prediction metadata
+    // Record current history and prediction metadata
     entry.history = s0History;
     entry.predTick = finalPred.predTick;
     entry.predSource = finalPred.predSource;
-    // 8. Update component-specific history
+
+    // Save predictors' metadata
     for (int i = 0; i < numComponents; i++) {
-        components[i]->specUpdateHist(s0History, finalPred);
         entry.predMetas[i] = components[i]->getPredictionMeta();
     }
 
-    // 9. Update global history with new prediction
+    // Initialize default resolution state
+    entry.setDefaultResolve();
+
+    return entry;
+}
+
+/**
+ * @brief Updates global history based on prediction results
+ *
+ * @param entry The fetch stream entry to update history for
+ */
+void
+DecoupledBPUWithBTB::updateHistoryForPrediction(FetchStream &entry)
+{
+    // Update component-specific history, for TAGE/ITTAGE
+    for (int i = 0; i < numComponents; i++) {
+        components[i]->specUpdateHist(s0History, finalPred);
+    }
+
+    // Get prediction information for history updates
     int shamt;
+    bool taken;
     std::tie(shamt, taken) = finalPred.getHistInfo();
+
+    // Update global history
     histShiftIn(shamt, taken, s0History);
 
-    // 10. Update history manager and verify TAGE folded history
+    // Update history manager and verify TAGE folded history
     historyManager.addSpeculativeHist(
         entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
     tage->checkFoldedHist(s0History, "speculative update");
+}
 
-    // 11. Initialize default resolution state
-    entry.setDefaultResolve();
-
-    // if there are ahead pipelined predictors, get prevoius PCs
+/**
+ * @brief fill ahead pipeline entry.previousPCs
+ */
+void
+DecoupledBPUWithBTB::fillAheadPipeline(FetchStream &entry)
+{
+    // Handle ahead pipelined predictors
     unsigned max_ahead_pipeline_stages = 0;
     for (int i = 0; i < numComponents; i++) {
         max_ahead_pipeline_stages = std::max(max_ahead_pipeline_stages, components[i]->aheadPipelinedStages);
     }
-    // get number of max_ahead_pipeline_stages previous PCs from fetchStreamQueue
+
+    // Get previous PCs from fetchStreamQueue if needed
     if (max_ahead_pipeline_stages > 0) {
         for (int i = 0; i < max_ahead_pipeline_stages; i++) {
             auto it = fetchStreamQueue.find(fsqId - max_ahead_pipeline_stages + i);
@@ -1548,15 +1613,36 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
             }
         }
     }
+}
+
+// this function enqueues fsq and update s0PC and s0History
+void
+DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
+{
+    DPRINTF(DecoupleBP, "Creating new prediction for PC %#lx\n", s0PC);
+
+    // 1. Create a new fetch stream entry with prediction information
+    FetchStream entry = createFetchStreamEntry();
+
+    // 2. Update global PC state to target or fall-through
+    s0PC = finalPred.getTarget();;
+
+    // 3. Update history information
+    updateHistoryForPrediction(entry);
+
+    // 4. Fill ahead pipeline
+    fillAheadPipeline(entry);
+
+    // 5. Add entry to fetch stream queue
     auto [insertIt, inserted] = fetchStreamQueue.emplace(fsqId, entry);
     assert(inserted);
 
-    // 14. Debug output and statistics
+    // 6. Debug output and update statistics
     dumpFsq("after insert new stream");
     DPRINTF(DecoupleBP, "Inserted fetch stream %lu starting at PC %#lx\n", 
             fsqId, entry.startPC);
     
-    // 15. Update FSQ ID and increment statistics
+    // 7. Update FSQ ID and increment statistics
     fsqId++;
     printStream(entry);
     dbpBtbStats.fsqEntryEnqueued++;

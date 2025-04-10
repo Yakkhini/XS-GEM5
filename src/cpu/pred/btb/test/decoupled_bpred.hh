@@ -57,16 +57,16 @@ class DecoupledBPUWithBTB
 
     FetchTargetQueue fetchTargetQueue;
 
-    std::map<FetchStreamId, FetchStream> fetchStreamQueue;
+    using FSQ = std::map<FetchStreamId, FetchStream>;
+    using FSQIt = FSQ::iterator;
+
+    FSQ fetchStreamQueue;
     unsigned fetchStreamQueueSize;
     FetchStreamId fsqId{1};
     FetchStream lastCommittedStream;
 
     unsigned numBr;
     bool alignToBlockSize;
-
-    unsigned cacheLineOffsetBits{6};  // TODO: parameterize this
-    unsigned cacheLineSize{64};
 
     const unsigned historyTokenBits{8};
 
@@ -131,21 +131,20 @@ class DecoupledBPUWithBTB
 
     void tryEnqFetchTarget();
 
+    // Helper function to validate FTQ and FSQ state before enqueueing
+    bool validateFTQEnqueue();
+
+    bool validateFSQEnqueue();
+
     void makeNewPrediction(bool create_new_stream);
 
-    void makeLoopPredictions(FetchStream &entry, bool &endLoop, bool &isDouble, bool &loopConf,
-        std::vector<LoopRedirectInfo> &lpRedirectInfos, std::vector<bool> &fixNotExits,
-        std::vector<LoopRedirectInfo> &unseenLpRedirectInfos, bool &taken);
+    FtqEntry createFtqEntryFromStream(const FetchStream &stream, const FetchTargetEnqState &ftq_enq_state);
 
-    Addr alignToCacheLine(Addr addr)
-    {
-        return addr & ~((1 << cacheLineOffsetBits) - 1);
-    }
+    FetchStream createFetchStreamEntry();
 
-    bool crossCacheLine(Addr addr)
-    {
-        return (addr & (1 << (cacheLineOffsetBits - 1))) != 0;
-    }
+    void updateHistoryForPrediction(FetchStream &entry);
+
+    void fillAheadPipeline(FetchStream &entry);
 
     Addr computePathHash(Addr br, Addr target);
 
@@ -407,17 +406,9 @@ class DecoupledBPUWithBTB
     
     bool debugFlagOn{false};
     std::map<Addr, std::pair<BTBEntry, int>> totalBTBEntries;
-    void setTakenEntryWithStream(const FetchStream &stream_entry, FtqEntry &ftq_entry);
+    void setTakenEntryWithStream(FtqEntry &ftq_entry, const FetchStream &stream_entry);
 
     void setNTEntryWithStream(FtqEntry &ftq_entry, Addr endPC);
-
-    bool popRAS(FetchStreamId stream_id, const char *when);
-
-    void pushRAS(FetchStreamId stream_id, const char *when, Addr ra);
-
-    void updateTAGE(FetchStream &stream);
-
-    std::vector<Addr> storeTargets;
 
     void resetPC(Addr new_pc);
 
