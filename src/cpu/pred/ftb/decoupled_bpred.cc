@@ -453,6 +453,9 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     ADD_STAT(overrideBubbleNum,  statistics::units::Count::get(), "the number of override bubbles"),
     ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
     "the number of preds of each stage that account for a committed stream"),
+    ADD_STAT(commitOverrideBubbleNum, statistics::units::Count::get(),
+    "the number of override bubbles, on the commit path"),
+    ADD_STAT(commitOverrideCount, statistics::units::Count::get(), "the number of overrides, on the commit path"),
     ADD_STAT(fsqEntryDist, statistics::units::Count::get(), "the distribution of number of entries in fsq"),
     ADD_STAT(fsqEntryEnqueued, statistics::units::Count::get(), "the number of fsq entries enqueued"),
     ADD_STAT(fsqEntryCommitted, statistics::units::Count::get(), "the number of fsq entries committed at last"),
@@ -573,6 +576,8 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
 {
     predsOfEachStage.init(numStages);
     commitPredsFromEachStage.init(numStages+1);
+    commitOverrideBubbleNum = commitPredsFromEachStage[1] + 2 * commitPredsFromEachStage[2] ;
+    commitOverrideCount = commitPredsFromEachStage[1] + commitPredsFromEachStage[2];
     fsqEntryDist.init(0, fsqSize, 1);
     commitLoopBufferEntryInstNum.init(0, 16, 1);
     commitLoopBufferDoubleEntryInstNum.init(0, 16, 1);
