@@ -68,6 +68,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     typedef DecoupledBPUWithBTBParams Params;
 
     DecoupledBPUWithBTB(const Params &params);
+    // TODO: remove loop predictor and loop buffer, jap, now fetch.cc need them
     LoopPredictor lp;
     LoopBuffer lb;
     bool enableLoopBuffer{false};
@@ -218,9 +219,8 @@ class DecoupledBPUWithBTB : public BPredUnit
     void printFetchTarget(const FtqEntry &e, const char *when)
     {
         DPRINTFR(DecoupleBP,
-                 "%s:: %#lx - [%#lx, %#lx) --> %#lx, taken: %d, fsqID: %lu, loop: %d, iter: %d, exit: %d\n",
-                 when, e.startPC, e.takenPC, e.endPC, e.target, e.taken,
-                 e.fsqID, e.inLoop, e.iter, e.isExit);
+                 "%s:: %#lx - [%#lx, %#lx) --> %#lx, taken: %d, fsqID: %lu\n",
+                 when, e.startPC, e.takenPC, e.endPC, e.target, e.taken, e.fsqID);
     }
 
     void printFetchTargetFull(const FtqEntry &e)
@@ -340,49 +340,6 @@ class DecoupledBPUWithBTB : public BPredUnit
 
         statistics::Scalar predFalseHit;
         statistics::Scalar commitFalseHit;
-
-        statistics::Scalar predLoopPredictorExit;
-        statistics::Scalar predLoopPredictorUnconfNotExit;
-        statistics::Scalar predLoopPredictorConfFixNotExit;
-        statistics::Scalar predBTBUnseenLoopBranchInLp;
-        statistics::Scalar predBTBUnseenLoopBranchExitInLp;
-        statistics::Scalar commitLoopPredictorExit;
-        statistics::Scalar commitLoopPredictorExitCorrect;
-        statistics::Scalar commitLoopPredictorExitWrong;
-        statistics::Scalar commitBTBUnseenLoopBranchInLp;
-        statistics::Scalar commitBTBUnseenLoopBranchExitInLp;
-        statistics::Scalar commitLoopPredictorConfFixNotExit;
-        statistics::Scalar commitLoopPredictorConfFixNotExitCorrect;
-        statistics::Scalar commitLoopPredictorConfFixNotExitWrong;
-        statistics::Scalar commitLoopExitLoopPredictorNotPredicted;
-        statistics::Scalar commitLoopExitLoopPredictorNotConf;
-        statistics::Scalar controlSquashOnLoopPredictorPredExit;
-        statistics::Scalar nonControlSquashOnLoopPredictorPredExit;
-        statistics::Scalar trapSquashOnLoopPredictorPredExit;
-
-        statistics::Scalar predBlockInLoopBuffer;
-        statistics::Scalar predDoubleBlockInLoopBuffer;
-        statistics::Scalar squashOnLoopBufferPredBlock;
-        statistics::Scalar squashOnLoopBufferDoublePredBlock;
-        statistics::Scalar commitBlockInLoopBuffer;
-        statistics::Scalar commitDoubleBlockInLoopBuffer;
-        statistics::Scalar commitBlockInLoopBufferSquashed;
-        statistics::Scalar commitDoubleBlockInLoopBufferSquashed;
-        statistics::Distribution commitLoopBufferEntryInstNum;
-        statistics::Distribution commitLoopBufferDoubleEntryInstNum;
-
-        statistics::Scalar predJATotalSkippedBlocks;
-        statistics::Scalar commitJATotalSkippedBlocks;
-        statistics::Scalar squashOnJaHitBlocks;
-        statistics::Scalar controlSquashOnJaHitBlocks;
-        statistics::Scalar nonControlSquashOnJaHitBlocks;
-        statistics::Scalar trapSquashOnJaHitBlocks;
-        statistics::Scalar commitSquashedOnJaHitBlocks;
-        statistics::Scalar commitControlSquashedOnJaHitBlocks;
-        statistics::Scalar commitNonControlSquashedOnJaHitBlocks;
-        statistics::Scalar commitTrapSquashedOnJaHitBlocks;
-        statistics::Distribution predJASkippedBlockNum;
-        statistics::Distribution commitJASkippedBlockNum;
 
         DBPBTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize);
     } dbpBtbStats;

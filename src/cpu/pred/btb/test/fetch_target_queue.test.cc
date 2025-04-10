@@ -47,7 +47,6 @@ protected:
         entry.startPC = startPC;
         entry.endPC = endPC;
         entry.fsqID = streamId;
-        entry.inLoop = inLoop;
         streamId++;
         return entry;
     }
@@ -192,28 +191,6 @@ TEST_F(FetchTargetQueueTest, ResetPC) {
 
     // Verify PC is updated
     EXPECT_EQ(ftq->getEnqState().pc, newPC);
-}
-
-// Test loop iteration handling
-TEST_F(FetchTargetQueueTest, LoopIteration) {
-    populateFtqWithLoops(6);
-
-    bool inLoop = false;
-    ftq->trySupplyFetchWithTarget(0x1000, inLoop);
-    EXPECT_TRUE(inLoop);  // First entry should be marked as in a loop
-
-    EXPECT_EQ(ftq->getCurrentLoopIter(), 0);
-
-    // Increment loop counter
-    int totalIter = 5;
-    ftq->incCurrentLoopIter(totalIter);
-    EXPECT_EQ(ftq->getCurrentLoopIter(), 1);
-
-    // Increment to max
-    for (int i = 0; i < totalIter + 1; i++) {
-        ftq->incCurrentLoopIter(totalIter);
-    }
-    EXPECT_EQ(ftq->getCurrentLoopIter(), 0);  // Reset after exceeding totalIter
 }
 
 // Test skipping entries when fetch PC is beyond entry end

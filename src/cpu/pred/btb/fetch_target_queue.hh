@@ -77,9 +77,6 @@ class FetchTargetQueue
     // State for enqueueing new fetch targets
     FetchTargetEnqState fetchTargetEnqState;
 
-    // Counter for tracking iterations in a loop
-    int currentLoopIter{0};
-
     std::string _name;
 
   public:
@@ -214,34 +211,6 @@ class FetchTargetQueue
      * @return Reference to the most recently inserted entry
      */
     FtqEntry &getLastInsertedEntry() { return ftq.rbegin()->second; }
-
-    /**
-     * @brief Get the current loop iteration counter
-     *
-     * @return Current loop iteration value
-     */
-    int getCurrentLoopIter() { return currentLoopIter; }
-
-    /**
-     * @brief Increment the loop iteration counter
-     *
-     * @param totalIter Total iterations expected in the loop
-     */
-    void incCurrentLoopIter(int totalIter) {
-        if (currentLoopIter <= totalIter) {
-            currentLoopIter++;
-        } else {
-            currentLoopIter = 0;
-        }
-    }
-
-    // bool lastEntryIncomplete() const
-    // {
-    //     if (ftq.empty())
-    //         return false;
-    //     const auto &last_entry = ftq.rbegin()->second;
-    //     return last_entry.miss() && !last_entry.filledUp();
-    // }
 
     void resetPC(Addr new_pc);
 };

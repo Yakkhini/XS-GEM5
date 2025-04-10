@@ -30,7 +30,6 @@ FetchTargetQueue::FetchTargetQueue(unsigned size) :
     fetchTargetEnqState.pc = 0x80000000;  // Initialize PC to default boot address
     fetchDemandTargetId = 0;              // Start with target ID 0
     supplyFetchTargetState.valid = false; // No valid supply state initially
-    currentLoopIter = 0;                  // Initialize loop counter
 }
 
 /**
@@ -61,7 +60,6 @@ FetchTargetQueue::squash(FetchTargetId new_enq_target_id,
     supplyFetchTargetState.valid = false;
     supplyFetchTargetState.entry = nullptr;
     fetchDemandTargetId = new_fetch_demand_target_id;
-    currentLoopIter = 0;  // Reset loop iteration counter
 
     DPRINTF(DecoupleBP,
             "FTQ demand stream ID update to %lu, ftqEnqPC update to "
@@ -111,7 +109,6 @@ FetchTargetQueue::finishCurrentFetchTarget()
     ftq.erase(supplyFetchTargetState.targetId);  // Remove current target from queue
     supplyFetchTargetState.valid = false;  // Invalidate supply state
     supplyFetchTargetState.entry = nullptr;
-    currentLoopIter = 0;  // Reset loop counter
 
     DPRINTF(DecoupleBP,
             "Finish current fetch target: %lu, inc demand to %lu\n",
@@ -167,7 +164,6 @@ FetchTargetQueue::trySupplyFetchWithTarget(Addr fetch_demand_pc, bool &in_loop)
             supplyFetchTargetState.valid = true;
             supplyFetchTargetState.targetId = fetchDemandTargetId;
             supplyFetchTargetState.entry = &(it->second);
-            in_loop = it->second.inLoop;  // Set loop flag based on entry
             return true;
         } else {
             // Target not found in queue
@@ -193,7 +189,6 @@ FetchTargetQueue::trySupplyFetchWithTarget(Addr fetch_demand_pc, bool &in_loop)
             "FTQ supplying, valid: %u, supply id: %lu, demand id: %lu\n",
             supplyFetchTargetState.valid, supplyFetchTargetState.targetId,
             fetchDemandTargetId);
-    in_loop = supplyFetchTargetState.entry->inLoop;
     return true;
 }
 

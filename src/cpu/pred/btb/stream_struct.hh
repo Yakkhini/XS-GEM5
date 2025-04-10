@@ -12,11 +12,6 @@
 #include "cpu/pred/general_arch_db.hh"
 #include "cpu/static_inst.hh"
 
-// #include "debug/DecoupleBP.hh"
-// #include "debug/BTB.hh"
-// #include "debug/Override.hh"
-// #include "cpu/pred/btb/btb.hh"
-
 namespace gem5 {
 
 namespace branch_prediction {
@@ -101,7 +96,6 @@ typedef struct BranchInfo {
             }
         }
     }
-    // BranchInfo(BTBSlot _e) : pc(_e.pc), target(_e.target), isCond(_e.isCond), isIndirect(_e.isIndirect), isCall(_e.isCall), isReturn(_e.isReturn), size(_e.size) {}
 
     bool operator < (const BranchInfo &other) const
     {
@@ -165,15 +159,8 @@ typedef struct LFSR64 {
 }LFSR64;
 
 
-struct BlockDecodeInfo {
-    std::vector<bool> condMask;
-    BranchInfo jumpInfo;
-};
-
-
 using FetchStreamId = uint64_t;
 using FetchTargetId = uint64_t;
-using PredictionID = uint64_t;
 
 typedef struct LoopEntry {
     bool valid;
@@ -200,8 +187,7 @@ typedef struct JAEntry {
     }
 } JAEntry;
 
-// NOTE: now this corresponds to an ftq entry in
-//       XiangShan nanhu architecture
+
 /**
  * @brief Fetch Stream representing a sequence of instructions with prediction info
  * 
@@ -214,64 +200,40 @@ typedef struct JAEntry {
  */
 typedef struct FetchStream
 {
-    Addr startPC;
+    Addr startPC;       // start pc of the stream
+    bool predTaken;     // whether the FetchStream has taken branch
+    Addr predEndPC;     // predicted stream end pc (fall through pc)
+    BranchInfo predBranchInfo; // predicted branch info
 
-    // indicating whether a backing prediction has finished
-    // bool predEnded;
-    bool predTaken;
-
-    // predicted stream end pc (fall through pc)
-    Addr predEndPC;
-    BranchInfo predBranchInfo;
-    // record predicted BTB entry
-    bool isHit;
-    bool falseHit;
-    std::vector<BTBEntry> predBTBEntries;
-
-    bool sentToICache;
+    bool isHit;          // whether the predicted btb entry is hit
+    bool falseHit;       // not used
+    std::vector<BTBEntry> predBTBEntries;   // record predicted BTB entries
 
     // for commit, write at redirect or fetch
-    // bool exeEnded;
-    bool exeTaken;
-    // Addr exeEndPC;
-    BranchInfo exeBranchInfo;
+    bool exeTaken;         // whether the branch is taken(resolved)
+    BranchInfo exeBranchInfo; // executed branch info
 
     BTBEntry updateNewBTBEntry; // the possible new entry, set by L1BTB.getAndSetNewBTBEntry, used by L1BTB/L0BTB.update
     bool updateIsOldEntry; // whether the BTB entry is old, true: update the old entry, false: use updateNewBTBEntry
     bool resolved;  // whether the branch is resolved/executed
+
+    // below two should be set before components update
     // used to decide which branches to update (don't update if not actually executed)
-    // set before components update
-    Addr updateEndInstPC; 
+    Addr updateEndInstPC;   // end pc of the squash inst/taken inst
     // for components to decide which entries to update
-    // set before components update
-    std::vector<BTBEntry> updateBTBEntries;
+    std::vector<BTBEntry> updateBTBEntries; // mostly like predBTBEntries
 
-    int squashType;
-    Addr squashPC;
-    unsigned predSource;
-
-    // for loop buffer
-    bool fromLoopBuffer;
-    bool isDouble;
-    bool isExit;
-
-    // for ja predictor
-    bool jaHit;
-    JAEntry jaEntry;
-    int currentSentBlock;
+    int squashType;         // squash type
+    Addr squashPC;         // pc of the squash inst
+    unsigned predSource;   // source of the prediction(numStage)
 
     // prediction metas
     // FIXME: use vec
-    std::array<std::shared_ptr<void>, 6> predMetas;
+    std::array<std::shared_ptr<void>, 6> predMetas; // each component has a meta
 
-    // for loop
-    std::vector<LoopRedirectInfo> loopRedirectInfos;
-    std::vector<bool> fixNotExits;
-    std::vector<LoopRedirectInfo> unseenLoopRedirectInfos;
-
-    Tick predTick;
-    boost::dynamic_bitset<> history;
-    std::queue<Addr> previousPCs;
+    Tick predTick;         // tick of the prediction
+    boost::dynamic_bitset<> history; // record GHR/s0History
+    std::queue<Addr> previousPCs; // previous PCs, used by ahead BTB
 
     // for profiling
     int fetchInstNum;
@@ -284,7 +246,6 @@ typedef struct FetchStream
          predBranchInfo(BranchInfo()),
          isHit(false),
          falseHit(false),
-         sentToICache(false),
          exeTaken(false),
          exeBranchInfo(BranchInfo()),
          updateNewBTBEntry(BTBEntry()),
@@ -294,21 +255,12 @@ typedef struct FetchStream
          squashType(SquashType::SQUASH_NONE),
          squashPC(0),
          predSource(0),
-         fromLoopBuffer(false),
-         isDouble(false),
-         isExit(false),
-         jaHit(false),
-         jaEntry(JAEntry()),
-         currentSentBlock(0),
          predTick(0),
          history(),
          fetchInstNum(0),
          commitInstNum(0)
    {
        predMetas.fill(nullptr);
-       loopRedirectInfos.clear();
-       fixNotExits.clear();
-       unseenLoopRedirectInfos.clear();
        predBTBEntries.clear();
        updateBTBEntries.clear();
    }
@@ -326,23 +278,9 @@ typedef struct FetchStream
     Addr getEndPC() const { return getBranchInfo().getEnd(); } // FIXME: should be end of squash inst when non-control squash of trap squash
     Addr getTaken() const { return resolved ? exeTaken : predTaken; }
     Addr getTakenTarget() const { return getBranchInfo().target; }
-    // Addr getFallThruPC() const { return getEndPC(); }
-    // Addr getNextStreamStart() const {return getTaken() ? getTakenTarget() : getFallThruPC(); }
-    // bool isCall() const { return endType == END_CALL; }
-    // bool isReturn() const { return endType == END_RET; }
 
-    // for ja hit blocks, should be the biggest addr of startPC + k*blockSize where k is interger
     Addr getRealStartPC() const {
-        if (jaHit && squashType == SQUASH_CTRL) {
-            Addr realStart = startPC;
-            Addr squashBranchPC = exeBranchInfo.pc;
-            while (realStart + predictWidth <= squashBranchPC) {
-                realStart += predictWidth;
-            }
-            return realStart;
-        } else {
-            return startPC;
-        }
+        return startPC;
     }
 
     std::pair<int, bool> getHistInfoDuringSquash(Addr squash_pc, bool is_cond, bool actually_taken, unsigned maxShamt)
@@ -409,12 +347,8 @@ typedef struct FullBTBPrediction
     std::map<Addr, Addr> indirectTargets; // {branch pc -> target pc} maps
     Addr returnTarget; // for RAS
 
-    // std::vector<bool> valids; // hit
     unsigned predSource;
     Tick predTick;
-    boost::dynamic_bitset<> history;
-
-
 
     BTBEntry getTakenEntry() {
         // IMPORTANT: assume entries are sorted
@@ -426,21 +360,21 @@ typedef struct FullBTBPrediction
                     // TODO: use lower-bit offset of branch instruction
                     auto it = condTakens.find(entry.pc);
                     if (it != condTakens.end()) {
-                        if (it->second) {
+                        if (it->second) {   // find and taken, return the entry
                             return entry;
                         }
                     }
                 }
-                if (entry.isUncond()) {
+                if (entry.isUncond()) { // find the first uncond entry
                     return entry;
                 }
             }
         }
-        return BTBEntry();
+        return BTBEntry(); // not found, return empty entry
     }
 
     bool isTaken() {
-        return getTakenEntry().valid;
+        return getTakenEntry().valid;   // if find a taken entry, return true
     }
 
     Addr getFallThrough() {
@@ -456,22 +390,20 @@ typedef struct FullBTBPrediction
     Addr getTarget() {
         Addr target;
         const auto &entry = getTakenEntry();
-        // DPRINTF(DecoupleBP, "getTarget: pc %lx, target %#lx, cond %d, indirect %d, return %d\n",
-        //     entry.pc, entry.target, entry.isCond, entry.isIndirect, entry.isReturn);
-        if (entry.valid) {
+        if (entry.valid) { // found a taken entry
             target = entry.target;
+            // indirect target should come from ipred or ras,
+            // or btb itself when ipred miss
             if (entry.isIndirect) {
-                if (!entry.isReturn) {
-                    // indirect target should come from ipred or ras,
-                    // or btb itself when ipred miss
+                if (!entry.isReturn) { // normal indirect, see ittage
                     auto it = indirectTargets.find(entry.pc);
-                    if (it != indirectTargets.end()) {
+                    if (it != indirectTargets.end()) { // found in ittage, use it
                         target = it->second;
                     }
-                } else {
+                } else { // indirect return, use RAS target
                     target = returnTarget;
                 }
-            }
+            } // else: normal taken, use btb target
         } else {
             target = getFallThrough(); //TODO: +predictWidth
         }
@@ -490,21 +422,6 @@ typedef struct FullBTBPrediction
     Addr controlAddr() {
         return getTakenEntry().pc;
     }
-
-    // int getTakenBranchIdx() {
-    //     auto &btbEntry = this->btbEntry;
-    //     if (valid) {
-    //         int i = 0;
-    //         for (auto &slot : btbEntry.slots) {
-    //             if ((slot.condValid() && condTakens[i]) ||
-    //                 slot.uncondValid()) {
-    //                     return i;
-    //                 }
-    //             i++;
-    //         }
-    //     }
-    //     return -1;
-    // }
 
     std::pair<bool, OverrideReason> match(FullBTBPrediction &other)
     {
@@ -560,31 +477,8 @@ typedef struct FullBTBPrediction
                 }
             }
         }
-        // if (valid) {
-        //     int i = 0;
-        //     for (auto &slot : btbEntry.slots) {
-        //         DPRINTF(Override, "slot %d: condValid %d, uncondValid %d\n",
-        //             i, slot.condValid(), slot.uncondValid());
-        //         DPRINTF(Override, "condTakens.size() %d\n", condTakens.size());
-        //         if (slot.condValid()) {
-        //             shamt++;
-        //             if (condTakens[i]) {
-        //                 taken = true;
-        //                 break;
-        //             }
-        //         }
-        //         assert(condTakens.size() >= i+1);
-                
-        //         i++;
-        //     }
-        // }
         return std::make_pair(shamt, taken);
     }
-
-    // bool isReasonable() {
-    //     return !valid || btbEntry.isReasonable(bbStart);
-    // }
-
 
 }FullBTBPrediction;
 
@@ -612,31 +506,15 @@ struct FtqEntry
     Addr target;  // TODO: use PCState
     FetchStreamId fsqID;
 
-    // for loop buffer
-    bool inLoop;
-    int iter;
-    bool isExit;
-    Addr loopEndPC;
-
-    // for ja predictor
-    int noPredBlocks;
-
     FtqEntry()
         : startPC(0)
         , endPC(0)
         , takenPC(0)
         , taken(false)
         , target(0)
-        , fsqID(0)
-        , inLoop(false)
-        , iter(0)
-        , isExit(false)
-        , loopEndPC(0)
-        , noPredBlocks(0) {}
-    
+        , fsqID(0) {}
+
     bool miss() const { return !taken; }
-    // bool filledUp() const { return (endPC & fetchTargetMask) == 0; }
-    // unsigned predLoopIteration;
 };
 
 

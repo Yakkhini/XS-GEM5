@@ -49,13 +49,7 @@ class DecoupledBPUWithBTB
 
     DecoupledBPUWithBTB();
 
-    LoopPredictor lp;
-    LoopBuffer lb;
-    bool enableLoopBuffer{false};
-    bool enableLoopPredictor{false};
 
-    JumpAheadPredictor jap;
-    bool enableJumpAheadPredictor{false};
 
 // for testing
   public:
@@ -189,9 +183,8 @@ class DecoupledBPUWithBTB
     void printFetchTarget(const FtqEntry &e, const char *when)
     {
         DPRINTFR(DecoupleBP,
-                 "%s:: %#lx - [%#lx, %#lx) --> %#lx, taken: %d, fsqID: %lu, loop: %d, iter: %d, exit: %d\n",
-                 when, e.startPC, e.takenPC, e.endPC, e.target, e.taken,
-                 e.fsqID, e.inLoop, e.iter, e.isExit);
+                 "%s:: %#lx - [%#lx, %#lx) --> %#lx, taken: %d, fsqID: %lu\n",
+                 when, e.startPC, e.takenPC, e.endPC, e.target, e.taken, e.fsqID);
     }
 
     void printFetchTargetFull(const FtqEntry &e)
@@ -308,49 +301,6 @@ class DecoupledBPUWithBTB
 
         uint64_t predFalseHit;
         uint64_t commitFalseHit;
-
-        uint64_t predLoopPredictorExit;
-        uint64_t predLoopPredictorUnconfNotExit;
-        uint64_t predLoopPredictorConfFixNotExit;
-        uint64_t predBTBUnseenLoopBranchInLp;
-        uint64_t predBTBUnseenLoopBranchExitInLp;
-        uint64_t commitLoopPredictorExit;
-        uint64_t commitLoopPredictorExitCorrect;
-        uint64_t commitLoopPredictorExitWrong;
-        uint64_t commitBTBUnseenLoopBranchInLp;
-        uint64_t commitBTBUnseenLoopBranchExitInLp;
-        uint64_t commitLoopPredictorConfFixNotExit;
-        uint64_t commitLoopPredictorConfFixNotExitCorrect;
-        uint64_t commitLoopPredictorConfFixNotExitWrong;
-        uint64_t commitLoopExitLoopPredictorNotPredicted;
-        uint64_t commitLoopExitLoopPredictorNotConf;
-        uint64_t controlSquashOnLoopPredictorPredExit;
-        uint64_t nonControlSquashOnLoopPredictorPredExit;
-        uint64_t trapSquashOnLoopPredictorPredExit;
-
-        uint64_t predBlockInLoopBuffer;
-        uint64_t predDoubleBlockInLoopBuffer;
-        uint64_t squashOnLoopBufferPredBlock;
-        uint64_t squashOnLoopBufferDoublePredBlock;
-        uint64_t commitBlockInLoopBuffer;
-        uint64_t commitDoubleBlockInLoopBuffer;
-        uint64_t commitBlockInLoopBufferSquashed;
-        uint64_t commitDoubleBlockInLoopBufferSquashed;
-        // statistics::Distribution commitLoopBufferEntryInstNum;
-        // statistics::Distribution commitLoopBufferDoubleEntryInstNum;
-
-        uint64_t predJATotalSkippedBlocks;
-        uint64_t commitJATotalSkippedBlocks;
-        uint64_t squashOnJaHitBlocks;
-        uint64_t controlSquashOnJaHitBlocks;
-        uint64_t nonControlSquashOnJaHitBlocks;
-        uint64_t trapSquashOnJaHitBlocks;
-        uint64_t commitSquashedOnJaHitBlocks;
-        uint64_t commitControlSquashedOnJaHitBlocks;
-        uint64_t commitNonControlSquashedOnJaHitBlocks;
-        uint64_t commitTrapSquashedOnJaHitBlocks;
-        // statistics::Distribution predJASkippedBlockNum;
-        // statistics::Distribution commitJASkippedBlockNum;
 
     } dbpBtbStats;
 
