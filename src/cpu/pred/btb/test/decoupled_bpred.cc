@@ -241,83 +241,131 @@ DecoupledBPUWithBTB::trySupplyFetchWithTarget(Addr fetch_demand_pc, bool &fetch_
     return fetchTargetQueue.trySupplyFetchWithTarget(fetch_demand_pc, fetch_target_in_loop);
 }
 
+/**
+ * @brief Interface between fetch stage and branch predictor for instruction prediction
+ *
+ * This function is called by the fetch stage to get branch prediction information
+ * for the current fetch address. It checks the Fetch Target Queue (FTQ) for available
+ * prediction entries and returns the prediction result for the current PC.
+ *
+ * Key operations:
+ * 1. Check if a prediction is available in the FTQ
+ * 2. Compare current PC against the prediction entry's PC range
+ * 3. Determine if current instruction is a predicted branch
+ * 4. Update PC for taken branches or advance to next instruction for not-taken
+ * 5. Handle entry dequeuing when prediction stream is exhausted
+ *
+ * @param inst The static instruction being fetched
+ * @param seqNum The sequence number of the instruction
+ * @param pc Current program counter (updated with prediction target if taken)
+ * @param tid Thread ID
+ * @param currentLoopIter Reference to current loop iteration counter
+ *
+ * @return A pair containing:
+ *   - First value: Whether the branch is predicted taken
+ *   - Second value: Whether we've exhausted the current FTQ entry
+ */
 std::pair<bool, bool>
 DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
                                const InstSeqNum &seqNum, PCStateBase &pc,
                                ThreadID tid, unsigned &currentLoopIter)
 {
-    std::unique_ptr<PCStateBase> target(pc.clone());
+    DPRINTF(DecoupleBP, "looking up pc %#lx, Supplying target ID %lu\n",
+        pc.instAddr(), fetchTargetQueue.getSupplyingTargetId());
 
-    DPRINTF(DecoupleBP, "looking up pc %#lx\n", pc.instAddr());
+    // Check if fetch target queue has prediction available
     auto target_avail = fetchTargetQueue.fetchTargetAvailable();
-
-    DPRINTF(DecoupleBP, "Supplying fetch with target ID %lu\n",
-            fetchTargetQueue.getSupplyingTargetId());
-
     if (!target_avail) {
         DPRINTF(DecoupleBP,
                 "No ftq entry to fetch, return dummy prediction\n");
-        // todo pass these with reference
-        // TODO: do we need to update PC if not taken?
+        // Return (not taken, exhausted entry) to indicate no valid prediction
         return std::make_pair(false, true);
     }
-    currentFtqEntryInstNum++;
 
+    // Get current prediction entry from FTQ
     const auto &target_to_fetch = fetchTargetQueue.getTarget();
-
-    // found corresponding entry
-    auto start = target_to_fetch.startPC;
-    auto end = target_to_fetch.endPC;
-    auto taken_pc = target_to_fetch.takenPC;
     DPRINTF(DecoupleBP, "Responsing fetch with");
     printFetchTarget(target_to_fetch, "");
+    // Extract prediction entry information
+    auto start = target_to_fetch.startPC;    // Start of basic block
+    auto end = target_to_fetch.endPC;        // End of basic block
+    auto taken_pc = target_to_fetch.takenPC; // Branch instruction address if taken
+    // Verify current PC is within the predicted entry range
+    assert(start <= pc.instAddr() && pc.instAddr() < end);
 
-    // supplying ftq entry might be taken before pc
-    // because it might just be updated last cycle
-    // but last cycle ftq tells fetch that this is a miss stream
-    assert(pc.instAddr() < end && pc.instAddr() >= start);
-    bool raw_taken = pc.instAddr() == taken_pc && target_to_fetch.taken;
-    bool taken = raw_taken;
+    // Check if current PC matches predicted branch address and is taken
+    bool taken = pc.instAddr() == taken_pc && target_to_fetch.taken;
     bool run_out_of_this_entry = false;
+    // Clone PC for potential updates
+    std::unique_ptr<PCStateBase> target(pc.clone());
 
+    // Handle taken prediction by updating PC to target address
     if (taken) {
+        // auto &rtarget = target->as<GenericISA::PCStateWithNext>();
+        // rtarget.pc(target_to_fetch.target);   // Set new PC to predicted target
+
+        // // Set next PC (NPC) for pipeline logic
+        // rtarget.npc(target_to_fetch.target + 4);
+        // rtarget.uReset();
+
+        // DPRINTF(DecoupleBP,
+        //         "Predicted pc: %#lx, upc: %u, npc(meaningless): %#lx, instSeqNum: %lu\n",
+        //         target->instAddr(), rtarget.upc(), rtarget.npc(), seqNum);
+
+        // // Update passed-in PC reference with prediction
+        // set(pc, *target);
+
         run_out_of_this_entry = true;
+    } else {
+        // For not-taken branches or non-branches, advance to next instruction
+        inst->advancePC(*target);
+
+        // Check if we've reached the end of the current basic block
+        if (target->instAddr() >= end) {
+            run_out_of_this_entry = true;
+        }
     }
 
+    // Increment instruction counter for current FTQ entry
+    currentFtqEntryInstNum++;
+    if (run_out_of_this_entry) {
+        processFetchTargetCompletion(target_to_fetch);
+    }
 
-    // if (taken) {
-    //     auto &rtarget = target->as<GenericISA::PCStateWithNext>();
-    //     rtarget.pc(target_to_fetch.target);
-    //     // TODO: how about compressed?
-    //     rtarget.npc(target_to_fetch.target + 4);
-    //     rtarget.uReset();
-    //     DPRINTF(DecoupleBP,
-    //             "Predicted pc: %#lx, upc: %u, npc(meaningless): %#lx, instSeqNum: %lu\n",
-    //             target->instAddr(), rtarget.upc(), rtarget.npc(), seqNum);
-    //     set(pc, *target);
-    // } else {
-    //     inst->advancePC(*target);
-    //     if (target->instAddr() >= end) {
-    //         run_out_of_this_entry = true;
-    //     }
-    // }
     DPRINTF(DecoupleBP, "Predict it %staken to %#lx\n", taken ? "" : "not ",
             target->instAddr());
 
-    if (run_out_of_this_entry) {
-        // dequeue the entry
-        const auto fsqId = target_to_fetch.fsqID;
-        DPRINTF(DecoupleBP, "running out of ftq entry %lu with %d insts\n",
-                fetchTargetQueue.getSupplyingTargetId(), currentFtqEntryInstNum);
-        fetchTargetQueue.finishCurrentFetchTarget();
-        // record inst fetched in fsq entry
-        auto it = fetchStreamQueue.find(fsqId);
-        assert(it != fetchStreamQueue.end());
-        it->second.fetchInstNum = currentFtqEntryInstNum;
-        currentFtqEntryInstNum = 0;
-    }
-
     return std::make_pair(taken, run_out_of_this_entry);
+}
+
+/**
+ * @brief Process the completion of a fetch target queue entry
+ *
+ * This function handles the logic when a fetch target queue entry is exhausted:
+ * - Dequeues the entry from FTQ
+ * - Updates instruction count statistics in the corresponding FSQ entry
+ * - Resets instruction counter for the next FTQ entry
+ *
+ * @param target_to_fetch The FTQ entry being completed
+ */
+void
+DecoupledBPUWithBTB::processFetchTargetCompletion(const FtqEntry &target_to_fetch)
+{
+    DPRINTF(DecoupleBP, "running out of ftq entry %lu with %d insts\n",
+            fetchTargetQueue.getSupplyingTargetId(), currentFtqEntryInstNum);
+
+    // Remove the current entry from FTQ
+    fetchTargetQueue.finishCurrentFetchTarget();
+
+    // Get stream ID for the current fetch target
+    const auto fsqId = target_to_fetch.fsqID;
+    // Update instruction count in the fetch stream entry
+    auto it = fetchStreamQueue.find(fsqId);
+    assert(it != fetchStreamQueue.end());
+    it->second.fetchInstNum = currentFtqEntryInstNum;
+
+    // Reset instruction counter for next FTQ entry
+    currentFtqEntryInstNum = 0;
 }
 
 /**
@@ -392,8 +440,7 @@ DecoupledBPUWithBTB::handleSquash(unsigned target_id,
     fsqId = stream_id + 1;
 
     // Squash fetch target queue and redirect to new PC
-    auto ftq_demand_stream_id = stream_id + 1;
-    fetchTargetQueue.squash(target_id + 1, ftq_demand_stream_id, redirect_pc);
+    fetchTargetQueue.squash(target_id + 1, fsqId, redirect_pc);
 
     // Additional debugging for control squash
     if (squash_type == SQUASH_CTRL) {
@@ -565,6 +612,24 @@ DecoupledBPUWithBTB::updateStatistics(const FetchStream &stream)
 
 }
 
+void
+DecoupledBPUWithBTB::updatePredictorComponents(FetchStream &stream)
+{
+    // Update predictor components only if the stream is hit or taken
+    if (stream.isHit || stream.exeTaken) {
+        // Prepare stream for update
+        stream.setUpdateInstEndPC(predictWidth);
+        stream.setUpdateBTBEntries();
+
+        // only mbtb can generate new entry
+        btb->getAndSetNewBTBEntry(stream);
+
+        // Update all predictor components
+        for (int i = 0; i < numComponents; ++i) {
+            components[i]->update(stream);
+        }
+    }
+}
 
 void
 DecoupledBPUWithBTB::squashStreamAfter(unsigned squash_stream_id)

@@ -438,6 +438,9 @@ class DecoupledBPUWithBTB
     void updatePredictorComponents(FetchStream &stream);
     void updateStatistics(const FetchStream &stream);
 
+    // Helper function to process FTQ entry completion
+    void processFetchTargetCompletion(const FtqEntry &target_to_fetch);
+
     void addFtqNotValid() {
         dbpBtbStats.ftqNotValid++;
     }
