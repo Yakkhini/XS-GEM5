@@ -523,6 +523,14 @@ class DecoupledBPUWithBTB : public BPredUnit
 
     void setNTEntryWithStream(FtqEntry &ftq_entry, Addr endPC);
 
+    void recoverHistoryForSquash(
+        FetchStream &stream,
+        unsigned stream_id,
+        const PCStateBase &squash_pc,
+        bool is_conditional,
+        bool actually_taken,
+        SquashType squash_type);
+
     // Common logic for squash handling
     void handleSquash(unsigned target_id,
                       unsigned stream_id,

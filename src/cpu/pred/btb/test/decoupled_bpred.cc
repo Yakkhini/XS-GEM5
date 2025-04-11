@@ -381,35 +381,8 @@ DecoupledBPUWithBTB::handleSquash(unsigned target_id,
     // Remove streams after the squashed one
     squashStreamAfter(stream_id);
 
-    // Recover history information
-    s0History = stream.history;
-
-    // Get actual history shift info
-    int real_shamt;
-    bool real_taken;
-    std::tie(real_shamt, real_taken) = stream.getHistInfoDuringSquash(
-        squash_pc.instAddr(), is_conditional, actually_taken);
-
-    // Recover component history
-    for (int i = 0; i < numComponents; ++i) {
-        components[i]->recoverHist(s0History, stream, real_shamt, real_taken);
-    }
-
-    // Update global history
-    histShiftIn(real_shamt, real_taken, s0History);
-
-    // Update history manager
-    if (squash_type == SQUASH_CTRL) {
-        historyManager.squash(stream_id, real_shamt, real_taken, stream.exeBranchInfo);
-    } else {
-        historyManager.squash(stream_id, real_shamt, real_taken, BranchInfo());
-    }
-
-    // Check history consistency
-    checkHistory(s0History);
-    tage->checkFoldedHist(s0History,
-        squash_type == SQUASH_CTRL ? "control squash" :
-        squash_type == SQUASH_OTHER ? "non control squash" : "trap squash");
+    // Recover history using the extracted function
+    recoverHistoryForSquash(stream, stream_id, squash_pc, is_conditional, actually_taken, squash_type);
 
     // Clear predictions for next cycle
     clearPreds();
@@ -589,6 +562,8 @@ void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
 void
 DecoupledBPUWithBTB::squashStreamAfter(unsigned squash_stream_id)
 {
+    // Erase all streams after the squashed one
+    // upper_bound returns the first element greater than squash_stream_id
     auto erase_it = fetchStreamQueue.upper_bound(squash_stream_id);
     while (erase_it != fetchStreamQueue.end()) {
         DPRINTF(DecoupleBP || erase_it->second.startPC == ObservingPC,
@@ -852,33 +827,6 @@ DecoupledBPUWithBTB::createFetchStreamEntry()
 }
 
 /**
- * @brief Updates global history based on prediction results
- *
- * @param entry The fetch stream entry to update history for
- */
-void
-DecoupledBPUWithBTB::updateHistoryForPrediction(FetchStream &entry)
-{
-    // Update component-specific history, for TAGE/ITTAGE
-    for (int i = 0; i < numComponents; i++) {
-        components[i]->specUpdateHist(s0History, finalPred);
-    }
-
-    // Get prediction information for history updates
-    int shamt;
-    bool taken;
-    std::tie(shamt, taken) = finalPred.getHistInfo();
-
-    // Update global history
-    histShiftIn(shamt, taken, s0History);
-
-    // Update history manager and verify TAGE folded history
-    historyManager.addSpeculativeHist(
-        entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
-    tage->checkFoldedHist(s0History, "speculative update");
-}
-
-/**
  * @brief fill ahead pipeline entry.previousPCs
  */
 void
@@ -938,19 +886,37 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
 void
 DecoupledBPUWithBTB::checkHistory(const boost::dynamic_bitset<> &history)
 {
+    // This function performs a crucial validation of branch history consistency
+    // It rebuilds the "ideal" history from HistoryManager's records and compares
+    // it with the actual history being used by the branch predictor
+
+    // Initialize counter for total history bits and a bitset for rebuilt history
     unsigned ideal_size = 0;
     boost::dynamic_bitset<> ideal_hash_hist(historyBits, 0);
+
+    // Iterate through all speculative history entries stored in HistoryManager
     for (const auto entry: historyManager.getSpeculativeHist()) {
+        // Only process entries that have non-zero shift amount (actual branches)
         if (entry.shamt != 0) {
+            // Accumulate total history bits
             ideal_size += entry.shamt;
             DPRINTF(DecoupleBPVerbose, "pc: %#lx, shamt: %lu, cond_taken: %d\n", entry.pc,
                     entry.shamt, entry.cond_taken);
+
+            // Rebuild history by shifting and setting bits based on recorded outcomes
+            // This emulates how history would be built if all branches were predicted perfectly
             ideal_hash_hist <<= entry.shamt;
             ideal_hash_hist[0] = entry.cond_taken;
         }
     }
+
+    // Determine how many bits to compare (minimum of ideal size and actual history bits)
     unsigned comparable_size = std::min(ideal_size, historyBits);
+
+    // Prepare actual history for comparison by creating a copy
     boost::dynamic_bitset<> sized_real_hist(history);
+
+    // Resize both histories to the comparable size for accurate comparison
     ideal_hash_hist.resize(comparable_size);
     sized_real_hist.resize(comparable_size);
 
@@ -961,6 +927,7 @@ DecoupledBPUWithBTB::checkHistory(const boost::dynamic_bitset<> &history)
             ideal_size, historyBits, comparable_size);
     // DPRINTF(DecoupleBP, "Ideal history:\t%s\nreal history:\t%s\n",
     //         buf1.c_str(), buf2.c_str());
+
     assert(ideal_hash_hist == sized_real_hist);
 }
 
@@ -971,6 +938,93 @@ DecoupledBPUWithBTB::resetPC(Addr new_pc)
     fetchTargetQueue.resetPC(new_pc);
 }
 
+// Addr
+// DecoupledBPUWithBTB::getPreservedReturnAddr(const DynInstPtr &dynInst)
+// {
+//     DPRINTF(DecoupleBP, "acquiring reutrn address for inst pc %#lx from decode\n", dynInst->pcState().instAddr());
+//     auto fsqid = dynInst->getFsqId();
+//     auto it = fetchStreamQueue.find(fsqid);
+//     auto retAddr = ras->getTopAddrFromMetas(it->second);
+//     DPRINTF(DecoupleBP, "get ret addr %#lx\n", retAddr);
+//     return retAddr;
+// }
+
+/**
+ * @brief Updates global history based on prediction results
+ *
+ * @param entry The fetch stream entry to update history for
+ */
+void
+DecoupledBPUWithBTB::updateHistoryForPrediction(FetchStream &entry)
+{
+    // Update component-specific history, for TAGE/ITTAGE
+    for (int i = 0; i < numComponents; i++) {
+        components[i]->specUpdateHist(s0History, finalPred);
+    }
+
+    // Get prediction information for history updates
+    int shamt;
+    bool taken;
+    std::tie(shamt, taken) = finalPred.getHistInfo();
+
+    // Update global history
+    histShiftIn(shamt, taken, s0History);
+
+    // Update history manager and verify TAGE folded history
+    historyManager.addSpeculativeHist(
+        entry.startPC, shamt, taken, entry.predBranchInfo, fsqId);
+    tage->checkFoldedHist(s0History, "speculative update");
+}
+
+/**
+ * @brief Recovers branch history during a squash event
+ *
+ * @param stream The stream being squashed
+ * @param stream_id ID of the stream being squashed
+ * @param squash_pc PC where the squash occurred
+ * @param is_conditional Whether the branch is conditional
+ * @param actually_taken Whether the branch was actually taken
+ * @param squash_type Type of squash (CTRL/OTHER/TRAP)
+ */
+void
+DecoupledBPUWithBTB::recoverHistoryForSquash(
+    FetchStream &stream,
+    unsigned stream_id,
+    const PCStateBase &squash_pc,
+    bool is_conditional,
+    bool actually_taken,
+    SquashType squash_type)
+{
+    // Restore history from the stream
+    s0History = stream.history;
+
+    // Get actual history shift information
+    int real_shamt;
+    bool real_taken;
+    std::tie(real_shamt, real_taken) = stream.getHistInfoDuringSquash(
+        squash_pc.instAddr(), is_conditional, actually_taken);
+
+    // Recover component-specific history
+    for (int i = 0; i < numComponents; ++i) {
+        components[i]->recoverHist(s0History, stream, real_shamt, real_taken);
+    }
+
+    // Update global history with actual outcome
+    histShiftIn(real_shamt, real_taken, s0History);
+
+    // Update history manager with appropriate branch info
+    if (squash_type == SQUASH_CTRL) {
+        historyManager.squash(stream_id, real_shamt, real_taken, stream.exeBranchInfo);
+    } else {
+        historyManager.squash(stream_id, real_shamt, real_taken, BranchInfo());
+    }
+
+    // Perform history consistency checks
+    checkHistory(s0History);
+    tage->checkFoldedHist(s0History,
+        squash_type == SQUASH_CTRL ? "control squash" :
+        squash_type == SQUASH_OTHER ? "non control squash" : "trap squash");
+}
 
 }  // namespace test
 
