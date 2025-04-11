@@ -886,115 +886,148 @@ DecoupledBPUWithBTB::trapSquash(unsigned target_id, unsigned stream_id,
 
 void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
 {
-    // aka, commit stream
-    // commit controls in local prediction history buffer to committedSeq
-    // mark all committed control instructions as correct
-    // do not need to dequeue when empty
+    // No need to dequeue when queue is empty
     if (fetchStreamQueue.empty())
         return;
+
     auto it = fetchStreamQueue.begin();
-    defer _(nullptr, std::bind([this]{ debugFlagOn = false; }));
+
+    // Process all streams that have been committed (stream_id >= stream's id)
     while (it != fetchStreamQueue.end() && stream_id >= it->first) {
         auto &stream = it->second;
-        // dequeue
-        DPRINTF(DecoupleBP, "dequeueing stream id: %lu, entry below:\n",
-                it->first);
-        bool miss_predicted = stream.squashType == SQUASH_CTRL;
-        if (miss_predicted) {
-            DPRINTF(ITTAGE || (stream.squashPC == 0x1e0eb6), "miss predicted stream.startAddr=%#lx\n", stream.startPC);
-        }
-        if (miss_predicted && stream.exeBranchInfo.isIndirect) {
-            topMispredIndirect[stream.startPC]++;
-        }
+
         DPRINTF(DecoupleBP,
-                "Commit stream start %#lx, which is %s predicted, "
-                "final br addr: %#lx, final target: %#lx, pred br addr: %#lx, "
-                "pred target: %#lx\n",
-                stream.startPC, miss_predicted ? "miss" : "correctly",
-                stream.exeBranchInfo.pc, stream.exeBranchInfo.target,
-                stream.predBranchInfo.pc, stream.predBranchInfo.target);
-        
-        if (stream.isHit) {
-            // FIXME: should count in terms of instruction instead of block
-            dbpBtbStats.btbHit++;
-        } else {
-            if (stream.exeTaken) {
-                dbpBtbStats.btbMiss++;
-                DPRINTF(BTB, "BTB miss detected when update, stream start %#lx, predTick %lu, printing branch info:\n", stream.startPC, stream.predTick);
-                auto &slot = stream.exeBranchInfo;
-                DPRINTF(BTB, "    pc:%#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d\n",
-                slot.pc, slot.size, slot.target, slot.isCond, slot.isIndirect, slot.isCall, slot.isReturn);
-            }
-            if (stream.falseHit) {
-                dbpBtbStats.commitFalseHit++;
-            }
-        }
-        dbpBtbStats.commitPredsFromEachStage[stream.predSource]++;
+            "Commit stream start %#lx, which is predicted, "
+            "final br addr: %#lx, final target: %#lx, pred br addr: %#lx, "
+            "pred target: %#lx\n",
+            stream.startPC,
+            stream.exeBranchInfo.pc, stream.exeBranchInfo.target,
+            stream.predBranchInfo.pc, stream.predBranchInfo.target);
 
+        // Update statistics
+        updateStatistics(stream);
 
-        if (stream.isHit || stream.exeTaken) {
-            stream.setUpdateInstEndPC(predictWidth);
-            stream.setUpdateBTBEntries();
-            //abtb->getAndSetNewBTBEntry(stream);
-            btb->getAndSetNewBTBEntry(stream);
-            for (int i = 0; i < numComponents; ++i) {
-                components[i]->update(stream);
-            }
-            // btb entry stats
-            auto it = totalBTBEntries.find(stream.startPC);
-            if (it == totalBTBEntries.end()) {
-                auto &btb_entry = stream.updateNewBTBEntry;
-                totalBTBEntries[stream.startPC] = std::make_pair(btb_entry, 1);
-                dbpBtbStats.btbEntriesWithDifferentStart++;
-            } else {
-                it->second.second++;
-                it->second.first = stream.updateNewBTBEntry;
-            }
-        }
-
-        dbpBtbStats.commitFsqEntryHasInsts.sample(stream.commitInstNum, 1);
-        if (stream.commitInstNum >= 0 && stream.commitInstNum <= 16) {
-            commitFsqEntryHasInstsVector[stream.commitInstNum]++;
-            if (stream.commitInstNum == 1 && stream.exeBranchInfo.isUncond()) {
-                dbpBtbStats.commitFsqEntryOnlyHasOneJump++;
-            }
-        }
-        dbpBtbStats.commitFsqEntryFetchedInsts.sample(stream.fetchInstNum, 1);
-        if (stream.fetchInstNum >= 0 && stream.fetchInstNum <= 16) {
-            commitFsqEntryFetchedInstsVector[stream.fetchInstNum]++;
-        }
-
-
-        if (stream.squashType == SQUASH_CTRL) {
-            auto find_it = topMispredicts.find(std::make_pair(stream.startPC, stream.exeBranchInfo.pc));
-            if (find_it == topMispredicts.end()) {
-                topMispredicts[std::make_pair(stream.startPC, stream.exeBranchInfo.pc)] = 1;
-            } else {
-                find_it->second++;
-            }
-        }
-
-        if (/* stream.startPC == ObservingPC &&  */stream.squashType == SQUASH_CTRL) {
-            auto hist(stream.history);
-            hist.resize(18);
-            uint64_t pattern = hist.to_ulong();
-            auto find_it = topMispredHist.find(pattern);
-            if (find_it == topMispredHist.end()) {
-                topMispredHist[pattern] = 1;
-            } else {
-                find_it->second++;
-            }
-        }
+        // Update predictor components
+        updatePredictorComponents(stream);
 
         it = fetchStreamQueue.erase(it);
-
         dbpBtbStats.fsqEntryCommitted++;
     }
+
     DPRINTF(DecoupleBP, "after commit stream, fetchStreamQueue size: %lu\n",
             fetchStreamQueue.size());
-    printStream(it->second);
+
+    if (it != fetchStreamQueue.end()) {
+        printStream(it->second);
+    }
 
     historyManager.commit(stream_id);
+}
+
+void
+DecoupledBPUWithBTB::updateStatistics(const FetchStream &stream)
+{
+    // Check if this stream was mispredicted
+    bool miss_predicted = stream.squashType == SQUASH_CTRL;
+    // Track indirect mispredictions
+    if (miss_predicted && stream.exeBranchInfo.isIndirect) {
+        topMispredIndirect[stream.startPC]++;
+    }
+
+    // --- BTB Statistics ---
+    if (stream.isHit) {
+        // Count BTB hits
+        dbpBtbStats.btbHit++;
+    } else {
+        // Count BTB misses for taken branches
+        if (stream.exeTaken) {
+            dbpBtbStats.btbMiss++;
+            DPRINTF(BTB, "BTB miss detected when update, stream start %#lx, predTick %lu, printing branch info:\n",
+                    stream.startPC, stream.predTick);
+            auto &slot = stream.exeBranchInfo;
+            DPRINTF(BTB, "    pc:%#lx, size:%d, target:%#lx, cond:%d, indirect:%d, call:%d, return:%d\n",
+                slot.pc, slot.size, slot.target, slot.isCond, slot.isIndirect, slot.isCall, slot.isReturn);
+        }
+
+        // Count false hits
+        if (stream.falseHit) {
+            dbpBtbStats.commitFalseHit++;
+        }
+    }
+
+    if (stream.isHit || stream.exeTaken) {
+        // Update BTB entry statistics
+        auto it = totalBTBEntries.find(stream.startPC);
+        if (it == totalBTBEntries.end()) {
+            auto &btb_entry = stream.updateNewBTBEntry;
+            totalBTBEntries[stream.startPC] = std::make_pair(btb_entry, 1);
+            dbpBtbStats.btbEntriesWithDifferentStart++;
+        } else {
+            it->second.second++;
+            it->second.first = stream.updateNewBTBEntry;
+        }
+    }
+
+    // Track which predictor stage was used
+    dbpBtbStats.commitPredsFromEachStage[stream.predSource]++;
+
+    // --- Instruction Statistics ---
+    // Track committed instruction counts
+    dbpBtbStats.commitFsqEntryHasInsts.sample(stream.commitInstNum, 1);
+    if (stream.commitInstNum >= 0 && stream.commitInstNum <= 16) {
+        commitFsqEntryHasInstsVector[stream.commitInstNum]++;
+        if (stream.commitInstNum == 1 && stream.exeBranchInfo.isUncond()) {
+            dbpBtbStats.commitFsqEntryOnlyHasOneJump++;
+        }
+    }
+
+    // Track fetched instruction counts
+    dbpBtbStats.commitFsqEntryFetchedInsts.sample(stream.fetchInstNum, 1);
+    if (stream.fetchInstNum >= 0 && stream.fetchInstNum <= 16) {
+        commitFsqEntryFetchedInstsVector[stream.fetchInstNum]++;
+    }
+
+    // --- Misprediction Statistics ---
+    // Track control squashes (mispredictions)
+    if (stream.squashType == SQUASH_CTRL) {
+        // Record mispredict pair (start PC, branch PC)
+        auto find_it = topMispredicts.find(std::make_pair(stream.startPC, stream.exeBranchInfo.pc));
+        if (find_it == topMispredicts.end()) {
+            topMispredicts[std::make_pair(stream.startPC, stream.exeBranchInfo.pc)] = 1;
+        } else {
+            find_it->second++;
+        }
+
+        // Track history pattern for mispredictions
+        auto hist(stream.history);
+        hist.resize(18);
+        uint64_t pattern = hist.to_ulong();
+        auto find_it_hist = topMispredHist.find(pattern);
+        if (find_it_hist == topMispredHist.end()) {
+            topMispredHist[pattern] = 1;
+        } else {
+            find_it_hist->second++;
+        }
+    }
+}
+
+void
+DecoupledBPUWithBTB::updatePredictorComponents(FetchStream &stream)
+{
+    // Update predictor components only if the stream is hit or taken
+    if (stream.isHit || stream.exeTaken) {
+        // Prepare stream for update
+        stream.setUpdateInstEndPC(predictWidth);
+        stream.setUpdateBTBEntries();
+
+        // only mbtb can generate new entry
+        btb->getAndSetNewBTBEntry(stream);
+
+        // Update all predictor components
+        for (int i = 0; i < numComponents; ++i) {
+            components[i]->update(stream);
+        }
+    }
 }
 
 void

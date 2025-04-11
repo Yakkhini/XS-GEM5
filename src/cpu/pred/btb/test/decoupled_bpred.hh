@@ -434,6 +434,10 @@ class DecoupledBPUWithBTB
 
     void resetPC(Addr new_pc);
 
+    // Helper functions for update
+    void updatePredictorComponents(FetchStream &stream);
+    void updateStatistics(const FetchStream &stream);
+
     void addFtqNotValid() {
         dbpBtbStats.ftqNotValid++;
     }

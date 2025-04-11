@@ -544,7 +544,12 @@ class DecoupledBPUWithBTB : public BPredUnit
 
     void resetPC(Addr new_pc);
 
-    enum CfiType {
+    // Helper functions for update
+    void updatePredictorComponents(FetchStream &stream);
+    void updateStatistics(const FetchStream &stream);
+
+    enum CfiType
+    {
         COND,
         UNCOND,
         RETURN,
