@@ -480,7 +480,7 @@ DefaultBTB::getAndSetNewBTBEntry(FetchStream &stream)
         // For conditional branches, initialize as always taken
         if (new_entry.isCond) {
             new_entry.alwaysTaken = true;
-            new_entry.ctr = 1;  // Start with positive prediction
+            new_entry.ctr = 0;  // Start with positive prediction
             incNonL0Stat(btbStats.newEntryWithCond);
         } else {
             incNonL0Stat(btbStats.newEntryWithUncond);
@@ -613,7 +613,9 @@ DefaultBTB::updateBTBEntry(Addr btb_idx, Addr btb_tag, const BTBEntry& entry, co
             entry_to_write.alwaysTaken = false;
         }
         // if (isL0()) {  // only L0 BTB has saturating counter
+        if(!entry_to_write.alwaysTaken) {
             updateCtr(entry_to_write.ctr, this_cond_taken);
+        }
         // }
     }
     // update indirect target if necessary
