@@ -54,8 +54,8 @@ typedef struct BranchInfo {
     bool isUncond() const { return !this->isCond; }
     Addr getEnd() { return this->pc + this->size; }
     BranchInfo() : pc(0), target(0), isCond(false), isIndirect(false), isCall(false), isReturn(false), size(0) {}
-    BranchInfo(const Addr &control_pc, const Addr &target_pc, bool is_cond) :
-    pc(control_pc), target(target_pc), isCond(is_cond), isIndirect(false), isCall(false), isReturn(false), size(0) {}
+    // BranchInfo(const Addr &pc, const Addr &target_pc, bool is_cond) :
+    // pc(pc), target(target_pc), isCond(is_cond), isIndirect(false), isCall(false), isReturn(false), size(0) {}
     BranchInfo (const Addr &control_pc,
                 const Addr &target_pc,
                 const StaticInstPtr &static_inst,
@@ -283,7 +283,7 @@ typedef struct FetchStream
         return startPC;
     }
 
-    std::pair<int, bool> getHistInfoDuringSquash(Addr squash_pc, bool is_cond, bool actually_taken, unsigned maxShamt)
+    std::pair<int, bool> getHistInfoDuringSquash(Addr squash_pc, bool is_cond, bool actually_taken)
     {
         int shamt = 0;
         int cond_taken = false;

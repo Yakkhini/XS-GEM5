@@ -88,7 +88,6 @@ class DecoupledBPUWithBTB : public BPredUnit
 
     CPU *cpu;
 
-    unsigned numBr;
     bool alignToBlockSize;
 
     const unsigned historyTokenBits{8};
@@ -523,6 +522,17 @@ class DecoupledBPUWithBTB : public BPredUnit
     void setTakenEntryWithStream(FtqEntry &ftq_entry, const FetchStream &stream_entry);
 
     void setNTEntryWithStream(FtqEntry &ftq_entry, Addr endPC);
+
+    // Common logic for squash handling
+    void handleSquash(unsigned target_id,
+                      unsigned stream_id,
+                      SquashType squash_type,
+                      const PCStateBase &squash_pc,
+                      Addr redirect_pc,
+                      bool is_conditional = false,
+                      bool actually_taken = false,
+                      const StaticInstPtr &static_inst = nullptr,
+                      unsigned control_inst_size = 0);
 
     void resetPC(Addr new_pc);
 

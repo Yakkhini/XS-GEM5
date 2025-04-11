@@ -34,7 +34,6 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB()
 {
     btb_pred::predictWidth = 64;  // set global variable, used in stream_struct.hh
     btb_pred::alignToBlockSize = false;
-    numBr = 8; //TODO: remove numBr
 
     numStages = 3;
     // TODO: better impl (use vector to assign in python)
@@ -321,6 +320,120 @@ DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
     return std::make_pair(taken, run_out_of_this_entry);
 }
 
+/**
+ * @brief Common logic for handling squash events
+ *
+ * This function encapsulates the shared logic between different types of squashes:
+ * - Setting squashing state
+ * - Finding and updating the stream
+ * - Recovering history information
+ * - Clearing predictions
+ * - Updating FTQ and FSQ state
+ *
+ * @param target_id ID of the target being squashed
+ * @param stream_id ID of the stream being squashed
+ * @param squash_type Type of squash (CTRL/OTHER/TRAP)
+ * @param squash_pc PC where the squash occurred
+ * @param redirect_pc PC to redirect to after squash
+ * @param is_conditional Whether the squash is caused by a conditional branch
+ * @param actually_taken Whether the branch was actually taken (for conditional branches)
+ * @param static_inst Static instruction pointer (for control squash)
+ * @param control_inst_size Size of the control instruction (for control squash)
+ */
+void
+DecoupledBPUWithBTB::handleSquash(unsigned target_id,
+                                 unsigned stream_id,
+                                 SquashType squash_type,
+                                 const PCStateBase &squash_pc,
+                                 Addr redirect_pc,
+                                 bool is_conditional,
+                                 bool actually_taken,
+                                 const StaticInstPtr &static_inst,
+                                 unsigned control_inst_size)
+{
+    // Set squashing state
+    squashing = true;
+
+    // Find the stream being squashed
+    auto stream_it = fetchStreamQueue.find(stream_id);
+    if (stream_it == fetchStreamQueue.end()) {
+        assert(!fetchStreamQueue.empty());
+        DPRINTF(DecoupleBP, "The squashing stream is insane, ignore squash on it");
+        return;
+    }
+
+    // Get reference to the stream
+    auto &stream = stream_it->second;
+
+    // Update stream state
+    stream.resolved = true;
+    stream.exeTaken = actually_taken;
+    stream.squashPC = squash_pc.instAddr();
+    stream.squashType = squash_type;
+
+    // Special handling for control squash - create branch info
+    if (squash_type == SQUASH_CTRL && static_inst) {
+        // Use full branch info with static_inst if available
+        // stream.exeBranchInfo = BranchInfo(squash_pc.instAddr(), redirect_pc, static_inst, control_inst_size);
+        dumpFsq("Before control squash");
+    }
+
+    // Remove streams after the squashed one
+    squashStreamAfter(stream_id);
+
+    // Recover history information
+    s0History = stream.history;
+
+    // Get actual history shift info
+    int real_shamt;
+    bool real_taken;
+    std::tie(real_shamt, real_taken) = stream.getHistInfoDuringSquash(
+        squash_pc.instAddr(), is_conditional, actually_taken);
+
+    // Recover component history
+    for (int i = 0; i < numComponents; ++i) {
+        components[i]->recoverHist(s0History, stream, real_shamt, real_taken);
+    }
+
+    // Update global history
+    histShiftIn(real_shamt, real_taken, s0History);
+
+    // Update history manager
+    if (squash_type == SQUASH_CTRL) {
+        historyManager.squash(stream_id, real_shamt, real_taken, stream.exeBranchInfo);
+    } else {
+        historyManager.squash(stream_id, real_shamt, real_taken, BranchInfo());
+    }
+
+    // Check history consistency
+    checkHistory(s0History);
+    tage->checkFoldedHist(s0History,
+        squash_type == SQUASH_CTRL ? "control squash" :
+        squash_type == SQUASH_OTHER ? "non control squash" : "trap squash");
+
+    // Clear predictions for next cycle
+    clearPreds();
+
+    // Update PC and stream ID
+    s0PC = redirect_pc;
+    fsqId = stream_id + 1;
+
+    // Squash fetch target queue and redirect to new PC
+    auto ftq_demand_stream_id = stream_id + 1;
+    fetchTargetQueue.squash(target_id + 1, ftq_demand_stream_id, redirect_pc);
+
+    // Additional debugging for control squash
+    if (squash_type == SQUASH_CTRL) {
+        fetchTargetQueue.dump("After control squash");
+    }
+
+    DPRINTF(DecoupleBP,
+            "After squash, FSQ head Id=%lu, s0pc=%#lx, demand stream Id=%lu, "
+            "Fetch demanded target Id=%lu\n",
+            fsqId, s0PC, fetchTargetQueue.getEnqState().streamId,
+            fetchTargetQueue.getSupplyingTargetId());
+}
+
 void
 DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
                             const PCStateBase &control_pc,
@@ -335,30 +448,14 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     // Get branch type information
     bool is_conditional = static_inst->isCondCtrl();
     bool is_indirect = static_inst->isIndirectCtrl();
-    // bool is_call = static_inst->isCall() && !static_inst->isNonSpeculative();
-    // bool is_return = static_inst->isReturn() && !static_inst->isNonSpeculative();
 
-
-
-
-    squashing = true;
-
-    // Find the stream being squashed
-    auto squashing_stream_it = fetchStreamQueue.find(stream_id);
-
-    if (squashing_stream_it == fetchStreamQueue.end()) {
-        assert(!fetchStreamQueue.empty());
-        // assert(fetchStreamQueue.rbegin()->second.getNextStreamStart() == MaxAddr);
-        DPRINTF(
-            DecoupleBP || debugFlagOn,
-            "The squashing stream is insane, ignore squash on it");
+    auto stream_it = fetchStreamQueue.find(stream_id);
+    if (stream_it == fetchStreamQueue.end()) {
+        DPRINTF(DecoupleBP, "The squashing stream is insane, ignore squash on it");
         return;
     }
-
-
-    // get corresponding stream entry
-    auto &stream = squashing_stream_it->second;
-    // get target from ras preserved info for decode-detected unpredicted returns
+    auto &stream = stream_it->second;
+    // Get target address
     Addr real_target = corr_target.instAddr();
     // if (!fromCommit && static_inst->isReturn() && !static_inst->isNonSpeculative()) {
     //     // get ret addr from ras meta
@@ -366,26 +463,8 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
     //     // TODO: set real target to dynamic inst
     // }
 
-
-    // recover pc
-    s0PC = real_target;
-
-    // Create branch info for squash
-    auto squashBranchInfo = BranchInfo(control_pc.instAddr(), real_target, false);
-
-    auto pc = stream.startPC;
-    defer _(nullptr, std::bind([this]{ debugFlagOn = false; }));
-    if (pc == ObservingPC) {
-        debugFlagOn = true;
-    }
-    if (control_pc.instAddr() == ObservingPC || control_pc.instAddr() == ObservingPC2) {
-        debugFlagOn = true;
-    }
-
-    DPRINTF(DecoupleBPHist,
-            "stream start=%#lx, predict on hist\n", stream.startPC);
-
-    DPRINTF(DecoupleBP || debugFlagOn,
+    // Detailed debugging for control squash
+    DPRINTF(DecoupleBP,
             "Control squash: ftq_id=%d, fsq_id=%d,"
             " control_pc=%#lx, real_target=%#lx, is_conditional=%u, "
             "is_indirect=%u, actually_taken=%u, branch seq: %lu\n",
@@ -393,67 +472,9 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
             real_target, is_conditional, is_indirect,
             actually_taken, seq);
 
-    dumpFsq("Before control squash");
-
-    // streamLoopPredictor->restoreLoopTable(stream.mruLoop);
-    // streamLoopPredictor->controlSquash(stream_id, stream, control_pc.instAddr(), corr_target.instAddr());
-
-    stream.squashType = SQUASH_CTRL;
-
-    FetchTargetId ftq_demand_stream_id;
-
-
-    stream.exeBranchInfo = squashBranchInfo;
-    stream.exeTaken = actually_taken;
-    stream.squashPC = control_pc.instAddr();
-
-    squashStreamAfter(stream_id);
-
-    stream.resolved = true;
-
-    // recover history to the moment doing prediction
-    // DPRINTF(DecoupleBPHist,
-    //          "Recover history %s\nto %s\n", s0History, stream.history);
-    s0History = stream.history;
-
-    // recover history info
-    int real_shamt;
-    bool real_taken;
-    std::tie(real_shamt, real_taken) = stream.getHistInfoDuringSquash(control_pc.instAddr(), is_conditional, actually_taken, numBr);
-    for (int i = 0; i < numComponents; ++i) {
-        components[i]->recoverHist(s0History, stream, real_shamt, real_taken);
-    }
-    histShiftIn(real_shamt, real_taken, s0History);
-    historyManager.squash(stream_id, real_shamt, real_taken, stream.exeBranchInfo);
-    checkHistory(s0History);
-    tage->checkFoldedHist(s0History, "control squash");
-
-    // DPRINTF(DecoupleBPHist,
-    //             "Shift in history %s\n", s0History);
-
-    printStream(stream);
-
-    clearPreds();
-
-    // inc stream id because current stream ends
-    // now stream always ends
-    ftq_demand_stream_id = stream_id + 1;
-    fsqId = stream_id + 1;
-
-    dumpFsq("After control squash");
-
-    fetchTargetQueue.squash(target_id + 1, ftq_demand_stream_id,
-                            real_target);
-
-    fetchTargetQueue.dump("After control squash");
-
-    DPRINTFV(this->debugFlagOn || ::gem5::debug::DecoupleBP,
-            "After squash, FSQ head Id=%lu, demand stream Id=%lu, Fetch "
-            "demanded target Id=%lu\n",
-            fsqId, fetchTargetQueue.getEnqState().streamId,
-            fetchTargetQueue.getSupplyingTargetId());
-
-
+    // Call shared squash handling logic
+    handleSquash(target_id, stream_id, SQUASH_CTRL, control_pc,
+                real_target, is_conditional, actually_taken, static_inst, control_inst_size);
 }
 
 void
@@ -462,55 +483,13 @@ DecoupledBPUWithBTB::nonControlSquash(unsigned target_id, unsigned stream_id,
                                const InstSeqNum seq, ThreadID tid, const unsigned &currentLoopIter)
 {
     dbpBtbStats.nonControlSquash++;
-    DPRINTFV(this->debugFlagOn || ::gem5::debug::DecoupleBP,
+    DPRINTF(DecoupleBP,
             "non control squash: target id: %d, stream id: %d, inst_pc: %#lx, "
             "seq: %lu\n",
             target_id, stream_id, inst_pc.instAddr(), seq);
-    squashing = true;
 
-    dumpFsq("before non-control squash");
-
-    // make sure the stream is in FSQ
-    auto it = fetchStreamQueue.find(stream_id);
-    assert(it != fetchStreamQueue.end());
-
-    auto ftq_demand_stream_id = stream_id;
-    auto &stream = it->second;
-
-    squashStreamAfter(stream_id);
-
-    stream.exeTaken = false;
-    stream.resolved = true;
-    stream.squashPC = inst_pc.instAddr();
-    stream.squashType = SQUASH_OTHER;
-
-    // recover history info
-    s0History = it->second.history;
-    int real_shamt;
-    bool real_taken;
-    std::tie(real_shamt, real_taken) = stream.getHistInfoDuringSquash(inst_pc.instAddr(), false, false, numBr);
-    for (int i = 0; i < numComponents; ++i) {
-        components[i]->recoverHist(s0History, stream, real_shamt, real_taken);
-    }
-    histShiftIn(real_shamt, real_taken, s0History);
-    historyManager.squash(stream_id, real_shamt, real_taken, BranchInfo());
-    checkHistory(s0History);
-    tage->checkFoldedHist(s0History, "non control squash");
-    // fetching from a new fsq entry
-    auto pc = inst_pc.instAddr();
-    fetchTargetQueue.squash(target_id + 1, ftq_demand_stream_id + 1, pc);
-
-    clearPreds();
-
-    s0PC = pc;
-    fsqId = stream_id + 1;
-
-    if (pc == ObservingPC) dumpFsq("after non-control squash");
-    DPRINTFV(this->debugFlagOn || ::gem5::debug::DecoupleBP,
-            "After squash, FSQ head Id=%lu, s0pc=%#lx, demand stream Id=%lu, "
-            "Fetch demanded target Id=%lu\n",
-            fsqId, s0PC, fetchTargetQueue.getEnqState().streamId,
-            fetchTargetQueue.getSupplyingTargetId());
+    // Call shared squash handling logic
+    handleSquash(target_id, stream_id, SQUASH_OTHER, inst_pc, inst_pc.instAddr());
 }
 
 void
@@ -519,54 +498,12 @@ DecoupledBPUWithBTB::trapSquash(unsigned target_id, unsigned stream_id,
                          ThreadID tid, const unsigned &currentLoopIter)
 {
     dbpBtbStats.trapSquash++;
-    DPRINTF(DecoupleBP || debugFlagOn,
+    DPRINTF(DecoupleBP,
             "Trap squash: target id: %d, stream id: %d, inst_pc: %#lx\n",
             target_id, stream_id, inst_pc.instAddr());
-    squashing = true;
 
-    auto pc = inst_pc.instAddr();
-
-    if (pc == ObservingPC) dumpFsq("before trap squash");
-
-    auto it = fetchStreamQueue.find(stream_id);
-    assert(it != fetchStreamQueue.end());
-    auto &stream = it->second;
-
-    stream.resolved = true;
-    stream.exeTaken = false;
-    stream.squashPC = inst_pc.instAddr();
-    stream.squashType = SQUASH_TRAP;
-
-    squashStreamAfter(stream_id);
-
-    // recover history info
-    s0History = stream.history;
-    int real_shamt;
-    bool real_taken;
-    std::tie(real_shamt, real_taken) = stream.getHistInfoDuringSquash(inst_pc.instAddr(), false, false, numBr);
-    for (int i = 0; i < numComponents; ++i) {
-        components[i]->recoverHist(s0History, stream, real_shamt, real_taken);
-    }
-    histShiftIn(real_shamt, real_taken, s0History);
-    historyManager.squash(stream_id, real_shamt, real_taken, BranchInfo());
-    checkHistory(s0History);
-    tage->checkFoldedHist(s0History, "trap squash");
-
-    // inc stream id because current stream is disturbed
-    auto ftq_demand_stream_id = stream_id + 1;
-    fsqId = stream_id + 1;
-
-    fetchTargetQueue.squash(target_id + 1, ftq_demand_stream_id,
-                            inst_pc.instAddr());
-    clearPreds();
-
-    s0PC = inst_pc.instAddr();
-
-    DPRINTF(DecoupleBP,
-            "After trap squash, FSQ head Id=%lu, s0pc=%#lx, demand stream "
-            "Id=%lu, Fetch demanded target Id=%lu\n",
-            fsqId, s0PC, fetchTargetQueue.getEnqState().streamId,
-            fetchTargetQueue.getSupplyingTargetId());
+    // Call shared squash handling logic
+    handleSquash(target_id, stream_id, SQUASH_TRAP, inst_pc, inst_pc.instAddr());
 }
 
 void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
@@ -591,7 +528,7 @@ void DecoupledBPUWithBTB::update(unsigned stream_id, ThreadID tid)
         if (miss_predicted && stream.exeBranchInfo.isIndirect) {
             topMispredIndirect[stream.startPC]++;
         }
-        DPRINTF(DecoupleBP || debugFlagOn,
+        DPRINTF(DecoupleBP,
                 "Commit stream start %#lx, which is %s predicted, "
                 "final br addr: %#lx, final target: %#lx, pred br addr: %#lx, "
                 "pred target: %#lx\n",
@@ -654,7 +591,7 @@ DecoupledBPUWithBTB::squashStreamAfter(unsigned squash_stream_id)
 {
     auto erase_it = fetchStreamQueue.upper_bound(squash_stream_id);
     while (erase_it != fetchStreamQueue.end()) {
-        DPRINTF(DecoupleBP || debugFlagOn || erase_it->second.startPC == ObservingPC,
+        DPRINTF(DecoupleBP || erase_it->second.startPC == ObservingPC,
                 "Erasing stream %lu when squashing %d\n", erase_it->first,
                 squash_stream_id);
         printStream(erase_it->second);
