@@ -573,8 +573,26 @@ DefaultBTB::collectEntriesToUpdate(const std::vector<BTBEntry>& old_entries,
                                      const FetchStream &stream)
 {
     auto all_entries = old_entries;
-    if (!stream.updateIsOldEntry || isL0()) { // L0 BTB always updates
-        all_entries.push_back(stream.updateNewBTBEntry);
+
+    if (isL0()){
+        // since we don't want duplications in uBTB's entriesToUpdate,
+        // which causes its counter to update twice unintentionally
+        // we need to check if the new entry already exists in uBTB
+        bool pred_branch_hit = false;
+        for (auto &e: all_entries) {
+            if (stream.updateNewBTBEntry == e) {
+                pred_branch_hit = true;
+                break;
+            }
+        }
+        if (!pred_branch_hit) {
+            all_entries.push_back(stream.updateNewBTBEntry);
+        }
+
+    }else{
+        if (!stream.updateIsOldEntry) { // L0 BTB always updates
+            all_entries.push_back(stream.updateNewBTBEntry);
+        }
     }
     DPRINTF(BTB, "all_entries_to_update.size(): %lu\n", all_entries.size());
     dumpBTBEntries(all_entries);

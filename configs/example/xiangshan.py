@@ -121,7 +121,8 @@ def build_test_system(np, args):
             else:
                 bp_db_switches = []
             # for DecoupledBPUWithBTB, loop predictor and jump ahead predictor are not supported
-            if args.bp_type == 'DecoupledBPUWithBTB':
+            #if args.bp_type == 'DecoupledBPUWithBTB':
+            if True:
                 if args.enable_loop_predictor or args.enable_loop_buffer:
                     print("loop predictor and loop buffer not supported for DecoupledBPUWithBTB")
                     args.enable_loop_predictor = False
