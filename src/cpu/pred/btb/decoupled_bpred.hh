@@ -89,6 +89,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     CPU *cpu;
 
     unsigned predictWidth;  // max predict width, default 64
+    unsigned maxInstsNum;
 
     const unsigned historyBits{488};
 
@@ -180,12 +181,12 @@ class DecoupledBPUWithBTB : public BPredUnit
     void printStream(const FetchStream &e)
     {
         if (!e.resolved) {
-            DPRINTFR(DecoupleBP, "FSQ Predicted stream: ");
+            DPRINTFR(DecoupleBPProbe, "FSQ Predicted stream: ");
         } else {
-            DPRINTFR(DecoupleBP, "FSQ Resolved stream: ");
+            DPRINTFR(DecoupleBPProbe, "FSQ Resolved stream: ");
         }
         // TODO:fix this
-        DPRINTFR(DecoupleBP,
+        DPRINTFR(DecoupleBPProbe,
                  "%#lx-[%#lx, %#lx) --> %#lx, taken: %lu\n",
                  e.startPC, e.getBranchInfo().pc, e.getEndPC(),
                  e.getTakenTarget(), e.getTaken());
@@ -316,7 +317,10 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Scalar ftqNotValid;
         statistics::Scalar fsqNotValid;
         statistics::Scalar fsqFullCannotEnq;
-        // 
+        statistics::Scalar ftqFullCannotEnq;
+        statistics::Scalar fsqFullFetchHungry;
+        statistics::Scalar fsqEmpty;
+        //
         statistics::Distribution commitFsqEntryHasInsts;
         // write back once an fsq entry finishes fetch
         statistics::Distribution commitFsqEntryFetchedInsts;
@@ -330,7 +334,7 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Scalar predFalseHit;
         statistics::Scalar commitFalseHit;
 
-        DBPBTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize);
+        DBPBTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize, unsigned maxInstsNum);
     } dbpBtbStats;
 
   public:
@@ -588,7 +592,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     void notifyInstCommit(const DynInstPtr &inst);
 
     std::map<Addr, unsigned> topMispredIndirect;
-    int currentFtqEntryInstNum;
+    int currentFtqEntryInstNum{0};
 
 };
 

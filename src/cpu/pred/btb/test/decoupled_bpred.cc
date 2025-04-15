@@ -18,6 +18,7 @@ namespace test
 DecoupledBPUWithBTB::DecoupledBPUWithBTB()
       : fetchTargetQueue(20),
       fetchStreamQueueSize(20),
+      predictWidth(64),
       historyBits(128), // TODO: for test!
       ubtb(new DefaultBTB(32, 38, 32, 0, true)),
       btb(new DefaultBTB(2048, 20, 8, 1, true)),
@@ -199,7 +200,7 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
 
     // Find first stage that matches the chosen prediction
     while (first_hit_stage < numStages - 1) {
-        auto [matches, reason] = predsOfEachStage[first_hit_stage].match(*chosenPrediction);
+        auto [matches, reason] = predsOfEachStage[first_hit_stage].match(*chosenPrediction, predictWidth);
         if (matches) {
             break;
         }
@@ -857,8 +858,8 @@ DecoupledBPUWithBTB::createFetchStreamEntry()
 
     // Extract branch prediction information
     bool taken = finalPred.isTaken();
-    Addr fallThroughAddr = finalPred.getFallThrough();
-    Addr nextPC = finalPred.getTarget();
+    Addr fallThroughAddr = finalPred.getFallThrough(predictWidth);
+    Addr nextPC = finalPred.getTarget(predictWidth);
 
     // Configure stream entry with prediction details
     entry.isHit = !finalPred.btbEntries.empty();
@@ -923,7 +924,7 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
     FetchStream entry = createFetchStreamEntry();
 
     // 2. Update global PC state to target or fall-through
-    s0PC = finalPred.getTarget();;
+    s0PC = finalPred.getTarget(predictWidth);;
 
     // 3. Update history information
     updateHistoryForPrediction(entry);

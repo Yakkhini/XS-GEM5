@@ -404,6 +404,9 @@ class DefaultBTB : public TimedBaseBTBPredictor
         statistics::Scalar predHit;
         statistics::Scalar updateMiss;
         statistics::Scalar updateHit;
+        statistics::Scalar updateExisting;
+        statistics::Scalar updateReplace;
+        statistics::Scalar updateReplaceValidOne;
 
         statistics::Scalar eraseSlotBehindUncond;
 

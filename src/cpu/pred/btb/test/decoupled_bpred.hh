@@ -65,7 +65,7 @@ class DecoupledBPUWithBTB
     FetchStreamId fsqId{1};
     FetchStream lastCommittedStream;
 
-    bool alignToBlockSize;
+    unsigned predictWidth;  // max predict width, default 64
 
     const unsigned historyBits{64}; // TODO: for test!
 

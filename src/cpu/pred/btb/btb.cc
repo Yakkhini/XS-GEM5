@@ -648,6 +648,7 @@ DefaultBTB::updateBTBEntry(Addr btb_idx, Addr btb_tag, const BTBEntry& entry, co
                 ticked_entry.target, btb_idx, Mode::WRITE, 1);
             btbTrace->write_record(rec);
         }
+        btbStats.updateExisting++;
     } else {
         // Replace oldest entry in the set
         DPRINTF(BTB, "trying to replace entry in set %#lx\n", btb_idx);
@@ -661,6 +662,12 @@ DefaultBTB::updateBTBEntry(Addr btb_idx, Addr btb_tag, const BTBEntry& entry, co
                     entry_in_btb_now->target, btb_idx, Mode::EVICT, 0);
                 btbTrace->write_record(rec);
         }
+        if (entry_in_btb_now->valid) {
+            // if all ways are really occupied, we need to replace valid entry
+            // means 32B block is more than 4ways/ 4 branches
+            btbStats.updateReplaceValidOne++;
+        }
+        btbStats.updateReplace++;
         DPRINTF(BTB, "BTB: Replacing entry with tag %#lx, pc %#lx in set %#lx\n",
                 entry_in_btb_now->tag, entry_in_btb_now->pc, btb_idx);
         *entry_in_btb_now = ticked_entry;
@@ -879,6 +886,9 @@ DefaultBTB::BTBStats::BTBStats(statistics::Group* parent) :
     ADD_STAT(predHit, statistics::units::Count::get(), "hits encountered on prediction"),
     ADD_STAT(updateMiss, statistics::units::Count::get(), "misses encountered on update"),
     ADD_STAT(updateHit, statistics::units::Count::get(), "hits encountered on update"),
+    ADD_STAT(updateExisting, statistics::units::Count::get(), "existing entries updated"),
+    ADD_STAT(updateReplace, statistics::units::Count::get(), "entries replaced"),
+    ADD_STAT(updateReplaceValidOne, statistics::units::Count::get(), "entries replaced with valid entry"),
     ADD_STAT(eraseSlotBehindUncond, statistics::units::Count::get(), "erase slots behind unconditional slot"),
     ADD_STAT(predUseL0OnL1Miss, statistics::units::Count::get(), "use l0 result on l1 miss when pred"),
     ADD_STAT(updateUseL0OnL1Miss, statistics::units::Count::get(), "use l0 result on l1 miss when update"),

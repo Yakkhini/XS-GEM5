@@ -28,6 +28,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       fetchTargetQueue(p.ftq_size),
       fetchStreamQueueSize(p.fsq_size),
       predictWidth(p.predictWidth),
+      maxInstsNum(p.predictWidth / 2),
       historyBits(p.maxHistLen),
       ubtb(p.ubtb),
       abtb(p.abtb),
@@ -39,7 +40,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       bpDBSwitches(p.bpDBSwitches),
       numStages(p.numStages),
       historyManager(16), // TODO: fix this
-      dbpBtbStats(this, p.numStages, p.fsq_size)
+      dbpBtbStats(this, p.numStages, p.fsq_size, maxInstsNum)
 {
     if (bpDBSwitches.size() > 0) {
         
@@ -142,10 +143,10 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     if (!enableLoopPredictor && enableLoopBuffer) {
         fatal("loop buffer cannot be enabled without loop predictor\n");
     }
-    commitFsqEntryHasInstsVector.resize(16+1, 0);
-    lastPhaseFsqEntryNumCommittedInstDist.resize(16+1, 0);
-    commitFsqEntryFetchedInstsVector.resize(16+1, 0);
-    lastPhaseFsqEntryNumFetchedInstDist.resize(16+1, 0);
+    commitFsqEntryHasInstsVector.resize(maxInstsNum+1, 0);
+    lastPhaseFsqEntryNumCommittedInstDist.resize(maxInstsNum+1, 0);
+    commitFsqEntryFetchedInstsVector.resize(maxInstsNum+1, 0);
+    lastPhaseFsqEntryNumFetchedInstDist.resize(maxInstsNum+1, 0);
 
     registerExitCallback([this]() {
         auto out_handle = simout.create("topMisPredicts.txt", false, true);
@@ -318,7 +319,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
         // dump fsq entry committed insts
         out_handle = simout.create("fsqEntryCommittedInstNumDistsByPhase.txt", false, true);
         *out_handle->stream() << "phaseID";
-        for (int i = 0; i <= 16; i++) {
+        for (int i = 0; i <= maxInstsNum; i++) {
             *out_handle->stream() << " " << i;
         }
         *out_handle->stream() << " " << "average" << std::endl;
@@ -327,7 +328,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
         for (auto& it : fsqEntryNumCommittedInstDistByPhase) {
             *out_handle->stream() << phaseID;
             int numFsqEntries = 0;
-            for (int i = 0; i <= 16; i++) {
+            for (int i = 0; i <= maxInstsNum; i++) {
                 *out_handle->stream() << " " << it[i];
                 numFsqEntries += it[i];
             }
@@ -339,7 +340,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
         // dump fsq entry fetched insts
         out_handle = simout.create("fsqEntryFetchedInstNumDistsByPhase.txt", false, true);
         *out_handle->stream() << "phaseID";
-        for (int i = 0; i <= 16; i++) {
+        for (int i = 0; i <= maxInstsNum; i++) {
             *out_handle->stream() << " " << i;
         }
         *out_handle->stream() << " " << "average" << std::endl;
@@ -347,7 +348,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
         for (auto& it : fsqEntryNumFetchedInstDistByPhase) {
             *out_handle->stream() << phaseID;
             int numFsqEntries = 0;
-            for (int i = 0; i <= 16; i++) {
+            for (int i = 0; i <= maxInstsNum; i++) {
                 *out_handle->stream() << " " << it[i];
                 numFsqEntries += it[i];
             }
@@ -393,7 +394,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     });
 }
 
-DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize):
+DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigned numStages, unsigned fsqSize, unsigned maxInstsNum):
     statistics::Group(parent),
     ADD_STAT(condNum, statistics::units::Count::get(), "the number of cond branches"),
     ADD_STAT(uncondNum, statistics::units::Count::get(), "the number of uncond branches"),
@@ -430,6 +431,9 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     ADD_STAT(ftqNotValid, statistics::units::Count::get(), "fetch needs ftq req but ftq not valid"),
     ADD_STAT(fsqNotValid, statistics::units::Count::get(), "ftq needs fsq req but fsq not valid"),
     ADD_STAT(fsqFullCannotEnq, statistics::units::Count::get(), "bpu has req but fsq full cannot enqueue"),
+    ADD_STAT(ftqFullCannotEnq, statistics::units::Count::get(), "fsq has entry but ftq full cannot enqueue"),
+    ADD_STAT(fsqFullFetchHungry, statistics::units::Count::get(), "fetch hungry when fsq full and bpu cannot enqueue"),
+    ADD_STAT(fsqEmpty, statistics::units::Count::get(), "fsq is empty"),
     ADD_STAT(commitFsqEntryHasInsts, statistics::units::Count::get(), "number of insts that commit fsq entries have"),
     ADD_STAT(commitFsqEntryFetchedInsts, statistics::units::Count::get(), "number of insts that commit fsq entries fetched"),
     ADD_STAT(commitFsqEntryOnlyHasOneJump, statistics::units::Count::get(), "number of fsq entries with only one instruction (jump)"),
@@ -444,9 +448,9 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     commitPredsFromEachStage.init(numStages+1);
     commitOverrideBubbleNum = commitPredsFromEachStage[1] + 2 * commitPredsFromEachStage[2] ;
     commitOverrideCount = commitPredsFromEachStage[1] + commitPredsFromEachStage[2];
-    fsqEntryDist.init(0, fsqSize, 1);
-    commitFsqEntryHasInsts.init(0, 16, 1);
-    commitFsqEntryFetchedInsts.init(0, 16, 1);
+    fsqEntryDist.init(0, fsqSize, 20).flags(statistics::total);
+    commitFsqEntryHasInsts.init(0, maxInstsNum >> 1, 1);
+    commitFsqEntryFetchedInsts.init(0, maxInstsNum >> 1, 1);
 }
 
 DecoupledBPUWithBTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &inst, bool mispred)
@@ -466,13 +470,6 @@ DecoupledBPUWithBTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &ins
 void
 DecoupledBPUWithBTB::tick()
 {
-    // 1. Monitor FSQ size for statistics
-    dbpBtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
-    if (streamQueueFull()) {
-        dbpBtbStats.fsqFullCannotEnq++;
-        DPRINTF(Override, "FSQ is full (%lu entries)\n", fetchStreamQueue.size());
-    }
-
     // 2. Handle pending prediction if available
     if (!receivedPred && numOverrideBubbles == 0 && sentPCHist) {
         DPRINTF(Override, "Generating final prediction for PC %#lx\n", s0PC);
@@ -678,6 +675,7 @@ DecoupledBPUWithBTB::decoupledPredict(const StaticInstPtr &inst,
     // Check if fetch target queue has prediction available
     auto target_avail = fetchTargetQueue.fetchTargetAvailable();
     if (!target_avail) {
+        dbpBtbStats.ftqNotValid++;
         DPRINTF(DecoupleBP,
                 "No ftq entry to fetch, return dummy prediction\n");
         // Return (not taken, exhausted entry) to indicate no valid prediction
@@ -1018,7 +1016,7 @@ DecoupledBPUWithBTB::updateStatistics(const FetchStream &stream)
     // --- Instruction Statistics ---
     // Track committed instruction counts
     dbpBtbStats.commitFsqEntryHasInsts.sample(stream.commitInstNum, 1);
-    if (stream.commitInstNum >= 0 && stream.commitInstNum <= 16) {
+    if (stream.commitInstNum >= 0 && stream.commitInstNum <= maxInstsNum) {
         commitFsqEntryHasInstsVector[stream.commitInstNum]++;
         if (stream.commitInstNum == 1 && stream.exeBranchInfo.isUncond()) {
             dbpBtbStats.commitFsqEntryOnlyHasOneJump++;
@@ -1027,7 +1025,7 @@ DecoupledBPUWithBTB::updateStatistics(const FetchStream &stream)
 
     // Track fetched instruction counts
     dbpBtbStats.commitFsqEntryFetchedInsts.sample(stream.fetchInstNum, 1);
-    if (stream.fetchInstNum >= 0 && stream.fetchInstNum <= 16) {
+    if (stream.fetchInstNum >= 0 && stream.fetchInstNum <= maxInstsNum) {
         commitFsqEntryFetchedInstsVector[stream.fetchInstNum]++;
     }
 
@@ -1214,10 +1212,10 @@ DecoupledBPUWithBTB::notifyInstCommit(const DynInstPtr &inst)
             // fsq entry inst num distribution
             std::vector<int> currentPhaseFsqEntryNumCommittedInstDist;
             std::vector<int> currentPhaseFsqEntryNumFetchedInstDist;
-            currentPhaseFsqEntryNumCommittedInstDist.resize(16+1, 0);
-            currentPhaseFsqEntryNumFetchedInstDist.resize(16+1, 0);
+            currentPhaseFsqEntryNumCommittedInstDist.resize(maxInstsNum+1, 0);
+            currentPhaseFsqEntryNumFetchedInstDist.resize(maxInstsNum+1, 0);
             // FIXME: parameterize
-            for (int i = 0; i <= 16; i++) {
+            for (int i = 0; i <= maxInstsNum; i++) {
                 currentPhaseFsqEntryNumCommittedInstDist[i] = commitFsqEntryHasInstsVector[i] - lastPhaseFsqEntryNumCommittedInstDist[i];
                 lastPhaseFsqEntryNumCommittedInstDist[i] = commitFsqEntryHasInstsVector[i];
                 currentPhaseFsqEntryNumFetchedInstDist[i] = commitFsqEntryFetchedInstsVector[i] - lastPhaseFsqEntryNumFetchedInstDist[i];
@@ -1333,6 +1331,14 @@ DecoupledBPUWithBTB::dumpFsq(const char *when)
 bool
 DecoupledBPUWithBTB::validateFSQEnqueue()
 {
+    // Monitor FSQ size for statistics
+    dbpBtbStats.fsqEntryDist.sample(fetchStreamQueue.size(), 1);
+    if (streamQueueFull()) {
+        dbpBtbStats.fsqFullCannotEnq++;
+        DPRINTF(Override, "FSQ is full (%lu entries)\n", fetchStreamQueue.size());
+        return false;
+    }
+
     // 1. Check if a prediction is available to enqueue
     if (!receivedPred) {
         DPRINTF(Override, "No prediction available to enqueue into FSQ\n");
@@ -1419,12 +1425,13 @@ DecoupledBPUWithBTB::validateFTQEnqueue()
     // 1. Check if FTQ can accept new entries
     if (fetchTargetQueue.full()) {
         DPRINTF(DecoupleBP, "Cannot enqueue - FTQ is full\n");
+        dbpBtbStats.ftqFullCannotEnq++;
         return false;
     }
 
     // 2. Check if FSQ has valid entries
     if (fetchStreamQueue.empty()) {
-        dbpBtbStats.fsqNotValid++;
+        dbpBtbStats.fsqEmpty++;
         DPRINTF(DecoupleBP, "Cannot enqueue - FSQ is empty\n");
         return false;
     }
@@ -1437,6 +1444,10 @@ DecoupledBPUWithBTB::validateFTQEnqueue()
         dbpBtbStats.fsqNotValid++;
         DPRINTF(DecoupleBP, "Cannot enqueue - Stream ID %lu not found in FSQ\n",
                 ftq_enq_state.streamId);
+        if (streamQueueFull()) {
+            // fetch hungry, but fsq is full, cannot enqueue to ftq
+            dbpBtbStats.fsqFullFetchHungry++;
+        }
         return false;
     }
 

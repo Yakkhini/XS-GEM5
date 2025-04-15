@@ -5,6 +5,7 @@
   #include "cpu/pred/btb/test/test_dprintf.hh"
 #else
   #include "debug/DecoupleBP.hh"
+  #include "debug/DecoupleBPProbe.hh"
 #endif
 
 namespace gem5
@@ -231,9 +232,9 @@ FetchTargetQueue::enqueue(FtqEntry entry)
 void
 FetchTargetQueue::dump(const char* when)
 {
-    DPRINTF(DecoupleBP, "%s, dump FTQ\n", when);
+    DPRINTF(DecoupleBPProbe, "%s, dump FTQ\n", when);
     for (auto it = ftq.begin(); it != ftq.end(); ++it) {
-        DPRINTFR(DecoupleBP, "FTQ entry: %lu, start pc: %#lx, end pc: %#lx, stream ID: %lu\n",
+        DPRINTFR(DecoupleBPProbe, "FTQ entry: %lu, start pc: %#lx, end pc: %#lx, stream ID: %lu\n",
                  it->first, it->second.startPC, it->second.endPC, it->second.fsqID);
     }
 }
