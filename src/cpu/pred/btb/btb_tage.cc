@@ -56,9 +56,9 @@ tageStats(this, p.numPredictors)
 
         assert(tablePcShifts.size() >= numPredictors);
 
-        tagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i], 8));
-        altTagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i]-1, 8));
-        indexFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableIndexBits[i], 8));
+        tagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i], 16));
+        altTagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i]-1, 16));
+        indexFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableIndexBits[i], 16));
     }
     // for (unsigned i = 0; i < baseTable.size(); ++i) {
     //     baseTable[i].resize(numBr);

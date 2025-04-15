@@ -51,9 +51,9 @@ numTablesToAlloc(p.numTablesToAlloc)
 
         assert(tablePcShifts.size() >= numPredictors);
 
-        tagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i], (int)8));
-        altTagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i]-1, (int)8));
-        indexFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableIndexBits[i], (int)8));
+        tagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i], (int)16));
+        altTagFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableTagBits[i]-1, (int)16));
+        indexFoldedHist.push_back(FoldedHist((int)histLengths[i], (int)tableIndexBits[i], (int)16));
     }
     // useAlt.resize(128);
     // for (unsigned i = 0; i < useAlt.size(); ++i) {

@@ -39,7 +39,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     //   uras(p.uras),
       bpDBSwitches(p.bpDBSwitches),
       numStages(p.numStages),
-      historyManager(8), // TODO: fix this
+      historyManager(16), // TODO: fix this
       dbpBtbStats(this, p.numStages, p.fsq_size)
 {
     btb_pred::predictWidth = p.predictWidth;  // set global variable, used in stream_struct.hh

@@ -67,12 +67,6 @@ class DecoupledBPUWithBTB
 
     bool alignToBlockSize;
 
-    const unsigned historyTokenBits{8};
-
-    constexpr Addr foldingTokenMask() { return (1 << historyTokenBits) - 1; }
-
-    constexpr unsigned numFoldingTokens() { return 64/historyTokenBits; }
-
     const unsigned historyBits{64}; // TODO: for test!
 
     const Addr MaxAddr{~(0ULL)};

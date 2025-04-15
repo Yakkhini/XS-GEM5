@@ -29,7 +29,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB()
       btb(new DefaultBTB(2048, 20, 8, 1, true)),
       tage(new BTBTAGE()),
       numStages(3),
-      historyManager(8), // TODO: fix this
+      historyManager(16), // TODO: fix this
       dbpBtbStats()
 {
     btb_pred::predictWidth = 64;  // set global variable, used in stream_struct.hh
