@@ -4,7 +4,6 @@
 #include "base/debug_helper.hh"
 #include "cpu/o3/cpu.hh"
 #include "cpu/o3/dyn_inst.hh"
-#include "cpu/pred/btb/stream_common.hh"
 #include "debug/DecoupleBPVerbose.hh"
 #include "debug/DecoupleBPHist.hh"
 #include "debug/Override.hh"
@@ -28,7 +27,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       enableJumpAheadPredictor(p.enableJumpAheadPredictor),
       fetchTargetQueue(p.ftq_size),
       fetchStreamQueueSize(p.fsq_size),
-      alignToBlockSize(p.alignToBlockSize),
+      predictWidth(p.predictWidth),
       historyBits(p.maxHistLen),
       ubtb(p.ubtb),
       abtb(p.abtb),
@@ -42,8 +41,6 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       historyManager(16), // TODO: fix this
       dbpBtbStats(this, p.numStages, p.fsq_size)
 {
-    btb_pred::predictWidth = p.predictWidth;  // set global variable, used in stream_struct.hh
-    btb_pred::alignToBlockSize = p.alignToBlockSize;
     if (bpDBSwitches.size() > 0) {
         
         bpdb.init_db();
@@ -613,7 +610,7 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
 
     // Find first stage that matches the chosen prediction
     while (first_hit_stage < numStages - 1) {
-        auto [matches, reason] = predsOfEachStage[first_hit_stage].match(*chosenPrediction);
+        auto [matches, reason] = predsOfEachStage[first_hit_stage].match(*chosenPrediction, predictWidth);
         if (matches) {
             break;
         }
@@ -1542,8 +1539,8 @@ DecoupledBPUWithBTB::createFetchStreamEntry()
 
     // Extract branch prediction information
     bool taken = finalPred.isTaken();
-    Addr fallThroughAddr = finalPred.getFallThrough();
-    Addr nextPC = finalPred.getTarget();
+    Addr fallThroughAddr = finalPred.getFallThrough(predictWidth);
+    Addr nextPC = finalPred.getTarget(predictWidth);
 
     // Configure stream entry with prediction details
     entry.isHit = !finalPred.btbEntries.empty();
@@ -1608,7 +1605,7 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
     FetchStream entry = createFetchStreamEntry();
 
     // 2. Update global PC state to target or fall-through
-    s0PC = finalPred.getTarget();;
+    s0PC = finalPred.getTarget(predictWidth);;
 
     // 3. Update history information
     updateHistoryForPrediction(entry);

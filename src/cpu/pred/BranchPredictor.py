@@ -966,6 +966,7 @@ class TimedBaseBTBPredictor(SimObject):
     
     # TODO: parametrize numBr and numDelay
     blockSize = Param.Unsigned(Parent.predictWidth, "Block size in bytes")
+    predictWidth = Param.Unsigned(Parent.predictWidth, "Maximum range in bytes that a single prediction can cover")
     numDelay = Param.Unsigned(1000, "Number of bubbles to put on a prediction")
 
 class DefaultBTB(TimedBaseBTBPredictor):
@@ -1061,7 +1062,6 @@ class DecoupledBPUWithBTB(BranchPredictor):
     maxHistLen = Param.Unsigned(970, "The length of history")
     
     predictWidth = Param.Unsigned(64, "Maximum range in bytes that a single prediction can cover")
-    alignToBlockSize = Param.Bool(False, "Whether the prediction ends at the end of blockSize boundaries")
     numStages = Param.Unsigned(3, "Maximum number of stages in the pipeline")
     ubtb = Param.DefaultBTB(UBTB(), "UBTB predictor")
     abtb = Param.DefaultBTB(ABTB(), "ABTB predictor")

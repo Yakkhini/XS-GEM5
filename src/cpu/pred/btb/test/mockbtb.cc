@@ -27,9 +27,9 @@
  */
 
 
-#include "base/intmath.hh"
-#include "cpu/pred/btb/stream_common.hh"
 #include "cpu/pred/btb/test/mockbtb.hh"
+
+#include "base/intmath.hh"
 
 namespace gem5
 {
@@ -60,8 +60,6 @@ DefaultBTB::DefaultBTB(unsigned numEntries, unsigned tagBits, unsigned numWays, 
     log2NumThreads(1)
 {
     setNumDelay(numDelay);
-    // for test, TODO: remove this
-    alignToBlockSize = true;
     // Calculate shift amounts for index calculation
     if (halfAligned) { // if half-aligned, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);

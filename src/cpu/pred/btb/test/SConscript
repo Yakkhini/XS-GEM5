@@ -7,14 +7,12 @@ GTest('uras.test', 'uras_test.cc')
 GTest('btb.test', 
     'mockbtb.cc',
     'btb.test.cc',
-    '../stream_common.cc',
     'timed_base_pred.cc',
 )
 
 GTest('abtb.test',
     'mockbtb.cc',
     'abtb.test.cc',
-    '../stream_common.cc',
     'timed_base_pred.cc',
 )
 
@@ -22,7 +20,6 @@ GTest('abtb.test',
 GTest('tage.test', 
     'btb_tage.cc',
     'btb_tage.test.cc', 
-    '../stream_common.cc',
     '../folded_hist.cc',
     'timed_base_pred.cc',
 )
@@ -48,7 +45,6 @@ GTest('fetch_target_queue.test',
 GTest('decoupled_bpred.test',
     'decoupled_bpred.test.cc',
     'decoupled_bpred.cc',
-    '../stream_common.cc',
     'mockbtb.cc',
     'btb_tage.cc',
     '../folded_hist.cc',

@@ -61,9 +61,7 @@ DefaultBTB::DefaultBTB(const Params &p)
     btbStats(this)
 {
     // Calculate shift amounts for index calculation
-    if (alignToBlockSize) { // if aligned to blockSize, | tag | idx | block offset | instShiftAmt
-        idxShiftAmt = floorLog2(blockSize);
-    } else if (entryHalfAligned) { // if half aligned to blockSize, mbtb/ubtb block Size is 32
+    if (entryHalfAligned) { // if half aligned, | tag | idx | block offset | instShiftAmt
         idxShiftAmt = floorLog2(blockSize);
     } else { // if not aligned to blockSize, | tag | idx | instShiftAmt
         idxShiftAmt = 1;

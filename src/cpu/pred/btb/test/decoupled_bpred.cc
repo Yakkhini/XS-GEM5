@@ -5,11 +5,6 @@
 // #include "base/output.hh"
 #include "base/debug_helper.hh"
 
-// #include "cpu/o3/cpu.hh"
-// #include "cpu/o3/dyn_inst.hh"
-// #include "cpu/pred/btb/stream_common.hh"
-
-// #include "sim/core.hh"
 
 namespace gem5
 {
@@ -23,7 +18,6 @@ namespace test
 DecoupledBPUWithBTB::DecoupledBPUWithBTB()
       : fetchTargetQueue(20),
       fetchStreamQueueSize(20),
-      alignToBlockSize(true),
       historyBits(128), // TODO: for test!
       ubtb(new DefaultBTB(32, 38, 32, 0, true)),
       btb(new DefaultBTB(2048, 20, 8, 1, true)),
@@ -32,9 +26,6 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB()
       historyManager(16), // TODO: fix this
       dbpBtbStats()
 {
-    btb_pred::predictWidth = 64;  // set global variable, used in stream_struct.hh
-    btb_pred::alignToBlockSize = false;
-
     numStages = 3;
     // TODO: better impl (use vector to assign in python)
     // problem: btb->getAndSetNewBTBEntry

@@ -8,7 +8,6 @@
 // #include "arch/generic/pcstate.hh"
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
-#include "cpu/pred/btb/stream_common.hh"
 #include "cpu/pred/general_arch_db.hh"
 #include "cpu/static_inst.hh"
 
@@ -32,6 +31,16 @@ enum SquashType {
     SQUASH_TRAP,
     SQUASH_CTRL,
     SQUASH_OTHER
+};
+
+enum class OverrideReason
+{
+    no_override,
+    validity,
+    controlAddr,
+    target,
+    end,
+    histInfo
 };
 
 
@@ -306,7 +315,7 @@ typedef struct FetchStream
             if (exeTaken) { // taken inst pc
                 updateEndInstPC = getControlPC();
             } else { // natural fall through, align to the next block
-                assert(halfAligned);
+                // assert(halfAligned);
                 updateEndInstPC = (startPC + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
             }
         } else {
@@ -350,6 +359,15 @@ typedef struct FullBTBPrediction
     unsigned predSource;
     Tick predTick;
 
+    FullBTBPrediction() :
+        bbStart(0),
+        btbEntries(),
+        condTakens(),
+        indirectTargets(),
+        returnTarget(0),
+        predSource(0),
+        predTick(0) {}
+
     BTBEntry getTakenEntry() {
         // IMPORTANT: assume entries are sorted
         for (auto &entry : this->btbEntries) {
@@ -377,17 +395,12 @@ typedef struct FullBTBPrediction
         return getTakenEntry().valid;   // if find a taken entry, return true
     }
 
-    Addr getFallThrough() {
-        if (alignToBlockSize) { // endAddr is aligned to blockSize
-            return (bbStart + predictWidth) & ~mask(floorLog2(predictWidth));
-        } else if (halfAligned) {   // max 64 byte block, 32 byte aligned
-            return (bbStart + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
-        } else {
-            return bbStart + predictWidth;
-        }
+    Addr getFallThrough(Addr predictWidth) {
+        // max 64 byte block, 32 byte aligned
+        return (bbStart + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
     }
 
-    Addr getTarget() {
+    Addr getTarget(Addr predictWidth) {
         Addr target;
         const auto &entry = getTakenEntry();
         if (entry.valid) { // found a taken entry
@@ -405,16 +418,16 @@ typedef struct FullBTBPrediction
                 }
             } // else: normal taken, use btb target
         } else {
-            target = getFallThrough(); //TODO: +predictWidth
+            target = getFallThrough(predictWidth);
         }
         return target;
     }
 
-    Addr getEnd() {
+    Addr getEnd(Addr predictWidth) {
         if (isTaken()) {
             return getTakenEntry().getEnd();
         } else {
-            return getFallThrough();
+            return getFallThrough(predictWidth);
         }
     }
 
@@ -423,7 +436,7 @@ typedef struct FullBTBPrediction
         return getTakenEntry().pc;
     }
 
-    std::pair<bool, OverrideReason> match(FullBTBPrediction &other)
+    std::pair<bool, OverrideReason> match(FullBTBPrediction &other, Addr predictWidth)
     {
         auto this_taken_entry = this->getTakenEntry();
         auto other_taken_entry = other.getTakenEntry();
@@ -435,10 +448,10 @@ typedef struct FullBTBPrediction
                 if (this->controlAddr() != other.controlAddr()) {
                     return std::make_pair(false, OverrideReason::controlAddr);
                 }
-                else if (this->getTarget() != other.getTarget()) {
+                else if (this->getTarget(predictWidth) != other.getTarget(predictWidth)) {
                     return std::make_pair(false, OverrideReason::target);
                 }
-                else if (this->getEnd() != other.getEnd()) {
+                else if (this->getEnd(predictWidth) != other.getEnd(predictWidth)) {
                     return std::make_pair(false, OverrideReason::end);
                 }
                 else if (this->getHistInfo() != other.getHistInfo()) {

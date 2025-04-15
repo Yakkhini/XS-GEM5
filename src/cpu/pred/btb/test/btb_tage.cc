@@ -1,16 +1,6 @@
 #include "cpu/pred/btb/test/btb_tage.hh"
 #include <sys/types.h>
 
-// #include <algorithm>
-// #include <cmath>
-// #include <ctime>
-
-// #include "base/debug_helper.hh"
-// #include "base/intmath.hh"
-// // #include "base/trace.hh"
-// #include "cpu/o3/dyn_inst.hh"
-// #include "cpu/pred/btb/stream_common.hh"
-// #include "debug/TAGE.hh"
 
 namespace gem5 {
 

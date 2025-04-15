@@ -24,7 +24,6 @@
 #include <queue>
 
 #include "base/types.hh"
-#include "cpu/pred/btb/stream_common.hh"
 #include "cpu/pred/btb/stream_struct.hh"
 
 // Include test DPRINTF definitions at last, override the default DPRINTF

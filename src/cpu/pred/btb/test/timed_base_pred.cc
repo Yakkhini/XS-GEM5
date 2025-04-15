@@ -14,6 +14,7 @@ namespace test
 
 TimedBaseBTBPredictor::TimedBaseBTBPredictor()
     : blockSize(32),
+      predictWidth(64),
       numDelay(0)
 {
 }

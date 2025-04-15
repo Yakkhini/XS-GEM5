@@ -8,7 +8,6 @@
 #include "base/intmath.hh"
 #include "base/trace.hh"
 #include "cpu/o3/dyn_inst.hh"
-#include "cpu/pred/btb/stream_common.hh"
 #include "debug/DecoupleBP.hh"
 #include "debug/DecoupleBPVerbose.hh"
 #include "debug/DecoupleBPUseful.hh"

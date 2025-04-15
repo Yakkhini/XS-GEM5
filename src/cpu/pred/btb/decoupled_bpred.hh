@@ -88,7 +88,7 @@ class DecoupledBPUWithBTB : public BPredUnit
 
     CPU *cpu;
 
-    bool alignToBlockSize;
+    unsigned predictWidth;  // max predict width, default 64
 
     const unsigned historyBits{488};
 

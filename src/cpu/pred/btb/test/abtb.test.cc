@@ -19,7 +19,7 @@ namespace test
 FetchStream createStream(Addr startPC, FullBTBPrediction &pred, DefaultBTB *abtb) {
     FetchStream stream;
     stream.startPC = startPC;
-    Addr fallThroughAddr = pred.getFallThrough();
+    Addr fallThroughAddr = pred.getFallThrough(abtb->predictWidth);
     stream.isHit = pred.btbEntries.size() > 0; // TODO: fix isHit and falseHit
     stream.falseHit = false;
     stream.predBTBEntries = pred.btbEntries;

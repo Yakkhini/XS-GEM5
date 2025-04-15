@@ -53,6 +53,7 @@ class TimedBaseBTBPredictor
     void setBlockSize(unsigned size) { blockSize = size; }
 
     unsigned blockSize;
+    unsigned predictWidth;
 
 
 private:
