@@ -451,6 +451,15 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     ADD_STAT(staticBranchNumEverTaken, statistics::units::Count::get(), "the number of all (different) static branches that are once taken"),
     ADD_STAT(predsOfEachStage, statistics::units::Count::get(), "the number of preds of each stage that account for final pred"),
     ADD_STAT(overrideBubbleNum,  statistics::units::Count::get(), "the number of override bubbles"),
+    ADD_STAT(overrideCount, statistics::units::Count::get(), "the number of overrides"),
+    ADD_STAT(overrideFallThruMismatch, statistics::units::Count::get(),
+    "Number of overrides due to fall-thru mismatches"),
+    ADD_STAT(overrideControlAddrMismatch, statistics::units::Count::get(),
+    "Number of overrides due to control address mismatches"),
+    ADD_STAT(overrideTargetMismatch, statistics::units::Count::get(),"Number of overrides due to target mismatches"),
+    ADD_STAT(overrideEndMismatch, statistics::units::Count::get(),"Number of overrides due to end address mismatches"),
+    ADD_STAT(overrideHistInfoMismatch, statistics::units::Count::get(),
+    "Number of overrides due to history info mismatches"),
     ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
     "the number of preds of each stage that account for a committed stream"),
     ADD_STAT(commitOverrideBubbleNum, statistics::units::Count::get(),
@@ -635,6 +644,7 @@ DecoupledBPUWithFTB::tick()
     }
 
     if (numOverrideBubbles > 0) {
+        dbpFtbStats.overrideBubbleNum++;
         numOverrideBubbles--;
     }
 
@@ -807,14 +817,22 @@ DecoupledBPUWithFTB::generateFinalPredAndCreateBubbles()
         finalPred = *chosen;
         // calculate bubbles
         unsigned first_hit_stage = 0;
+    OverrideReason overrideReason = OverrideReason::NO_OVERRIDE;
         while (first_hit_stage < numStages-1) {
-            if (predsOfEachStage[first_hit_stage].match(*chosen)) {
+            auto [matches, reason] = predsOfEachStage[first_hit_stage].match(*chosen);
+            if (matches) {
                 break;
             }
             first_hit_stage++;
+            overrideReason = reason;
         }
         // generate bubbles
         bubblesToCreate = first_hit_stage;
+        if (bubblesToCreate > 0) {
+        dbpFtbStats.overrideCount++;
+            OverrideStats(overrideReason);
+        }
+
         // assign pred source
         finalPred.predSource = first_hit_stage;
         receivedPred = true;
@@ -2132,7 +2150,6 @@ DecoupledBPUWithFTB::tryEnqFetchStream()
     if (numOverrideBubbles > 0) {
         DPRINTF(DecoupleBP, "Waiting for bubble caused by overriding, bubbles rest: %u\n", numOverrideBubbles);
         DPRINTF(Override, "Waiting for bubble caused by overriding, bubbles rest: %u\n", numOverrideBubbles);
-        dbpFtbStats.overrideBubbleNum++;
         return;
     }
     assert(!streamQueueFull());
@@ -2637,6 +2654,34 @@ DecoupledBPUWithFTB::getPreservedReturnAddr(const DynInstPtr &dynInst)
     auto retAddr = ras->getTopAddrFromMetas(it->second);
     DPRINTF(DecoupleBP, "get ret addr %#lx\n", retAddr);
     return retAddr;
+}
+
+void
+DecoupledBPUWithFTB::OverrideStats(OverrideReason overrideReason)
+{
+
+
+    // Track specific override reasons for statistics
+    switch (overrideReason) {
+        case OverrideReason::FALL_THRU:
+            dbpFtbStats.overrideFallThruMismatch++;
+            break;
+        case OverrideReason::CONTROL_ADDR:
+            dbpFtbStats.overrideControlAddrMismatch++;
+            break;
+        case OverrideReason::TARGET:
+            dbpFtbStats.overrideTargetMismatch++;
+            break;
+        case OverrideReason::END:
+            dbpFtbStats.overrideEndMismatch++;
+            break;
+        case OverrideReason::HIST_INFO:
+            dbpFtbStats.overrideHistInfoMismatch++;
+            break;
+        default:
+            break;
+    }
+
 }
 
 }  // namespace ftb_pred

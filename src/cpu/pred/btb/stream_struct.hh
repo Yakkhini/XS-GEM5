@@ -47,12 +47,12 @@ enum BranchType
 
 enum class OverrideReason
 {
-    no_override,
-    validity,
-    controlAddr,
-    target,
-    end,
-    histInfo
+    NO_OVERRIDE,
+    FALL_THRU,
+    CONTROL_ADDR,
+    TARGET,
+    END,
+    HIST_INFO
 };
 
 
@@ -453,27 +453,28 @@ typedef struct FullBTBPrediction
         auto this_taken_entry = this->getTakenEntry();
         auto other_taken_entry = other.getTakenEntry();
         if (this_taken_entry.valid != other_taken_entry.valid) {
-            return std::make_pair(false, OverrideReason::validity);
+            return std::make_pair(false, OverrideReason::FALL_THRU);
         } else {
             // all taken or all not taken, check target and end
             if (this_taken_entry.valid && other_taken_entry.valid) {
                 if (this->controlAddr() != other.controlAddr()) {
-                    return std::make_pair(false, OverrideReason::controlAddr);
+                    return std::make_pair(false, OverrideReason::CONTROL_ADDR);
                 }
                 else if (this->getTarget(predictWidth) != other.getTarget(predictWidth)) {
-                    return std::make_pair(false, OverrideReason::target);
+                    return std::make_pair(false, OverrideReason::TARGET);
                 }
                 else if (this->getEnd(predictWidth) != other.getEnd(predictWidth)) {
-                    return std::make_pair(false, OverrideReason::end);
+                    // execution will never come here
+                    return std::make_pair(false, OverrideReason::END);
                 }
                 else if (this->getHistInfo() != other.getHistInfo()) {
-                    return std::make_pair(false, OverrideReason::histInfo);
+                    return std::make_pair(false, OverrideReason::HIST_INFO);
                 }
                 else {
-                    return std::make_pair(true, btb_pred::OverrideReason::no_override);
+                    return std::make_pair(true, btb_pred::OverrideReason::NO_OVERRIDE);
                 }
             } else {
-                return std::make_pair(true, btb_pred::OverrideReason::no_override);
+                return std::make_pair(true, btb_pred::OverrideReason::NO_OVERRIDE);
             }
         }
     }

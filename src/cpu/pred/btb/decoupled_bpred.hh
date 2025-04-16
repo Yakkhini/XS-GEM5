@@ -297,7 +297,7 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Scalar overrideBubbleNum;
         statistics::Scalar overrideCount;
         // Track override reasons
-        statistics::Scalar overrideValidityMismatch;
+        statistics::Scalar overrideFallThruMismatch;
         statistics::Scalar overrideControlAddrMismatch;
         statistics::Scalar overrideTargetMismatch;
         statistics::Scalar overrideEndMismatch;

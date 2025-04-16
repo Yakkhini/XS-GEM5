@@ -38,6 +38,16 @@ enum SquashType {
     SQUASH_OTHER
 };
 
+enum class OverrideReason
+{
+    NO_OVERRIDE,
+    FALL_THRU,
+    CONTROL_ADDR,
+    TARGET,
+    END,
+    HIST_INFO
+};
+
 enum SquashSource {
     SQUASH_SRC_DECODE=0,
     SQUASH_SRC_COMMIT
@@ -518,16 +528,17 @@ typedef struct FullFTBPrediction
         return -1;
     }
 
-    bool match(FullFTBPrediction &other)
+    std::pair<bool, OverrideReason> match(FullFTBPrediction &other)
     {
         if (!other.valid) {
             // chosen is invalid, means all predictors invalid, match
-            return true;
+            return std::make_pair(true, OverrideReason::NO_OVERRIDE);
         } else {
             // chosen is valid
-            if (!this->valid) {
+            if (this->getTakenSlot().valid != other.getTakenSlot().valid) {
                 // if this is invalid and chosen is valid, sure no match
-                return false;
+                // in reality this seldom happens
+                return std::make_pair(false, OverrideReason::FALL_THRU);
             } else {
                 bool this_taken, other_taken;
                 int this_cond_num, other_cond_num;
@@ -537,11 +548,22 @@ typedef struct FullFTBPrediction
                 Addr other_control_addr = other.controlAddr();
                 Addr this_npc = this->getTarget();
                 Addr other_npc = other.getTarget();
-                // both this and chosen valid
-                return this_taken == other_taken &&
-                       this_control_addr == other_control_addr &&
-                       this_cond_num == other_cond_num &&
-                       this_npc == other_npc;
+
+                // both this and chosen valid, check each possible mismatch reason
+                if (this->getTakenSlot().valid && other.getTakenSlot().valid){
+                    if (this_control_addr != other_control_addr) {
+                        return std::make_pair(false, OverrideReason::CONTROL_ADDR);
+                    } else if (this_npc != other_npc) {
+                        return std::make_pair(false, OverrideReason::TARGET);
+                    } else if (this_cond_num != other_cond_num || this_taken != other_taken) {
+                        return std::make_pair(false, OverrideReason::HIST_INFO);
+                    } else {
+                        return std::make_pair(true, OverrideReason::NO_OVERRIDE);
+                    }
+                }else{
+                    return std::make_pair(true, OverrideReason::NO_OVERRIDE);
+                }
+
             }
         }
     }
