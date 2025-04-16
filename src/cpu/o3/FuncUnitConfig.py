@@ -44,7 +44,7 @@ from m5.params import *
 from m5.objects.FuncUnit import *
 
 class IntMisc(FUDesc):
-    opList = [ OpDesc(opClass='No_OpClass'),
+    opList = [ OpDesc(opClass='No_OpClass', opLat=2),
                OpDesc(opClass='VectorConfig') ]
 
 class IntALU(FUDesc):
@@ -91,8 +91,7 @@ class FP_MISC(FUDesc):
                OpDesc(opClass='FloatMv', opLat=5)]
 
 class FP_MAC(FUDesc):
-    opList = [ OpDesc(opClass='FMAAcc', opLat=2),
-               OpDesc(opClass='FMAMul', opLat=4)]
+    opList = [ OpDesc(opClass='FloatMultAcc', opLat=4)]
 
 class SIMD_Unit(FUDesc):
     opList = [ OpDesc(opClass='SimdAdd'),
@@ -135,18 +134,18 @@ class PredALU(FUDesc):
     count = 1
 
 class ReadPort(FUDesc):
-    opList = [ OpDesc(opClass='MemRead', opLat=2), # actually execute cycle = 2+2 (2 is in rubycache)
-               OpDesc(opClass='FloatMemRead', opLat=2),
-               OpDesc(opClass='VectorUnitStrideLoad', opLat=3),
-               OpDesc(opClass='VectorSegUnitStrideLoad', opLat=3),
-               OpDesc(opClass='VectorUnitStrideMaskLoad', opLat=3),
-               OpDesc(opClass='VectorSegUnitStrideMaskLoad', opLat=3),
-               OpDesc(opClass='VectorStridedLoad', opLat=3),
-               OpDesc(opClass='VectorSegStridedLoad', opLat=3),
-               OpDesc(opClass='VectorIndexedLoad', opLat=3),
-               OpDesc(opClass='VectorSegIndexedLoad', opLat=3),
-               OpDesc(opClass='VectorUnitStrideFaultOnlyFirstLoad', opLat=3),
-               OpDesc(opClass='VectorWholeRegisterLoad', opLat=3)]
+    opList = [ OpDesc(opClass='MemRead', opLat=4), # actually execute cycle = loadpipe's stage
+               OpDesc(opClass='FloatMemRead', opLat=4),
+               OpDesc(opClass='VectorUnitStrideLoad', opLat=4),
+               OpDesc(opClass='VectorSegUnitStrideLoad', opLat=4),
+               OpDesc(opClass='VectorUnitStrideMaskLoad', opLat=4),
+               OpDesc(opClass='VectorSegUnitStrideMaskLoad', opLat=4),
+               OpDesc(opClass='VectorStridedLoad', opLat=4),
+               OpDesc(opClass='VectorSegStridedLoad', opLat=4),
+               OpDesc(opClass='VectorIndexedLoad', opLat=4),
+               OpDesc(opClass='VectorSegIndexedLoad', opLat=4),
+               OpDesc(opClass='VectorUnitStrideFaultOnlyFirstLoad', opLat=4),
+               OpDesc(opClass='VectorWholeRegisterLoad', opLat=4)]
 
 class WritePort(FUDesc):
     opList = [ OpDesc(opClass='MemWrite', opLat=2),
@@ -158,6 +157,9 @@ class WritePort(FUDesc):
                OpDesc(opClass='VectorStridedStore'),
                OpDesc(opClass='VectorIndexedStore'),
                OpDesc(opClass='VectorWholeRegisterStore')]
+
+class StoreDataPort(FUDesc):
+    opList = [ OpDesc(opClass='StoreData', opLat=1)]
 
 class RdWrPort(FUDesc):
     opList = [ OpDesc(opClass='MemRead', opLat=2),

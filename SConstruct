@@ -93,6 +93,7 @@ import SCons
 import SCons.Node
 import SCons.Node.FS
 import SCons.Tool
+import SCons.Errors
 
 if getattr(SCons, '__version__', None) in ('3.0.0', '3.0.1'):
     # Monkey patch a fix which appears in version 3.0.2, since we only
@@ -325,7 +326,10 @@ def config_embedded_python(env):
         if conf.TryAction(f'@{python_config} --embed')[0]:
             cmd.append('--embed')
 
-    def flag_filter(env, cmd_output):
+    def flag_filter(env, cmd_output, unique=True):
+        # Since this function does not use the `unique` param, one should not
+        # pass any value to this param.
+        assert(unique==True)
         flags = cmd_output.split()
         prefixes = ('-l', '-L', '-I')
         is_useful = lambda x: any(x.startswith(prefix) for prefix in prefixes)
@@ -372,20 +376,22 @@ for variant_path in variant_paths:
     env = main.Clone()
     env['BUILDDIR'] = variant_path
 
-    # Check for unit test mode and define UNIT_TEST macro if enabled
-    # This is used to replace debug/DecoupleBP.hh with test_dprintf.hh
-    if GetOption('unit_test'):
-        print("Unit test mode enabled - defining UNIT_TEST for", variant_path)
-        env.Append(CPPDEFINES=['UNIT_TEST'])
+    try:
+        # try-except section is required because
+        # SConsEnvironmentError/UserError exception raises if FindTool
+        # can't find a tool module. This exeption rises BEFORE check
+        # that tool exists and makes FindTool function useless in some way.
+        cdb_tool = SCons.Tool.FindTool(['compilation_db'], env)
 
-    # Enable compilation database generation for this variant
-    env.Tool('compilation_db')
-    env['COMPILATIONDB_USE_ABSPATH'] = True
-    # Create compilation database in the variant directory
-    cdb_path = os.path.join(variant_path, 'compile_commands.json')
-    print(f"Creating compilation database at: {cdb_path}")
-    cdb = env.CompilationDatabase(cdb_path)
-    print(f"Compilation database target created: {cdb}")
+        if cdb_tool:
+            env['COMPILATIONDB_USE_ABSPATH'] = True
+            env.Tool(cdb_tool)
+
+            cdb_path = f"{variant_path}/compile_commands.json"
+            env.CompilationDatabase(cdb_path)
+    except (SCons.Errors.SConsEnvironmentError, SCons.Errors.UserError):
+        # Looks like different scons versions raise different exeptions
+        pass
 
     gem5_build = os.path.join(build_root, variant_path, 'gem5.build')
     env['GEM5BUILD'] = gem5_build
@@ -508,6 +514,13 @@ for variant_path in variant_paths:
         with gem5_scons.Configure(env) as conf:
             conf.CheckCxxFlag('-Wno-c99-designator')
             conf.CheckCxxFlag('-Wno-defaulted-function-deleted')
+            # Poor code quality workaround, should be fixed in the future.
+            conf.CheckCxxFlag('-Wno-error=unused-private-field')
+            conf.CheckCxxFlag('-Wno-error=infinite-recursion')
+            conf.CheckCxxFlag('-Wno-error=array-parameter')
+            conf.CheckCxxFlag('-Wno-error=uninitialized-const-reference')
+            conf.CheckCxxFlag('-Wno-error=vla-extension')
+            conf.CheckCxxFlag('-Wno-error=vla-cxx-extension')
 
         env.Append(TCMALLOC_CCFLAGS=['-fno-builtin'])
 

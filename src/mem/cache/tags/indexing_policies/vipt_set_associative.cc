@@ -1,6 +1,18 @@
 /*
- * Copyright (c) 2015 RISC-V Foundation
- * Copyright (c) 2017 The University of Virginia
+ * Copyright (c) 2018 Inria
+ * Copyright (c) 2012-2014,2017 ARM Limited
+ * All rights reserved.
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
+ * Copyright (c) 2003-2005,2014 The Regents of The University of Michigan
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,58 +39,43 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "arch/riscv/insts/mem.hh"
+/**
+ * @file
+ * Definitions of a vipt set associative indexing policy.
+ */
 
-#include <sstream>
-#include <string>
+#include "mem/cache/tags/indexing_policies/vipt_set_associative.hh"
 
-#include "arch/riscv/insts/static_inst.hh"
-#include "arch/riscv/utility.hh"
-#include "cpu/o3/dyn_inst.hh"
-#include "cpu/o3/lsq_unit.hh"
-#include "cpu/static_inst.hh"
+#include <cassert>
+
+#include "mem/cache/replacement_policies/replaceable_entry.hh"
 
 namespace gem5
 {
 
-namespace RiscvISA
+VIPTSetAssociative::VIPTSetAssociative(const Params &p)
+    : SetAssociative(p)
 {
-
-std::string
-Load::generateDisassembly(Addr pc, const loader::SymbolTable *symtab) const
-{
-    std::stringstream ss;
-    ss << mnemonic << ' ' << registerName(destRegIdx(0)) << ", " <<
-        offset << '(' << registerName(srcRegIdx(0)) << ')';
-    return ss.str();
-}
-
-std::string
-Store::generateDisassembly(Addr pc, const loader::SymbolTable *symtab) const
-{
-    std::stringstream ss;
-    ss << mnemonic << ' ' << registerName(srcRegIdx(1)) << ", " <<
-        offset << '(' << registerName(srcRegIdx(0)) << ')';
-    return ss.str();
-}
-
-Fault
-StoreData::execute(ExecContext *xc, Trace::InstRecord *) const
-{
-    auto inst = dynamic_cast<o3::DynInst *>(xc);
-    auto data = inst->getRegOperand(inst->staticInst.get(), 0);
-
-    if (inst->sqIt->instruction()->getFault() == NoFault) {
-        // if instruction has already faulted, then skip executing std
-        if (inst->sqIt->instruction()->memData)
-            memcpy(inst->sqIt->instruction()->memData, &data, memsize);
-        memcpy(inst->sqIt->data(), &data, memsize);
-        inst->sqIt->setStatus(o3::SplitStoreStatus::DataReady);
-        inst->sqIt->setStatus(o3::SplitStoreStatus::StdPipeFinish);
+    if (tagShift > floorLog2(p.page_size)) {
+        aliasBits = tagShift - floorLog2(p.page_size);
+    } else {
+        aliasBits = 0;
     }
 
-    return NoFault;
+    assert(tagShift > aliasBits);
+    assert(p.page_size % 2 == 0);
 }
 
-} // namespace RiscvISA
+Addr
+VIPTSetAssociative::regenerateAddr(const Addr tag, const ReplaceableEntry* entry) const
+{
+    return (tag << (tagShift - aliasBits)) | ((entry->getSet() & (setMask >> aliasBits)) << setShift);
+}
+
+Addr
+VIPTSetAssociative::extractTag(const Addr addr) const
+{
+    return addr >> (tagShift - aliasBits);
+}
+
 } // namespace gem5

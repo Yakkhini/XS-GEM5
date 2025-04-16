@@ -114,14 +114,14 @@ decode QUADRANT default Unknown::unknown() {
                     Mem_ub = Rp2_ub;
                 }}, ea_code={{
                     EA = (Rp1 + offset);
-                }});
+                }}, inst_flags=[IsSplitStoreAddr, IsOper8]);
                 0x3: c_sh({{
                     offset = (CIMM2<0:0> << 1);
                 }}, {{
                     Mem_uh = Rp2_uh;
                 }}, ea_code={{
                     EA = (Rp1 + offset);
-                }});
+                }}, inst_flags=[IsSplitStoreAddr, IsOper16]);
             }
         }
         format CompressedStore {
@@ -136,7 +136,7 @@ decode QUADRANT default Unknown::unknown() {
                 Mem = Fp2_bits;
             }}, {{
                 EA = Rp1 + offset;
-            }});
+            }}, inst_flags=[IsSplitStoreAddr, IsOper64]);
             0x6: c_sw({{
                 offset = CIMM2<1:1> << 2 |
                          CIMM3 << 3 |
@@ -145,14 +145,14 @@ decode QUADRANT default Unknown::unknown() {
                 Mem_uw = Rp2_uw;
             }}, ea_code={{
                 EA = Rp1 + offset;
-            }});
+            }}, inst_flags=[IsSplitStoreAddr, IsOper32]);
             0x7: c_sd({{
                 offset = CIMM3 << 3 | CIMM2 << 6;
             }}, {{
                     Mem_ud = Rp2_ud;
             }}, {{
                 EA = Rp1 + offset;
-            }});
+            }}, inst_flags=[IsSplitStoreAddr, IsOper64]);
         }
     }
     0x1: decode COPCODE {
@@ -430,7 +430,7 @@ decode QUADRANT default Unknown::unknown() {
                 Mem_ud = Fc2_bits;
             }}, {{
                 EA = sp + offset;
-            }});
+            }}, inst_flags=[IsSplitStoreAddr, IsOper64]);
             0x6: c_swsp({{
                 offset = CIMM6<5:2> << 2 |
                          CIMM6<1:0> << 6;
@@ -438,7 +438,7 @@ decode QUADRANT default Unknown::unknown() {
                 Mem_uw = Rc2_uw;
             }}, {{
                 EA = sp + offset;
-            }});
+            }}, inst_flags=[IsSplitStoreAddr, IsOper32]);
             0x7: c_sdsp({{
                 offset = CIMM6<5:3> << 3 |
                          CIMM6<2:0> << 6;
@@ -446,7 +446,7 @@ decode QUADRANT default Unknown::unknown() {
                 Mem = Rc2;
             }}, {{
                 EA = sp + offset;
-            }});
+            }}, inst_flags=[IsSplitStoreAddr, IsOper64]);
         }
     }
     0x3: decode OPCODE {
@@ -873,16 +873,16 @@ decode QUADRANT default Unknown::unknown() {
             format Store {
                 0x0: sb({{
                     Mem_ub = Rs2_ub;
-                }});
+                }}, inst_flags=[IsSplitStoreAddr, IsOper8]);
                 0x1: sh({{
                     Mem_uh = Rs2_uh;
-                }});
+                }}, inst_flags=[IsSplitStoreAddr, IsOper16]);
                 0x2: sw({{
                     Mem_uw = Rs2_uw;
-                }});
+                }}, inst_flags=[IsSplitStoreAddr, IsOper32]);
                 0x3: sd({{
                     Mem_ud = Rs2_ud;
-                }});
+                }}, inst_flags=[IsSplitStoreAddr, IsOper64]);
             }
         }
 
@@ -895,7 +895,7 @@ decode QUADRANT default Unknown::unknown() {
                                 "FPU is off", machInst);
 
                     Mem_uh = (uint16_t)Fs2_bits;
-                }}, inst_flags=FloatMemWriteOp);
+                }}, inst_flags=[IsSplitStoreAddr, IsOper16, FloatMemWriteOp]);
                 0x2: fsw({{
                     STATUS status = xc->readMiscReg(MISCREG_STATUS);
                     if (status.fs == FPUStatus::OFF)
@@ -903,7 +903,7 @@ decode QUADRANT default Unknown::unknown() {
                                 "FPU is off", machInst);
 
                     Mem_uw = (uint32_t)Fs2_bits;
-                }}, inst_flags=FloatMemWriteOp);
+                }}, inst_flags=[IsSplitStoreAddr, IsOper32, FloatMemWriteOp]);
                 0x3: fsd({{
                     STATUS status = xc->readMiscReg(MISCREG_STATUS);
                     if (status.fs == FPUStatus::OFF)
@@ -911,7 +911,7 @@ decode QUADRANT default Unknown::unknown() {
                                 "FPU is off", machInst);
 
                     Mem_ud = Fs2_bits;
-                }}, inst_flags=FloatMemWriteOp);
+                }}, inst_flags=[IsSplitStoreAddr, IsOper64, FloatMemWriteOp]);
             }
 
             0x0: decode MOP {
@@ -1481,36 +1481,27 @@ decode QUADRANT default Unknown::unknown() {
             }
         }
 
-        format FMAccOp {
+        format FPROp {
             0x10: decode FUNCT2 {
                 0x0: fmadd_s({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f32_mulAdd(f32(freg(Fs1_bits)),
                                          f32(freg(Fs2_bits)),
                                          f32(freg(Fs3_bits))));
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x1: fmadd_d({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f64_mulAdd(f64(freg(Fs1_bits)),
                                          f64(freg(Fs2_bits)),
                                          f64(freg(Fs3_bits))));
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x2: fmadd_h({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f16_mulAdd(f16(freg(Fs1_bits)),
                                          f16(freg(Fs2_bits)),
                                          f16(freg(Fs3_bits))));
@@ -1519,11 +1510,8 @@ decode QUADRANT default Unknown::unknown() {
             }
             0x11: decode FUNCT2 {
                 0x0: fmsub_s({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f32_mulAdd(f32(freg(Fs1_bits)),
                                     f32(freg(Fs2_bits)),
                                     f32(f32(freg(Fs3_bits)).v ^
@@ -1531,11 +1519,8 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x1: fmsub_d({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f64_mulAdd(f64(freg(Fs1_bits)),
                                     f64(freg(Fs2_bits)),
                                     f64(f64(freg(Fs3_bits)).v ^
@@ -1543,11 +1528,8 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x2: fmsub_h({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f16_mulAdd(f16(freg(Fs1_bits)),
                                     f16(freg(Fs2_bits)),
                                     f16(f16(freg(Fs3_bits)).v ^
@@ -1557,11 +1539,8 @@ decode QUADRANT default Unknown::unknown() {
             }
             0x12: decode FUNCT2 {
                 0x0: fnmsub_s({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f32_mulAdd(f32(f32(freg(Fs1_bits)).v ^
                                              mask(31, 31)),
                                          f32(freg(Fs2_bits)),
@@ -1569,11 +1548,8 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x1: fnmsub_d({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f64_mulAdd(f64(f64(freg(Fs1_bits)).v ^
                                              mask(63, 63)),
                                          f64(freg(Fs2_bits)),
@@ -1581,11 +1557,8 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x2: fnmsub_h({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f16_mulAdd(f16(f16(freg(Fs1_bits)).v ^
                                              mask(15, 15)),
                                          f16(freg(Fs2_bits)),
@@ -1595,11 +1568,8 @@ decode QUADRANT default Unknown::unknown() {
             }
             0x13: decode FUNCT2 {
                 0x0: fnmadd_s({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f32_mulAdd(f32(f32(freg(Fs1_bits)).v ^
                                              mask(31, 31)),
                                     f32(freg(Fs2_bits)),
@@ -1608,11 +1578,8 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x1: fnmadd_d({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f64_mulAdd(f64(f64(freg(Fs1_bits)).v ^
                                              mask(63, 63)),
                                     f64(freg(Fs2_bits)),
@@ -1621,11 +1588,8 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
                 0x2: fnmadd_h({{
-                    Fx = Fs1 + Fs2;
-                }}, {{
                     RM_REQUIRED;
                     freg_t fd;
-                    fd.v = Fx_bits;
                     fd = freg(f16_mulAdd(f16(f16(freg(Fs1_bits)).v ^
                                              mask(15, 15)),
                                     f16(freg(Fs2_bits)),
@@ -1634,8 +1598,6 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = fd.v;
                 }}, FloatMultAccOp);
             }
-        }
-        format FPROp {
             0x14: decode FUNCT7 {
                 0x0: fadd_s({{
                     RM_REQUIRED;
@@ -4520,6 +4482,12 @@ decode QUADRANT default Unknown::unknown() {
             }
             format CSROp {
                 0x1:decode FUNCT12 {
+                    0x001:csrrw_fflags({{
+                        // csrrw fflags
+                        Rd = data;
+                        data = Rs1;
+                        write = RS1 != 0;
+                    }}, IsNonSpeculative, No_OpClass);
                     0x100:csrrw_s({{
                         auto v = xc->readMiscReg(MISCREG_VIRMODE);
                         if(v)
@@ -4535,6 +4503,15 @@ decode QUADRANT default Unknown::unknown() {
                     }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
                 0x2: decode FUNCT12 {
+                    0x001:csrrs_fflags({{
+                        auto Rs1_use = Rs1;
+                        auto v = xc->readMiscReg(MISCREG_VIRMODE);
+                        if((FUNCT12 == 0x104) && v)
+                            Rs1_use = Rs1 <<1;
+                        Rd = data;
+                        data |= Rs1_use;
+                        write = RS1 != 0;
+                    }}, IsNonSpeculative, No_OpClass);
                     0x100:csrrs_s({{
                         auto v = xc->readMiscReg(MISCREG_VIRMODE);
                         if(v)
@@ -4554,6 +4531,15 @@ decode QUADRANT default Unknown::unknown() {
                     }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
                 0x3: decode FUNCT12 {
+                    0x001:csrrc_fflags({{
+                        auto Rs1_use = Rs1;
+                        auto v = xc->readMiscReg(MISCREG_VIRMODE);
+                        if((FUNCT12 == 0x104) && v)
+                            Rs1_use = Rs1 <<1;
+                        Rd = data;
+                        data &= ~Rs1_use;
+                        write = RS1 != 0;
+                    }}, IsNonSpeculative, No_OpClass);
                     0x100:csrrc_s({{
                         auto v = xc->readMiscReg(MISCREG_VIRMODE);
                         if(v)
@@ -4573,6 +4559,11 @@ decode QUADRANT default Unknown::unknown() {
                     }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
                 0x5: decode FUNCT12 {
+                    0x001:csrrwi_fflags({{
+                        Rd = data;
+                        data = uimm;
+                        write = uimm != 0;
+                    }}, IsNonSpeculative, No_OpClass);
                     0x100:csrrwi_s({{
                         auto v = xc->readMiscReg(MISCREG_VIRMODE);
                         if(v)
@@ -4588,6 +4579,15 @@ decode QUADRANT default Unknown::unknown() {
                     }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
                 0x6: decode FUNCT12 {
+                    0x001:csrrsi_fflags({{
+                        auto uimm_use = uimm;
+                        auto v = xc->readMiscReg(MISCREG_VIRMODE);
+                        if((FUNCT12 == 0x104) && v)
+                            uimm_use =uimm<<1;
+                        Rd = data;
+                        data |= uimm_use;
+                        write = uimm != 0;
+                    }}, IsNonSpeculative, No_OpClass);
                     0x100:csrrsi_s({{
                         auto v = xc->readMiscReg(MISCREG_VIRMODE);
                         if(v)
@@ -4607,6 +4607,11 @@ decode QUADRANT default Unknown::unknown() {
                     }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
                 0x7: decode FUNCT12 {
+                    0x001:csrrci_fflags({{
+                        Rd = data;
+                        data &= ~uimm;
+                        write = uimm != 0;
+                    }}, IsNonSpeculative, No_OpClass);
                     0x100:csrrci_s({{
                         auto v = xc->readMiscReg(MISCREG_VIRMODE);
                         if(v)

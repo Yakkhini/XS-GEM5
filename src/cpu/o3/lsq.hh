@@ -959,6 +959,8 @@ class LSQ
     /** Debugging function to print out instructions from a specific thread. */
     void dumpInsts(ThreadID tid) const;
 
+    bool isMisaligned(const DynInstPtr& inst, LSQRequest* request);
+
     /** Executes a read operation, using the load specified at the load
      * index.
      */
@@ -1020,6 +1022,12 @@ class LSQ
     bool getDcacheWriteStall() { return dcacheWriteStall; }
 
     unsigned getLQEntries() const { return LQEntries; }
+
+    unsigned getFreeLQEntries(ThreadID tid);
+    unsigned getAndResetLastLQPopEntries(ThreadID tid);
+
+    unsigned getFreeSQEntries(ThreadID tid);
+    unsigned getAndResetLastSQPopEntries(ThreadID tid);
 
     /** Is D-cache blocked? */
     bool cacheBlocked() const;

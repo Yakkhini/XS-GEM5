@@ -79,6 +79,14 @@ struct BaseO3CPUParams;
 namespace o3
 {
 
+enum class SplitStoreStatus
+{
+    AddressReady,
+    DataReady,
+    StaPipeFinish,
+    StdPipeFinish
+};
+
 class IEW;
 
 class StoreBufferEntry
@@ -226,6 +234,14 @@ class LSQUnit
          */
         bool _isAllZeros = false;
 
+        bool _addrReady = false;
+
+        bool _dataReady = false;
+
+        bool _staFinish = false;
+
+        bool _stdFinish = false;
+
       public:
         static constexpr size_t DataSize = sizeof(_data);
         /** Constructs an empty store queue entry. */
@@ -241,7 +257,15 @@ class LSQUnit
         {
             LSQEntry::clear();
             _canWB = _completed = _committed = _isAllZeros = false;
+            _addrReady = _dataReady = _staFinish = _stdFinish = false;
         }
+
+        void setStatus(SplitStoreStatus status);
+
+        bool addrReady() const { return _addrReady; }
+        bool dataReady() const { return _dataReady; }
+        bool canForwardToLoad() const { return _addrReady && _dataReady; }
+        bool splitStoreFinish() const { return _staFinish && _stdFinish; }
 
         /** Member accessors. */
         /** @{ */
@@ -414,6 +438,12 @@ class LSQUnit
 
     /** Returns the number of free SQ entries. */
     unsigned numFreeStoreEntries();
+
+    /** Returns the number of Poped LQ entries in LAST CLOCK. */
+    unsigned getAndResetLastClockLQPopEntries();
+
+    /** Returns the number of Poped SQ entries in LAST CLOCK. */
+    unsigned getAndResetLastClockSQPopEntries();
 
     /** Returns the number of loads in the LQ. */
     int numLoads() { return loadQueue.size(); }
@@ -752,6 +782,9 @@ class LSQUnit
     /** Flag for memory model. */
     bool needsTSO;
 
+    unsigned lastClockSQPopEntries;
+    unsigned lastClockLQPopEntries;
+
   protected:
     // Will also need how many read/write ports the Dcache has.  Or keep track
     // of that in stage that is one level up, and only call executeLoad/Store
@@ -797,7 +830,7 @@ class LSQUnit
         /** Number of times the LSQ is blocked due to the cache. */
         statistics::Scalar blockedByCache;
 
-        statistics::Scalar sbufferInsertBlock;
+        statistics::Scalar sbufferFull;
 
         statistics::Scalar sbufferCreateVice;
 
@@ -811,8 +844,12 @@ class LSQUnit
         /** Distribution of cycle latency between the first time a load
          * is issued and its completion */
         statistics::Distribution loadToUse;
-
         statistics::Distribution loadTranslationLat;
+
+
+        statistics::Scalar forwardSTDNotReady;
+        statistics::Scalar STAReadyFirst;
+        statistics::Scalar STDReadyFirst;
 
         statistics::Scalar nonUnitStrideCross16Byte;
         statistics::Scalar unitStrideCross16Byte;

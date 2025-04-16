@@ -136,12 +136,13 @@ class StaticInst : public RefCounted, public StaticInstFlags
     /// instruction property flags.  See StaticInst::Flags for descriptions
     /// of the individual flags.
     //@{
-    uint32_t operWid() const
+    int32_t operWid() const
     {
-        return flags[IsOper16]   ? 16
-               : flags[IsOper32] ? 32
-               : flags[IsOper64] ? 64
-                               : -1;
+        return flags[IsOper8] ? 8
+              : flags[IsOper16] ? 16
+              : flags[IsOper32] ? 32
+              : flags[IsOper64] ? 64
+              : -1;
     }
 
     bool isNop()          const { return flags[IsNop]; }
@@ -155,6 +156,7 @@ class StaticInst : public RefCounted, public StaticInstFlags
     bool isHInst()        const { return flags[IsHInst];}
     bool isLoad()         const { return flags[IsLoad]; }
     bool isStore()        const { return flags[IsStore]; }
+    bool isSplitStoreAddr() const { return flags[IsSplitStoreAddr]; }
     bool isAtomic()       const { return flags[IsAtomic]; }
     bool isLoadReserved() const { return flags[IsLoadReserved]; }
     bool isStoreConditional()     const { return flags[IsStoreConditional]; }

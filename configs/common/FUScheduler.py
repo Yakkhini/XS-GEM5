@@ -113,32 +113,38 @@ class KunminghuScheduler(Scheduler):
             IssuePort(fu=[IntALU()], rp=[IntRD(6, 0), IntRD(7, 0)]),
             IssuePort(fu=[IntDiv()], rp=[IntRD(0, 1), IntRD(1, 1)])
         ]),
-        IssueQue(name='load0', inports=1, size=16, oports=[
+        IssueQue(name='load0', inports=2, size=16, oports=[
             IssuePort(fu=[ReadPort()], rp=[IntRD(8, 0)])
         ]),
-        IssueQue(name='load1', inports=1, size=16, oports=[
+        IssueQue(name='load1', inports=2, size=16, oports=[
             IssuePort(fu=[ReadPort()], rp=[IntRD(9, 0)])
         ]),
-        IssueQue(name='load2', inports=1, size=16, oports=[
+        IssueQue(name='load2', inports=2, size=16, oports=[
             IssuePort(fu=[ReadPort()], rp=[IntRD(10, 0)])
         ]),
-        IssueQue(name='store0', inports=1, size=16, oports=[
-            IssuePort(fu=[WritePort()], rp=[IntRD(7, 2), IntRD(5,2), FpRD(9,0)])
+        IssueQue(name='store0', inports=2, size=16, oports=[
+            IssuePort(fu=[WritePort()], rp=[IntRD(7, 2)])
         ]),
-        IssueQue(name='store1', inports=1, size=16, oports=[
-            IssuePort(fu=[WritePort()], rp=[IntRD(6, 2), IntRD(3,2), FpRD(10,0)])
+        IssueQue(name='store1', inports=2, size=16, oports=[
+            IssuePort(fu=[WritePort()], rp=[IntRD(6, 2)])
+        ]),
+        IssueQue(name='std0', inports=2, size=16, oports=[
+            IssuePort(fu=[StoreDataPort()], rp=[IntRD(5,2), FpRD(9,0)])
+        ]),
+        IssueQue(name='std1', inports=2, size=16, oports=[
+            IssuePort(fu=[StoreDataPort()], rp=[IntRD(3,2), FpRD(10,0)])
         ]),
         IssueQue(name='fpIQ0', inports=2, size=18, oports=[
             IssuePort(fu=[FP_ALU(), FP_MISC(), FP_MAC()], rp=[FpRD(0,0), FpRD(1, 0), FpRD(2,0)]),
             IssuePort(fu=[FP_SLOW()], rp=[FpRD(2,1), FpRD(5,1)])
-        ], scheduleToExecDelay=3),
+        ], scheduleToExecDelay=2),
         IssueQue(name='fpIQ1', inports=2, size=18, oports=[
             IssuePort(fu=[FP_ALU(), FP_MAC()], rp=[FpRD(3,0), FpRD(4,0), FpRD(5,0)]),
             IssuePort(fu=[FP_SLOW()], rp=[FpRD(8,1), FpRD(9,1)]),
-        ], scheduleToExecDelay=3),
+        ], scheduleToExecDelay=2),
         IssueQue(name='fpIQ2', inports=2, size=18, oports=[
             IssuePort(fu=[FP_ALU(), FP_MAC()], rp=[FpRD(6,0), FpRD(7,0), FpRD(8,0)])
-        ], scheduleToExecDelay=3),
+        ], scheduleToExecDelay=2),
         IssueQue(name='vecIQ0', inports=5, size=16+16+10, oports=[
             IssuePort(fu=[SIMD_Unit()]),
             IssuePort(fu=[SIMD_Unit()]),
@@ -147,7 +153,7 @@ class KunminghuScheduler(Scheduler):
             IssuePort(fu=[SIMD_Unit()])
         ], scheduleToExecDelay=3),
     ]
-    __int_bank = ['intIQ0', 'intIQ1', 'intIQ2', 'intIQ3', 'load0', 'load1', 'load2', 'store0', 'store1']
+    __int_bank = ['intIQ0', 'intIQ1', 'intIQ2', 'intIQ3', 'load0', 'load1', 'load2', 'store0', 'store1', 'std0', 'std1']
     __fp_bank = ['fpIQ0', 'fpIQ1', 'fpIQ2', 'store0', 'store1']
     specWakeupNetwork = [
         SpecWakeupChannel(srcIQ='intIQ0', dstIQ=__int_bank),
@@ -200,6 +206,10 @@ class IdealScheduler(Scheduler):
             IssuePort(fu=[WritePort()]),
             IssuePort(fu=[WritePort()])
         ]),
+        IssueQue(name='std0', inports=4, size=2*32, oports=[
+            IssuePort(fu=[StoreDataPort()]),
+            IssuePort(fu=[StoreDataPort()])
+        ]),
         IssueQue(name='fpIQ0', inports=2, size=18, oports=[
             IssuePort(fu=[FP_ALU(), FP_MISC(), FP_MAC()])
         ], scheduleToExecDelay=3),
@@ -224,7 +234,7 @@ class IdealScheduler(Scheduler):
             IssuePort(fu=[SIMD_Unit()])
         ], scheduleToExecDelay=3),
     ]
-    __int_bank = ['intIQ0', 'intIQ1', 'intIQ2', 'intIQ3', 'load0', 'store0']
+    __int_bank = ['intIQ0', 'intIQ1', 'intIQ2', 'intIQ3', 'load0', 'store0', 'std0']
     __fp_bank = ['fpIQ0', 'fpIQ1', 'fpIQ2', 'fpIQ3', 'fpIQ4', 'store0']
     specWakeupNetwork = [
         SpecWakeupChannel(srcIQ='intIQ0', dstIQ=__int_bank),
@@ -238,6 +248,8 @@ class IdealScheduler(Scheduler):
         # SpecWakeupChannel(srcIQ='fpIQ4', dstIQ=__fp_bank),
         SpecWakeupChannel(srcIQ='load0', dstIQ=__int_bank),
     ]
+
+    useOldDisp = True
 
 
 DefaultScheduler = KunminghuScheduler

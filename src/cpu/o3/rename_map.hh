@@ -188,6 +188,8 @@ class UnifiedRenameMap
     /** Destructor. */
     ~UnifiedRenameMap() {};
 
+    static inline PhysRegIdPtr getInvalid() { return &invalidPhysRegId; };
+
     /** Initializes rename map with given parameters. */
     void init(const BaseISA::RegClasses &regClasses,
               PhysRegFile *_regFile, UnifiedFreeList *freeList);

@@ -2,6 +2,7 @@ import m5
 from m5.objects import *
 from common.Caches import *
 from common import ObjectList
+from m5.objects.Prefetcher import XSPhysicalSmallBOP, XSVirtualLargeBOP
 
 
 def _get_hwp(hwp_option):
@@ -61,9 +62,11 @@ def create_prefetcher(cpu, cache_level, options):
     if cache_level == 'l2':
         if options.kmh_align:
             assert prefetcher_name == 'L2CompositeWithWorkerPrefetcher'
-            prefetcher.enable_cmc = True
+            prefetcher.enable_cmc = False
             prefetcher.enable_bop = True
             prefetcher.enable_cdp = False
+            prefetcher.bop_large = XSVirtualLargeBOP(is_sub_prefetcher=True)
+            prefetcher.bop_small = XSPhysicalSmallBOP(is_sub_prefetcher=True)
         if options.l1_to_l2_pf_hint:
             prefetcher.queue_size = 64
             prefetcher.max_prefetch_requests_with_pending_translation = 128

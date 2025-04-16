@@ -46,6 +46,7 @@ class StaticInstFlags(Enum):
     enum_name = 'Flags'
 
     vals = [
+        'IsOper8',
         'IsOper16',
         'IsOper32',
         'IsOper64',
@@ -60,6 +61,7 @@ class StaticInstFlags(Enum):
 
         'IsLoad',           # Reads from memory (load or prefetch).
         'IsStore',          # Writes to memory.
+        'IsSplitStoreAddr', # Splited storeAddr
         'IsAtomic',         # Does atomic RMW to memory.
         'IsLoadReserved',   # Load reserved
         'IsStoreConditional',   # Store conditional instruction.

@@ -100,6 +100,9 @@ InstructionQueue::CacheMissLdInstsHash::operator()(const DynInstPtr& ptr) const
     return ptr->getLqIdx();
 }
 
+InstructionQueue::STLFFailLdInst::STLFFailLdInst(DynInstPtr inst, InstSeqNum storeSeqNum, bool resolved)
+    : inst(inst), storeSeqNum(storeSeqNum), resolved(resolved) {}
+
 InstructionQueue::InstructionQueue(CPU *cpu_ptr, IEW *iew_ptr,
         const BaseO3CPUParams &params)
     : cpu(cpu_ptr),
@@ -359,6 +362,7 @@ InstructionQueue::resetState()
     nonSpecInsts.clear();
     deferredMemInsts.clear();
     cacheMissLdInsts.clear();
+    stlfFailLdInsts.clear();
     blockedMemInsts.clear();
     retryMemInsts.clear();
     wbOutstanding = 0;
@@ -417,25 +421,13 @@ InstructionQueue::takeOverFrom()
 }
 
 bool
-InstructionQueue::isReady(const DynInstPtr& inst)
-{
-    return scheduler->ready(inst);
-}
-
-bool
-InstructionQueue::isFull(const DynInstPtr& inst)
-{
-    return scheduler->full(inst);
-}
-
-bool
 InstructionQueue::hasReadyInsts()
 {
     return scheduler->hasReadyInsts();
 }
 
 void
-InstructionQueue::insert(const DynInstPtr &new_inst)
+InstructionQueue::insert(const DynInstPtr &new_inst, int disp_seq)
 {
     if (new_inst->isFloating()) {
         iqIOStats.fpInstQueueWrites++;
@@ -450,7 +442,7 @@ InstructionQueue::insert(const DynInstPtr &new_inst)
     DPRINTF(IQ, "Adding instruction [sn:%llu] PC %s to the IQ.\n",
             new_inst->seqNum, new_inst->pcState());
 
-    scheduler->insert(new_inst);
+    scheduler->insert(new_inst, disp_seq);
 
     ++iqStats.instsAdded;
 }
@@ -661,6 +653,10 @@ InstructionQueue::scheduleReadyInsts()
         mem_inst->issueQue->retryMem(mem_inst);
     }
 
+    while ((mem_inst = getSTLFFailInstToExecute())) {
+        mem_inst->issueQue->retryMem(mem_inst);
+    }
+
     // See if any cache blocked instructions are able to be executed
     while ((mem_inst = getBlockedMemInstToExecute())) {
         mem_inst->issueQue->retryMem(mem_inst);
@@ -728,7 +724,8 @@ InstructionQueue::scheduleReadyInsts()
     // @todo If the way deferred memory instructions are handeled due to
     // translation changes then the deferredMemInsts condition should be
     // removed from the code below.
-    if (total_issued || !retryMemInsts.empty() || !deferredMemInsts.empty() || !cacheMissLdInsts.empty()) {
+    if (total_issued || !retryMemInsts.empty() || !deferredMemInsts.empty() ||
+       !cacheMissLdInsts.empty() || !stlfFailLdInsts.empty()) {
         cpu->activityThisCycle();
     } else {
         DPRINTF(IQ, "Not able to schedule any instructions.\n");
@@ -876,6 +873,14 @@ InstructionQueue::cacheMissLdReplay(const DynInstPtr &deferred_inst)
 }
 
 void
+InstructionQueue::stlfFailLdReplay(const DynInstPtr &deferred_inst, const InstSeqNum &store_seq_num)
+{
+    DPRINTF(IQ, "Load[sn:%llu] unable to forward from data unready store[sn:%llu],"
+            " insert to Replay Queue\n", deferred_inst->seqNum, store_seq_num);
+    stlfFailLdInsts.emplace_back(deferred_inst, store_seq_num, false);
+}
+
+void
 InstructionQueue::blockMemInst(const DynInstPtr &blocked_inst)
 {
     blocked_inst->clearCanIssue();
@@ -938,6 +943,39 @@ InstructionQueue::getCacheMissInstToExecute()
         }
     }
     return nullptr;
+}
+
+DynInstPtr
+InstructionQueue::getSTLFFailInstToExecute()
+{
+    for (auto it = stlfFailLdInsts.begin(); it != stlfFailLdInsts.end();
+         ++it) {
+        if ((*it).resolved || (*it).inst->isSquashed()) {
+            DPRINTF(IQ, "STDFwdFailed load inst [sn:%llu] PC %s is ready to "
+                    "execute\n", (*it).inst->seqNum, (*it).inst->pcState());
+            DynInstPtr mem_inst = std::move((*it).inst);
+            stlfFailLdInsts.erase(it);
+            return mem_inst;
+        }
+        if (!(*it).resolved) {
+            DPRINTF(
+                IQ,
+                "inst [sn:%llu] PC %s is waiting for store [sn:%llu] to be ready\n",
+                (*it).inst->seqNum, (*it).inst->pcState(), (*it).storeSeqNum);
+        }
+    }
+    return nullptr;
+}
+
+void
+InstructionQueue::resolveSTLFFailInst(const InstSeqNum &store_seq_num)
+{
+    for (auto it = stlfFailLdInsts.begin(); it != stlfFailLdInsts.end();
+         ++it) {
+        if ((*it).storeSeqNum == store_seq_num) {
+            (*it).resolved = true;
+        }
+    }
 }
 
 DynInstPtr

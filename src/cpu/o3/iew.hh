@@ -289,6 +289,8 @@ class IEW
     // if load tlb miss or cache miss
     void loadCancel(const DynInstPtr &inst);
 
+    void stlfFailLdReplay(const DynInstPtr &inst, const InstSeqNum &store_seq_num);
+
     uint32_t getIQInsts();
   private:
     /** Sends commit proper information for a squash due to a branch
@@ -314,6 +316,9 @@ class IEW
 
     /** Dispatches instructions to IQ and LSQ. */
     void dispatchInsts(ThreadID tid);
+
+    void dispatchInstFromRename(ThreadID tid);
+
     /** dispatchQueue is the buffer between rename and iq
      *  first, dispatch the inst from DispatchQueue to IQ
      *  second, receive new inst from rename, store it to DQ
@@ -424,6 +429,8 @@ class IEW
     Scheduler* getScheduler() { return scheduler; }
     /** Instruction queue. */
     InstructionQueue instQueue;
+    unsigned lastClockLQPopEntries[MaxThreads];
+    unsigned lastClockSQPopEntries[MaxThreads];
 
     /** Load / store queue. */
     LSQ ldstQueue;
@@ -450,6 +457,8 @@ class IEW
     /** Rename to IEW delay. */
     Cycles renameToIEWDelay;
 
+    bool enableDispatchStage;
+
     unsigned renameWidth;
 
     /** Index into queue of instructions being written back. */
@@ -466,6 +475,8 @@ class IEW
 
     /** Writeback width. */
     unsigned wbWidth;
+
+    bool enableStoreSetTrain;
 
     /** Number of active threads. */
     ThreadID numThreads;
@@ -581,7 +592,7 @@ class IEW
 
     DQType getInstDQType(const DynInstPtr &inst);
 
-    StallReason checkDispatchStall(ThreadID tid, int dq_id, const DynInstPtr &dispatch_inst);
+    StallReason checkDispatchStall(ThreadID tid, int dq_stall, const DynInstPtr &dispatch_inst, int disp_seq);
 
     StallReason checkLSQStall(ThreadID tid, bool isLoad);
 

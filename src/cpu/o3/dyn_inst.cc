@@ -44,6 +44,7 @@
 #include <cassert>
 #include <cstring>
 
+#include "arch/riscv/insts/mem.hh"
 #include "base/intmath.hh"
 #include "debug/DynInst.hh"
 #include "debug/IQ.hh"
@@ -426,6 +427,39 @@ DynInst::completeAcc(PacketPtr pkt)
     thread->noSquashFromTC = no_squash_from_TC;
 
     return fault;
+}
+
+void DynInst::buildStoreAddrUop()
+{
+    assert(staticInst->isSplitStoreAddr());
+    assert(numSrcRegs() == 2);
+    // tramsform self to storeAddr uop
+
+    // mark addr ready
+    if (!this->readySrcIdx(1)) this->markSrcRegReady(1);
+    this->renameSrcReg(1, UnifiedRenameMap::getInvalid());
+}
+
+DynInstPtr DynInst::createStoreDataUop()
+{
+    assert(staticInst->isSplitStoreAddr());
+    Arrays arrays;
+    arrays.numSrcs = 1;
+    arrays.numDests = 0;
+    StaticInstPtr stdinst = new RiscvISA::StoreData(this->staticInst);
+    DynInstPtr stduop = new (arrays) DynInst(arrays, stdinst, macroop, this->seqNum, cpu);
+
+    stduop->thread = this->thread;
+    stduop->renameSrcReg(0, this->renamedSrcIdx(1));
+
+    if (this->readySrcIdx(1)) {
+        stduop->markSrcRegReady(0);
+    }
+
+    stduop->sqIdx = this->sqIdx;
+    stduop->sqIt = this->sqIt;
+
+    return stduop;
 }
 
 void

@@ -71,6 +71,40 @@ class Store : public MemInst
         Addr pc, const loader::SymbolTable *symtab) const override;
 };
 
+class StoreData : public RiscvStaticInst
+{
+    RegId srcRegIdxArr[1];
+    RegId destRegIdxArr[0];
+
+  public:
+    int memsize = 0;
+
+    StoreData(StaticInstPtr inst) : RiscvStaticInst("store_data", 0, OpClass::StoreData)
+    {
+        setRegIdxArrays(reinterpret_cast<RegIdArrayPtr>(&std::remove_pointer_t<decltype(this)>::srcRegIdxArr),
+                        reinterpret_cast<RegIdArrayPtr>(&std::remove_pointer_t<decltype(this)>::destRegIdxArr));
+
+        setSrcRegIdx(_numSrcRegs++, inst->srcRegIdx(1));
+        flags[IsInteger] = true;
+        assert(inst->operWid() > 7);
+        memsize = inst->operWid() / 8;
+    }
+
+    Fault execute(ExecContext *, Trace::InstRecord *) const override;
+
+    Fault initiateAcc(ExecContext *, Trace::InstRecord *) const override
+    {
+        panic("StoreData::initiateAcc() not implemented");
+    }
+    Fault completeAcc(PacketPtr, ExecContext *, Trace::InstRecord *) const override
+    {
+        panic("StoreData::completeAcc() not implemented");
+    }
+
+    std::string generateDisassembly(Addr pc, const loader::SymbolTable *symtab) const override { return "std"; }
+};
+
+
 } // namespace RiscvISA
 } // namespace gem5
 

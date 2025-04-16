@@ -106,10 +106,9 @@ static const OpClass MemWriteOp = enums::MemWrite;
 static const OpClass MemAtomicOp = enums::MemAtomic;
 static const OpClass FloatMemReadOp = enums::FloatMemRead;
 static const OpClass FloatMemWriteOp = enums::FloatMemWrite;
+static const OpClass StoreDataOp = enums::StoreData;
 static const OpClass IprAccessOp = enums::IprAccess;
 static const OpClass InstPrefetchOp = enums::InstPrefetch;
-static const OpClass FMAMulOp = enums::FMAMul;
-static const OpClass FMAAccOp = enums::FMAAcc;
 
 // riscv vload/store
 static const OpClass VectorUnitStrideLoadOp = enums::VectorUnitStrideLoad;
