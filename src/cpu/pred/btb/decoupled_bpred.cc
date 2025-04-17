@@ -440,19 +440,21 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     ADD_STAT(predsOfEachStage, statistics::units::Count::get(), "the number of preds of each stage that account for final pred"),
     ADD_STAT(overrideBubbleNum,  statistics::units::Count::get(), "the number of override bubbles"),
     ADD_STAT(overrideCount, statistics::units::Count::get(), "the number of overrides"),
-    ADD_STAT(overrideFallThruMismatch, statistics::units::Count::get(),
-    "Number of overrides due to validity mismatches"),
-    ADD_STAT(overrideControlAddrMismatch, statistics::units::Count::get(),
-    "Number of overrides due to control address mismatches"),
-    ADD_STAT(overrideTargetMismatch, statistics::units::Count::get(),"Number of overrides due to target mismatches"),
-    ADD_STAT(overrideEndMismatch, statistics::units::Count::get(),"Number of overrides due to end address mismatches"),
-    ADD_STAT(overrideHistInfoMismatch, statistics::units::Count::get(),
-    "Number of overrides due to history info mismatches"),
     ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
     "the number of preds of each stage that account for a committed stream"),
     ADD_STAT(commitOverrideBubbleNum, statistics::units::Count::get(),
     "the number of override bubbles, on the commit path"),
     ADD_STAT(commitOverrideCount, statistics::units::Count::get(), "the number of overrides, on the commit path"),
+    ADD_STAT(overrideFallThruMismatch, statistics::units::Count::get(),
+    "Number of overrides due to validity mismatches, on commit path"),
+    ADD_STAT(overrideControlAddrMismatch, statistics::units::Count::get(),
+    "Number of overrides due to control address mismatches, on commit path"),
+    ADD_STAT(overrideTargetMismatch, statistics::units::Count::get(),
+    "Number of overrides due to target mismatches, on commit path"),
+    ADD_STAT(overrideEndMismatch, statistics::units::Count::get(),
+    "Number of overrides due to end address mismatches, on commit path"),
+    ADD_STAT(overrideHistInfoMismatch, statistics::units::Count::get(),
+    "Number of overrides due to history info mismatches, on commit path"),
     ADD_STAT(fsqEntryDist, statistics::units::Count::get(), "the distribution of number of entries in fsq"),
     ADD_STAT(fsqEntryEnqueued, statistics::units::Count::get(), "the number of fsq entries enqueued"),
     ADD_STAT(fsqEntryCommitted, statistics::units::Count::get(), "the number of fsq entries committed at last"),
@@ -575,11 +577,9 @@ DecoupledBPUWithBTB::requestNewPrediction()
     }
 }
 
-void DecoupledBPUWithBTB::OverrideStats(OverrideReason overrideReason)
+void DecoupledBPUWithBTB::overrideStats(OverrideReason overrideReason)
 {
-    if (numOverrideBubbles > 0) {
-        dbpBtbStats.overrideCount++;
-        
+
         // Track specific override reasons for statistics
         switch (overrideReason) {
             case OverrideReason::FALL_THRU:
@@ -600,7 +600,6 @@ void DecoupledBPUWithBTB::OverrideStats(OverrideReason overrideReason)
             default:
                 break;
         }
-    }
 }
 
 // this function collects predictions from all stages and generate bubbles
@@ -648,10 +647,13 @@ DecoupledBPUWithBTB::generateFinalPredAndCreateBubbles()
 
     // 4. Record override bubbles and update statistics
     numOverrideBubbles = first_hit_stage;
-    OverrideStats(overrideReason);
+    if (numOverrideBubbles > 0) {
+        dbpBtbStats.overrideCount++;
+    }
 
     // 5. Finalize prediction process
     finalPred.predSource = first_hit_stage;
+    finalPred.overrideReason = overrideReason;
     receivedPred = true;
 
     // Debug output for final prediction
@@ -1043,6 +1045,7 @@ DecoupledBPUWithBTB::updateStatistics(const FetchStream &stream)
 
     // Track which predictor stage was used
     dbpBtbStats.commitPredsFromEachStage[stream.predSource]++;
+    overrideStats(stream.overrideReason);
 
     // --- Instruction Statistics ---
     // Track committed instruction counts
@@ -1716,6 +1719,7 @@ DecoupledBPUWithBTB::createFetchStreamEntry()
     entry.history = s0History;
     entry.predTick = finalPred.predTick;
     entry.predSource = finalPred.predSource;
+    entry.overrideReason = finalPred.overrideReason;
 
     // Save predictors' metadata
     for (int i = 0; i < numComponents; i++) {

@@ -247,6 +247,7 @@ typedef struct FetchStream
     int squashType;         // squash type
     Addr squashPC;         // pc of the squash inst
     unsigned predSource;   // source of the prediction(numStage)
+    OverrideReason overrideReason; // reason of the override(for profiling)
 
     // prediction metas
     // FIXME: use vec
@@ -369,6 +370,7 @@ typedef struct FullBTBPrediction
     Addr returnTarget; // for RAS
 
     unsigned predSource;
+    OverrideReason overrideReason;
     Tick predTick;
 
     FullBTBPrediction() :

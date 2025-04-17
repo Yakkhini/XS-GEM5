@@ -307,6 +307,7 @@ struct FetchStream
     Addr squashPC;
     int squashSource;
     unsigned predSource;
+    OverrideReason overrideReason; // reason of the override(for profiling)
 
     // for loop buffer
     bool fromLoopBuffer;
@@ -431,6 +432,7 @@ typedef struct FullFTBPrediction
 
     bool valid; // hit
     unsigned predSource;
+    OverrideReason overrideReason; // reason of the override(for profiling)
     Tick predTick;
     Cycles predCycle;
     boost::dynamic_bitset<> history;

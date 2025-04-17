@@ -296,15 +296,16 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Vector predsOfEachStage;
         statistics::Scalar overrideBubbleNum;
         statistics::Scalar overrideCount;
+
+        statistics::Vector commitPredsFromEachStage;
+        statistics::Formula commitOverrideBubbleNum;
+        statistics::Formula commitOverrideCount;
         // Track override reasons
         statistics::Scalar overrideFallThruMismatch;
         statistics::Scalar overrideControlAddrMismatch;
         statistics::Scalar overrideTargetMismatch;
         statistics::Scalar overrideEndMismatch;
         statistics::Scalar overrideHistInfoMismatch;
-        statistics::Vector commitPredsFromEachStage;
-        statistics::Formula commitOverrideBubbleNum;
-        statistics::Formula commitOverrideCount;
 
         statistics::Distribution fsqEntryDist;
         statistics::Scalar fsqEntryEnqueued;
@@ -444,7 +445,7 @@ class DecoupledBPUWithBTB : public BPredUnit
     bool lookup(ThreadID tid, Addr instPC, void *&bp_history) override { return false; }
     // end Dummy overriding
 
-    void OverrideStats(OverrideReason overrideReason);
+    void overrideStats(OverrideReason overrideReason);
 
     void checkHistory(const boost::dynamic_bitset<> &history);
 

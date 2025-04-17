@@ -452,6 +452,11 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     ADD_STAT(predsOfEachStage, statistics::units::Count::get(), "the number of preds of each stage that account for final pred"),
     ADD_STAT(overrideBubbleNum,  statistics::units::Count::get(), "the number of override bubbles"),
     ADD_STAT(overrideCount, statistics::units::Count::get(), "the number of overrides"),
+    ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
+    "the number of preds of each stage that account for a committed stream"),
+    ADD_STAT(commitOverrideBubbleNum, statistics::units::Count::get(),
+    "the number of override bubbles, on the commit path"),
+    ADD_STAT(commitOverrideCount, statistics::units::Count::get(), "the number of overrides, on the commit path"),
     ADD_STAT(overrideFallThruMismatch, statistics::units::Count::get(),
     "Number of overrides due to fall-thru mismatches"),
     ADD_STAT(overrideControlAddrMismatch, statistics::units::Count::get(),
@@ -460,11 +465,6 @@ DecoupledBPUWithFTB::DBPFTBStats::DBPFTBStats(statistics::Group* parent, unsigne
     ADD_STAT(overrideEndMismatch, statistics::units::Count::get(),"Number of overrides due to end address mismatches"),
     ADD_STAT(overrideHistInfoMismatch, statistics::units::Count::get(),
     "Number of overrides due to history info mismatches"),
-    ADD_STAT(commitPredsFromEachStage, statistics::units::Count::get(),
-    "the number of preds of each stage that account for a committed stream"),
-    ADD_STAT(commitOverrideBubbleNum, statistics::units::Count::get(),
-    "the number of override bubbles, on the commit path"),
-    ADD_STAT(commitOverrideCount, statistics::units::Count::get(), "the number of overrides, on the commit path"),
     ADD_STAT(fsqEntryDist, statistics::units::Count::get(), "the distribution of number of entries in fsq"),
     ADD_STAT(fsqEntryEnqueued, statistics::units::Count::get(), "the number of fsq entries enqueued"),
     ADD_STAT(fsqEntryCommitted, statistics::units::Count::get(), "the number of fsq entries committed at last"),
@@ -829,12 +829,12 @@ DecoupledBPUWithFTB::generateFinalPredAndCreateBubbles()
         // generate bubbles
         bubblesToCreate = first_hit_stage;
         if (bubblesToCreate > 0) {
-        dbpFtbStats.overrideCount++;
-            OverrideStats(overrideReason);
+            dbpFtbStats.overrideCount++;
         }
 
         // assign pred source
         finalPred.predSource = first_hit_stage;
+        finalPred.overrideReason = overrideReason;
         receivedPred = true;
 
         finalPred.predCycle = curCycle();
@@ -1501,6 +1501,7 @@ void DecoupledBPUWithFTB::update(unsigned stream_id, ThreadID tid)
             }
         }
         dbpFtbStats.commitPredsFromEachStage[stream.predSource]++;
+        overrideStats(stream.overrideReason);
 
         if (stream.squashType != SQUASH_NONE) {
             dbpFtbStats.committedStreamHadReceivedSquash++;
@@ -2461,7 +2462,7 @@ DecoupledBPUWithFTB::generateAndSetNewFetchStream()
         entry.predTick = finalPred.predTick;
         entry.predCycle = finalPred.predCycle;
         entry.predSource = finalPred.predSource;
-
+        entry.overrideReason = finalPred.overrideReason;
         // update (folded) histories for components
         for (int i = 0; i < numComponents; i++) {
             components[i]->specUpdateHist(s0History, finalPred);
@@ -2657,7 +2658,7 @@ DecoupledBPUWithFTB::getPreservedReturnAddr(const DynInstPtr &dynInst)
 }
 
 void
-DecoupledBPUWithFTB::OverrideStats(OverrideReason overrideReason)
+DecoupledBPUWithFTB::overrideStats(OverrideReason overrideReason)
 {
 
 

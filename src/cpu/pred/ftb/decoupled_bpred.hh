@@ -404,15 +404,16 @@ class DecoupledBPUWithFTB : public BPredUnit
         statistics::Vector predsOfEachStage;
         statistics::Scalar overrideBubbleNum;
         statistics::Scalar overrideCount;
+        statistics::Vector commitPredsFromEachStage;
+        statistics::Formula commitOverrideBubbleNum;
+        statistics::Formula commitOverrideCount;
         statistics::Scalar overrideFallThruMismatch;
         statistics::Scalar overrideControlAddrMismatch;
         statistics::Scalar overrideTargetMismatch;
         statistics::Scalar overrideEndMismatch;
         statistics::Scalar overrideHistInfoMismatch;
 
-        statistics::Vector commitPredsFromEachStage;
-        statistics::Formula commitOverrideBubbleNum;
-        statistics::Formula commitOverrideCount;
+
         statistics::Distribution fsqEntryDist;
         statistics::Scalar fsqEntryEnqueued;
         statistics::Scalar fsqEntryCommitted;
@@ -782,7 +783,7 @@ class DecoupledBPUWithFTB : public BPredUnit
 
     int currentFtqEntryInstNum{0};
 
-    void OverrideStats(OverrideReason overrideReason);
+    void overrideStats(OverrideReason overrideReason);
 
 };
 
