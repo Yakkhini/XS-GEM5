@@ -33,6 +33,18 @@ enum SquashType {
     SQUASH_OTHER
 };
 
+enum BranchType
+{
+    BR_COND=0,
+    BR_DIRECT_NORMAL=1,
+    BR_DIRECT_CALL=2,
+    BR_INDIRECT_NORMAL=3,
+    BR_INDIRECT_RET=4,
+    BR_INDIRECT_CALL=5,
+    BR_INDIRECT_CALL_RET=6,
+    BR_DIRECT_RET=7
+};
+
 enum class OverrideReason
 {
     no_override,
@@ -76,31 +88,31 @@ typedef struct BranchInfo {
         isCall(static_inst->isCall()),
         isReturn(static_inst->isReturn() && !static_inst->isNonSpeculative() && !static_inst->isDirectCtrl()),
         size(size) {}
-    int getType() {
+    int getType() const {
         if (isCond) {
-            return 0;
-        } else if (!isIndirect) {
+            return BR_COND;
+        } else if (!isIndirect) { // uncond direct
             if (isReturn) {
                 fatal("jal return detected!\n");
-                return 7;
+                return BR_DIRECT_RET;
             }
             if (!isCall) {
-                return 1;
+                return BR_DIRECT_NORMAL;
             } else {
-                return 2;
+                return BR_DIRECT_CALL;
             }
-        } else {
+        } else {  // uncond indirect
             if (!isCall) {
                 if (!isReturn) {
-                    return 3; // normal indirect
+                    return BR_INDIRECT_NORMAL; // normal indirect
                 } else {
-                    return 4; // indirect return
+                    return BR_INDIRECT_RET; // indirect return
                 }
             } else {
                 if (!isReturn) { // indirect call
-                    return 5;
+                    return BR_INDIRECT_CALL;
                 } else { // call & return
-                    return 6;
+                    return BR_INDIRECT_CALL_RET;
                 }
             }
         }
