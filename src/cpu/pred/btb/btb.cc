@@ -237,6 +237,10 @@ DefaultBTB::fillStagePredictions(const std::vector<TickedBTBEntry>& entries,
                 // Set predicted target for indirect branches
                 DPRINTF(BTB, "setting indirect target for pc %#lx to %#lx\n", e.pc, e.target);
                 stagePreds[s].indirectTargets[e.pc] = e.target;
+                if (e.isReturn) {
+                    stagePreds[s].returnTarget = e.target;
+                }
+                break;
             }
         }
 
