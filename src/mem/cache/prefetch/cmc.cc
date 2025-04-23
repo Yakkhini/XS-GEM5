@@ -1,5 +1,6 @@
 #include "mem/cache/prefetch/cmc.hh"
 
+#include "base/output.hh"
 #include "debug/CMCPrefetcher.hh"
 #include "mem/cache/prefetch/associative_set_impl.hh"
 
@@ -66,7 +67,7 @@ CMCPrefetcher::CMCPrefetcher(const CMCPrefetcherParams &p)
             }
         }
         if (enableDB) {
-            db.save_db("cmc.db");
+            db.save_db(simout.resolve("cmc.db").c_str());
         }
     });
 }

@@ -65,6 +65,9 @@ tageStats(this, p.numPredictors)
     usefulResetCnt = 0;
 
     useAlt.resize(128);
+
+    hasDB = true;
+    dbName = std::string("tage");
 }
 
 BTBTAGE::~BTBTAGE()
@@ -79,24 +82,21 @@ BTBTAGE::setTrace()
         std::vector<std::pair<std::string, DataType>> fields_vec = {
             std::make_pair("startPC", UINT64),
             std::make_pair("branchPC", UINT64),
-            std::make_pair("lgcBank", UINT64),
-            std::make_pair("phyBank", UINT64),
+            std::make_pair("wayIdx", UINT64),
             std::make_pair("mainFound", UINT64),
             std::make_pair("mainCounter", UINT64),
             std::make_pair("mainUseful", UINT64),
-            std::make_pair("altCounter", UINT64),
             std::make_pair("mainTable", UINT64),
             std::make_pair("mainIndex", UINT64),
+            std::make_pair("altFound", UINT64),
+            std::make_pair("altCounter", UINT64),
+            std::make_pair("altUseful", UINT64),
+            std::make_pair("altTable", UINT64),
             std::make_pair("altIndex", UINT64),
-            std::make_pair("tag", UINT64),
             std::make_pair("useAlt", UINT64),
             std::make_pair("predTaken", UINT64),
             std::make_pair("actualTaken", UINT64),
             std::make_pair("allocSuccess", UINT64),
-            std::make_pair("allocFailure", UINT64),
-            std::make_pair("predUseSC", UINT64),
-            std::make_pair("predSCDisagree", UINT64),
-            std::make_pair("predSCCorrect", UINT64)
         };
         tageMissTrace = _db->addAndGetTrace("TAGEMISSTRACE", fields_vec);
         tageMissTrace->init_table();
@@ -512,8 +512,9 @@ BTBTAGE::generateAllocationMask(const bitset &useful_mask,
  * @param useful_mask The vector of useful masks
  * @param start_table The starting table for allocation
  * @param meta The metadata of the predictor
+ * @return true if allocation is successful
  */
-void
+bool
 BTBTAGE::handleNewEntryAllocation(const Addr &startPC,
                                  const BTBEntry &entry,
                                  bool actual_taken,
@@ -540,13 +541,12 @@ BTBTAGE::handleNewEntryAllocation(const Addr &startPC,
     auto alloc_result = generateAllocationMask(working_mask, start_table);
 
     if (!alloc_result.allocate_valid) {
+        DPRINTF(TAGE, "no valid table to allocate, all of them are useful\n");
         tageStats.updateAllocFailure++;
-        return;
+        return false;
     }
 
     DPRINTF(TAGE, "allocate new entry\n");
-    tageStats.updateAllocSuccess++;
-
     // Try to allocate in each table according to allocation mask
     for (unsigned ti = start_table; ti < numPredictors; ti++) {
         if (!alloc_result.allocate_mask[ti - start_table]) {
@@ -577,8 +577,14 @@ BTBTAGE::handleNewEntryAllocation(const Addr &startPC,
         // Reset LRU counter for the new entry
         updateLRU(ti, newIndex, way);
 
-        break;  // allocate only 1 entry
+        tageStats.updateAllocSuccess++;
+        return true;  // allocate only 1 entry
     }
+
+    // todo: fix update selection, select invalid way first or select not useful table first!
+    DPRINTF(TAGE, "no valid(useful = 0) table after starting table %d\n", start_table);
+    tageStats.updateAllocFailureNoValidTable++;
+    return false;
 }
 
 /**
@@ -611,6 +617,7 @@ BTBTAGE::update(const FetchStream &stream) {
         bool need_allocate = updatePredictorStateAndCheckAllocation(btb_entry, actual_taken, pred_it->second, stream);
 
         // Handle new entry allocation if needed
+        bool alloc_success = false;
         if (need_allocate) {
             // Handle useful bit reset
             handleUsefulBitReset(meta->usefulMask, meta->hitWay, meta->hitFound);
@@ -621,9 +628,22 @@ BTBTAGE::update(const FetchStream &stream) {
             if (main_info.found) {
                 start_table = main_info.table + 1; // start from the table after the main prediction table
             }
-            handleNewEntryAllocation(startAddr, btb_entry, actual_taken, 
+            alloc_success = handleNewEntryAllocation(startAddr, btb_entry, actual_taken,
                                    meta->usefulMask,
                                    start_table, meta);
+        }
+
+        if (enableDB) {
+            TageMissTrace t;
+            auto main_info = pred_it->second.mainInfo;
+            auto alt_info = pred_it->second.altInfo;
+            t.set(startAddr, btb_entry.pc, meta->hitWay,
+                main_info.found, main_info.entry.counter, main_info.entry.useful,
+                main_info.table, main_info.index,
+                alt_info.found, alt_info.entry.counter, alt_info.entry.useful,
+                alt_info.table, alt_info.index,
+                pred_it->second.useAlt, pred_it->second.taken, actual_taken, alloc_success);
+            tageMissTrace->write_record(t);
         }
     }
 
@@ -827,6 +847,7 @@ BTBTAGE::TageStats::TageStats(statistics::Group* parent, int numPredictors):
     ADD_STAT(updateUseAltOnNaCorrect, statistics::units::Count::get(), "use alt on na correct when update"),
     ADD_STAT(updateUseAltOnNaWrong, statistics::units::Count::get(), "use alt on na wrong when update"),
     ADD_STAT(updateAllocFailure, statistics::units::Count::get(), "alloc failure when update"),
+    ADD_STAT(updateAllocFailureNoValidTable, statistics::units::Count::get(), "alloc failure no valid table when update"),
     ADD_STAT(updateAllocSuccess, statistics::units::Count::get(), "alloc success when update"),
     ADD_STAT(updateMispred, statistics::units::Count::get(), "mispred when update"),
     ADD_STAT(updateResetU, statistics::units::Count::get(), "reset u when update"),

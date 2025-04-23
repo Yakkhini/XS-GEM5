@@ -108,6 +108,8 @@ class DecoupledBPUWithBTB : public BPredUnit
     std::vector<std::string> bpDBSwitches;
     bool someDBenabled{false};
     bool enableBranchTrace{false};
+    bool enablePredFSQTrace{false};
+    bool enablePredFTQTrace{false};
     bool enableLoopDB{false};
     bool checkGivenSwitch(std::vector<std::string> switches, std::string switchName) {
         for (auto &sw : switches) {
@@ -123,7 +125,11 @@ class DecoupledBPUWithBTB : public BPredUnit
     }
     DataBase bpdb;
     TraceManager *bptrace;
+    TraceManager *predTraceManager;  // Trace manager for prediction-time events
+    TraceManager *ftqTraceManager;   // Trace manager for fetch target queue entries
     TraceManager *lptrace;
+
+    void initDB();
 
     std::vector<TimedBaseBTBPredictor*> components{};
     std::vector<FullBTBPrediction> predsOfEachStage{};
@@ -311,7 +317,8 @@ class DecoupledBPUWithBTB : public BPredUnit
         statistics::Scalar fsqEntryEnqueued;
         statistics::Scalar fsqEntryCommitted;
         // statistics::Distribution ftqEntryDist;
-        statistics::Scalar controlSquash;
+        statistics::Scalar controlSquashFromDecode;
+        statistics::Scalar controlSquashFromCommit;
         statistics::Scalar nonControlSquash;
         statistics::Scalar trapSquash;
 
@@ -365,9 +372,10 @@ class DecoupledBPUWithBTB : public BPredUnit
     void setCpu(CPU *_cpu) { cpu = _cpu; }
 
     struct BpTrace : public Record {
-        void set(uint64_t startPC, uint64_t controlPC, uint64_t controlType,
+        void set(uint64_t fsqId, uint64_t startPC, uint64_t controlPC, uint64_t controlType,
             uint64_t taken, uint64_t mispred, uint64_t fallThruPC,
             uint64_t source, uint64_t target) {
+            _uint64_data["fsqId"] = fsqId;
             _uint64_data["startPC"] = startPC;
             _uint64_data["controlPC"] = controlPC;
             _uint64_data["controlType"] = controlType;
@@ -377,7 +385,52 @@ class DecoupledBPUWithBTB : public BPredUnit
             _uint64_data["source"] = source;
             _uint64_data["target"] = target;
         }
-        BpTrace(FetchStream &stream, const DynInstPtr &inst, bool mispred);
+        BpTrace(uint64_t fsqId, FetchStream &stream, const DynInstPtr &inst, bool mispred);
+    };
+
+    // Prediction trace record for tracking prediction-time information
+    struct PredictionTrace : public Record
+    {
+        void set(uint64_t fsqId, uint64_t startPC, uint64_t predTaken, uint64_t predEndPC,
+                 uint64_t controlPC, uint64_t target,
+                 uint64_t predSource, uint64_t btbHit) {
+            _uint64_data["fsqId"] = fsqId;
+            _uint64_data["startPC"] = startPC;
+            _uint64_data["predTaken"] = predTaken;
+            _uint64_data["predEndPC"] = predEndPC;
+            _uint64_data["controlPC"] = controlPC;
+            _uint64_data["target"] = target;
+            _uint64_data["predSource"] = predSource;
+            _uint64_data["btbHit"] = btbHit;
+        }
+
+        PredictionTrace(uint64_t id, const FetchStream &entry) {
+            _tick = curTick();
+            set(id, entry.startPC, entry.predTaken, entry.predEndPC,
+                entry.getControlPC(), entry.getTakenTarget(),
+                entry.predSource, entry.isHit ? 1 : 0);
+        }
+    };
+
+    // FTQ trace record for tracking fetch target queue entries
+    struct FtqTrace : public Record
+    {
+        void set(uint64_t ftqId, uint64_t fsqId, uint64_t startPC, uint64_t endPC,
+                 uint64_t takenPC, uint64_t taken, uint64_t target) {
+            _uint64_data["ftqId"] = ftqId;
+            _uint64_data["fsqId"] = fsqId;
+            _uint64_data["startPC"] = startPC;
+            _uint64_data["endPC"] = endPC;
+            _uint64_data["takenPC"] = takenPC;
+            _uint64_data["taken"] = taken;
+            _uint64_data["target"] = target;
+        }
+
+        FtqTrace(uint64_t ftqId, uint64_t fsqId, const FtqEntry &entry) {
+            _tick = curTick();
+            set(ftqId, fsqId, entry.startPC, entry.endPC,
+                entry.takenPC, entry.taken ? 1 : 0, entry.target);
+        }
     };
 
     std::pair<bool, bool> decoupledPredict(const StaticInstPtr &inst,

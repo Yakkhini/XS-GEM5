@@ -43,49 +43,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
       dbpBtbStats(this, p.numStages, p.fsq_size, maxInstsNum)
 {
     if (bpDBSwitches.size() > 0) {
-        
-        bpdb.init_db();
-        enableBranchTrace = checkGivenSwitch(bpDBSwitches, std::string("basic"));
-        if (enableBranchTrace) {
-            std::vector<std::pair<std::string, DataType>> fields_vec = {
-                std::make_pair("startPC", UINT64),
-                std::make_pair("controlPC", UINT64),
-                std::make_pair("controlType", UINT64),
-                std::make_pair("taken", UINT64),
-                std::make_pair("mispred", UINT64),
-                std::make_pair("fallThruPC", UINT64),
-                std::make_pair("source", UINT64),
-                std::make_pair("target", UINT64)
-            };
-            bptrace = bpdb.addAndGetTrace("BPTRACE", fields_vec);
-            bptrace->init_table(); 
-            removeGivenSwitch(bpDBSwitches, std::string("basic"));
-            someDBenabled = true;
-        }
-
-        // check whether "loop" is in bpDBSwitches
-        enableLoopDB = checkGivenSwitch(bpDBSwitches, std::string("loop"));
-        if (enableLoopDB) {
-            std::vector<std::pair<std::string, DataType>> loop_fields_vec = {
-                std::make_pair("pc", UINT64),
-                std::make_pair("target", UINT64),
-                std::make_pair("mispred", UINT64),
-                std::make_pair("training", UINT64),
-                std::make_pair("trainSpecCnt", UINT64),
-                std::make_pair("trainTripCnt", UINT64),
-                std::make_pair("trainConf", UINT64),
-                std::make_pair("inMain", UINT64),
-                std::make_pair("mainTripCnt", UINT64),
-                std::make_pair("mainConf", UINT64),
-                std::make_pair("predSpecCnt", UINT64),
-                std::make_pair("predTripCnt", UINT64),
-                std::make_pair("predConf", UINT64)
-            };
-            lptrace = bpdb.addAndGetTrace("LOOPTRACE", loop_fields_vec);
-            lptrace->init_table();
-            removeGivenSwitch(bpDBSwitches, std::string("loop"));
-            someDBenabled = true;
-        }
+        initDB();
     }
     bpType = DecoupledBTBType;
     numStages = 3;
@@ -151,6 +109,91 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     registerExitCallback([this]() {
         this->dumpStats();
     });
+}
+
+void
+DecoupledBPUWithBTB::initDB()
+{
+
+    bpdb.init_db();
+    enableBranchTrace = checkGivenSwitch(bpDBSwitches, std::string("basic"));
+    if (enableBranchTrace) {
+        std::vector<std::pair<std::string, DataType>> fields_vec = {
+            std::make_pair("fsqId", UINT64),
+            std::make_pair("startPC", UINT64),
+            std::make_pair("controlPC", UINT64),
+            std::make_pair("controlType", UINT64),
+            std::make_pair("taken", UINT64),
+            std::make_pair("mispred", UINT64),
+            std::make_pair("fallThruPC", UINT64),
+            std::make_pair("source", UINT64),
+            std::make_pair("target", UINT64)
+        };
+        bptrace = bpdb.addAndGetTrace("BPTRACE", fields_vec);
+        bptrace->init_table();
+        removeGivenSwitch(bpDBSwitches, std::string("basic"));
+        someDBenabled = true;
+    }
+
+    enablePredFSQTrace = checkGivenSwitch(bpDBSwitches, std::string("predfsq"));
+    if (enablePredFSQTrace) {
+        // Initialize prediction trace manager for recording predictions
+        std::vector<std::pair<std::string, DataType>> pred_fields_vec = {
+            std::make_pair("fsqId", UINT64),
+            std::make_pair("startPC", UINT64),
+            std::make_pair("predTaken", UINT64),
+            std::make_pair("predEndPC", UINT64),
+            std::make_pair("controlPC", UINT64),
+            std::make_pair("target", UINT64),
+            std::make_pair("predSource", UINT64),
+            std::make_pair("btbHit", UINT64)
+        };
+        predTraceManager = bpdb.addAndGetTrace("PREDTRACE", pred_fields_vec);
+        predTraceManager->init_table();
+        removeGivenSwitch(bpDBSwitches, std::string("predfsq"));
+        someDBenabled = true;
+    }
+
+    enablePredFTQTrace = checkGivenSwitch(bpDBSwitches, std::string("predftq"));
+    if (enablePredFTQTrace) {
+        std::vector<std::pair<std::string, DataType>> ftq_fields_vec = {
+            std::make_pair("ftqId", UINT64),
+            std::make_pair("fsqId", UINT64),
+            std::make_pair("startPC", UINT64),
+            std::make_pair("endPC", UINT64),
+            std::make_pair("takenPC", UINT64),
+            std::make_pair("taken", UINT64),
+            std::make_pair("target", UINT64)
+        };
+        ftqTraceManager = bpdb.addAndGetTrace("FTQTRACE", ftq_fields_vec);
+        ftqTraceManager->init_table();
+        removeGivenSwitch(bpDBSwitches, std::string("predftq"));
+        someDBenabled = true;
+    }
+
+    // check whether "loop" is in bpDBSwitches
+    enableLoopDB = checkGivenSwitch(bpDBSwitches, std::string("loop"));
+    if (enableLoopDB) {
+        std::vector<std::pair<std::string, DataType>> loop_fields_vec = {
+            std::make_pair("pc", UINT64),
+            std::make_pair("target", UINT64),
+            std::make_pair("mispred", UINT64),
+            std::make_pair("training", UINT64),
+            std::make_pair("trainSpecCnt", UINT64),
+            std::make_pair("trainTripCnt", UINT64),
+            std::make_pair("trainConf", UINT64),
+            std::make_pair("inMain", UINT64),
+            std::make_pair("mainTripCnt", UINT64),
+            std::make_pair("mainConf", UINT64),
+            std::make_pair("predSpecCnt", UINT64),
+            std::make_pair("predTripCnt", UINT64),
+            std::make_pair("predConf", UINT64)
+        };
+        lptrace = bpdb.addAndGetTrace("LOOPTRACE", loop_fields_vec);
+        lptrace->init_table();
+        removeGivenSwitch(bpDBSwitches, std::string("loop"));
+        someDBenabled = true;
+    }
 }
 
 void
@@ -421,7 +464,7 @@ DecoupledBPUWithBTB::dumpStats()
 
     // Save the database
     if (someDBenabled) {
-        bpdb.save_db("bp.db");
+        bpdb.save_db(simout.resolve("bp.db").c_str());
     }
 }
 
@@ -458,7 +501,8 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     ADD_STAT(fsqEntryDist, statistics::units::Count::get(), "the distribution of number of entries in fsq"),
     ADD_STAT(fsqEntryEnqueued, statistics::units::Count::get(), "the number of fsq entries enqueued"),
     ADD_STAT(fsqEntryCommitted, statistics::units::Count::get(), "the number of fsq entries committed at last"),
-    ADD_STAT(controlSquash, statistics::units::Count::get(), "the number of control squashes in bpu"),
+    ADD_STAT(controlSquashFromDecode, statistics::units::Count::get(), "the number of control squashes in bpu from decode"),
+    ADD_STAT(controlSquashFromCommit, statistics::units::Count::get(), "the number of control squashes in bpu from commit"),
     ADD_STAT(nonControlSquash, statistics::units::Count::get(), "the number of non-control squashes in bpu"),
     ADD_STAT(trapSquash, statistics::units::Count::get(), "the number of trap squashes in bpu"),
     ADD_STAT(ftqNotValid, statistics::units::Count::get(), "fetch needs ftq req but ftq not valid"),
@@ -486,7 +530,7 @@ DecoupledBPUWithBTB::DBPBTBStats::DBPBTBStats(statistics::Group* parent, unsigne
     commitFsqEntryFetchedInsts.init(0, maxInstsNum >> 1, 1);
 }
 
-DecoupledBPUWithBTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &inst, bool mispred)
+DecoupledBPUWithBTB::BpTrace::BpTrace(uint64_t fsqId, FetchStream &stream, const DynInstPtr &inst, bool mispred)
 {
     _tick = curTick();
     Addr pc = inst->pcState().instAddr();
@@ -494,7 +538,7 @@ DecoupledBPUWithBTB::BpTrace::BpTrace(FetchStream &stream, const DynInstPtr &ins
     Addr target = rv_pc.npc();
     Addr fallThru = rv_pc.getFallThruPC();
     BranchInfo info(pc, target, inst->staticInst, fallThru-pc);
-    set(stream.startPC, pc, info.getType(), inst->branching(), mispred, fallThru, stream.predSource, target);
+    set(fsqId, stream.startPC, pc, info.getType(), inst->branching(), mispred, fallThru, stream.predSource, target);
     // for (auto it = _uint64_data.begin(); it != _uint64_data.end(); it++) {
     //     printf("%s: %ld\n", it->first.c_str(), it->second);
     // }
@@ -896,7 +940,11 @@ DecoupledBPUWithBTB::controlSquash(unsigned target_id, unsigned stream_id,
                             const InstSeqNum &seq, ThreadID tid,
                             const unsigned &currentLoopIter, const bool fromCommit)
 {
-    dbpBtbStats.controlSquash++;
+    if (fromCommit) {
+        dbpBtbStats.controlSquashFromCommit++;
+    } else {
+        dbpBtbStats.controlSquashFromDecode++;
+    }
 
     // Get branch type information
     bool is_conditional = static_inst->isCondCtrl();
@@ -1245,7 +1293,7 @@ DecoupledBPUWithBTB::commitBranch(const DynInstPtr &inst, bool mispred)
 
     // Record branch trace if enabled
     if (enableBranchTrace) {
-        bptrace->write_record(BpTrace(entry, inst, mispred));
+        bptrace->write_record(BpTrace(streamIt->first, entry, inst, mispred));
     }
 
     // ---------- Extract branch information ----------
@@ -1670,7 +1718,12 @@ DecoupledBPUWithBTB::tryEnqFetchTarget()
     fetchTargetQueue.enqueue(ftq_entry);
     assert(ftq_enq_state.streamId <= fsqId + 1);
 
-    // 7. Debug output
+    // 7. Trace the entry
+    if (enablePredFTQTrace) {
+        ftqTraceManager->write_record(FtqTrace(ftq_enq_state.nextEnqTargetId-1, ftq_entry.fsqID, ftq_entry));
+    }
+
+    // 8. Debug output
     printFetchTarget(ftq_entry, "Insert to FTQ");
     fetchTargetQueue.dump("After insert new entry");
 }
@@ -1778,12 +1831,17 @@ DecoupledBPUWithBTB::makeNewPrediction(bool create_new_stream)
     auto [insertIt, inserted] = fetchStreamQueue.emplace(fsqId, entry);
     assert(inserted);
 
-    // 6. Debug output and update statistics
+    // 6. Record prediction to database if enabled
+    if (enablePredFSQTrace) {
+        predTraceManager->write_record(PredictionTrace(fsqId, entry));
+    }
+
+    // 7. Debug output and update statistics
     dumpFsq("after insert new stream");
     DPRINTF(DecoupleBP, "Inserted fetch stream %lu starting at PC %#lx\n", 
             fsqId, entry.startPC);
     
-    // 7. Update FSQ ID and increment statistics
+    // 8. Update FSQ ID and increment statistics
     fsqId++;
     printStream(entry);
     dbpBtbStats.fsqEntryEnqueued++;

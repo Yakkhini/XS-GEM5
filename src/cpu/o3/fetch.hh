@@ -439,11 +439,13 @@ class Fetch
 
     branch_prediction::btb_pred::DecoupledBPUWithBTB *dbpbtb;
 
-
+    /** PC of each thread. */
     std::unique_ptr<PCStateBase> pc[MaxThreads];
 
+    /** Fetch offset of each thread. */
     Addr fetchOffset[MaxThreads];
 
+    /** Macroop of each thread. */
     StaticInstPtr macroop[MaxThreads];
 
     /** Can the fetch stage redirect from an interrupt on this instruction? */
@@ -465,8 +467,8 @@ class Fetch
     /** Source of possible stalls. */
     struct Stalls
     {
-        bool decode;
-        bool drain;
+        bool decode; // stall due to decode
+        bool drain; // stall due to drain
     };
 
     /** Tracks which stages are telling fetch to stall. */
@@ -589,7 +591,7 @@ class Fetch
     /** fetch stall reasons */
     std::vector<StallReason> stallReason;
 
-    bool currentFetchTargetInLoop;
+    bool currentFetchTargetInLoop{false};
 
     std::pair<Addr, std::vector<branch_prediction::ftb_pred::LoopBuffer::InstDesc>> currentFtqEntryInsts;
 

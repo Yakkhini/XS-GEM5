@@ -431,8 +431,9 @@ DecoupledBPUWithFTB::DecoupledBPUWithFTB(const DecoupledBPUWithFTBParams &p)
         }
         simout.close(out_handle);
 
+        // Save the database
         if (someDBenabled) {
-            bpdb.save_db("bp.db");
+            bpdb.save_db(simout.resolve("bp.db").c_str());
         }
     });
 }

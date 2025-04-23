@@ -262,6 +262,7 @@ class BTBTAGE : public TimedBaseBTBPredictor
         statistics::Scalar updateUseAltOnNaCorrect;
         statistics::Scalar updateUseAltOnNaWrong;
         statistics::Scalar updateAllocFailure;
+        statistics::Scalar updateAllocFailureNoValidTable;
         statistics::Scalar updateAllocSuccess;
         statistics::Scalar updateMispred;
         statistics::Scalar updateResetU;
@@ -338,7 +339,7 @@ private:
     void handleUsefulBitReset(const std::vector<bitset> &useful_mask, unsigned way = 0, bool found = false);
 
     // Helper method to handle new entry allocation
-    void handleNewEntryAllocation(const Addr &startPC,
+    bool handleNewEntryAllocation(const Addr &startPC,
                                  const BTBEntry &entry,
                                  bool actual_taken,
                                  const std::vector<bitset> &useful_mask,
