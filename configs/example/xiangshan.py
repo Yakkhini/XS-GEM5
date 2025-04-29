@@ -372,11 +372,7 @@ def setKmhV3IdealParams(args, system):
                 cpu.branchPred.btb.numEntries = 16384
                 # TODO: BTB TAGE do not bave base table, do not support SC
                 cpu.branchPred.tage.tableSizes = [4096] * 14  # BTB TAGE may need larger table
-                if args.huge_ubtb:
-                    # for testing purpose, sometimes we want to disable abtb and use a large ubtb, this is
-                    # achieved by setting abtb's numDelay to an arbitrary large value, in this case 9.
-                    cpu.branchPred.abtb.numDelay = 9
-                    cpu.branchPred.ubtb.numEntries = 1024
+
             cpu.branchPred.tage.enableSC = False # TODO(bug): When numBr changes, enabling SC will trigger an assert
             cpu.branchPred.ftq_size = 256
             cpu.branchPred.fsq_size = 256
