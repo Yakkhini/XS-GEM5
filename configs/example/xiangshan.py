@@ -125,14 +125,13 @@ def build_test_system(np, args):
                 bp_db_switches = []
             # for DecoupledBPUWithBTB, loop predictor and jump ahead predictor are not supported
             #if args.bp_type == 'DecoupledBPUWithBTB':
-            if True:
-                if args.enable_loop_predictor or args.enable_loop_buffer:
-                    print("loop predictor and loop buffer not supported for DecoupledBPUWithBTB")
-                    args.enable_loop_predictor = False
-                    args.enable_loop_buffer = False
-                if args.enable_jump_ahead_predictor:
-                    print("jump ahead predictor not supported for DecoupledBPUWithBTB")
-                    args.enable_jump_ahead_predictor = False
+            if args.enable_loop_predictor or args.enable_loop_buffer:
+                print("loop predictor and loop buffer not supported for DecoupledBPUWithBTB")
+                args.enable_loop_predictor = False
+                args.enable_loop_buffer = False
+            if args.enable_jump_ahead_predictor:
+                print("jump ahead predictor not supported for DecoupledBPUWithBTB")
+                args.enable_jump_ahead_predictor = False
 
             BPClass = DecoupledBPUWithBTB() if args.bp_type == 'DecoupledBPUWithBTB' else DecoupledBPUWithFTB()
             test_sys.cpu[i].branchPred = BPClass(
@@ -374,12 +373,10 @@ def setKmhV3IdealParams(args, system):
                 # TODO: BTB TAGE do not bave base table, do not support SC
                 cpu.branchPred.tage.tableSizes = [4096] * 14  # BTB TAGE may need larger table
                 if args.huge_ubtb:
+                    # for testing purpose, sometimes we want to disable abtb and use a large ubtb, this is
+                    # achieved by setting abtb's numDelay to an arbitrary large value, in this case 9.
                     cpu.branchPred.abtb.numDelay = 9
                     cpu.branchPred.ubtb.numEntries = 1024
-                elif args.pure_ubtb:
-                    cpu.branchPred.abtb.numDelay = 9
-                elif args.pure_abtb:
-                    cpu.branchPred.ubtb.numDelay = 9
             cpu.branchPred.tage.enableSC = False # TODO(bug): When numBr changes, enabling SC will trigger an assert
             cpu.branchPred.ftq_size = 256
             cpu.branchPred.fsq_size = 256
