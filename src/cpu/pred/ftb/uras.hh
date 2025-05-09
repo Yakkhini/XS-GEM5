@@ -5,8 +5,8 @@
 #include "cpu/inst_seq.hh"
 #include "cpu/pred/ftb/stream_struct.hh"
 #include "cpu/pred/ftb/timed_base_pred.hh"
-#include "debug/FTBuRAS.hh"
-#include "params/uRAS.hh"
+#include "debug/URAS.hh"
+#include "params/FTBuRAS.hh"
 
 namespace gem5 {
 
@@ -14,26 +14,26 @@ namespace branch_prediction {
 
 namespace ftb_pred {
 
-class uRAS : public TimedBaseFTBPredictor
+class FTBuRAS : public TimedBaseFTBPredictor
 {
     public:
     
-        typedef uRASParams Params;
-        uRAS(const Params &p);
+        typedef FTBuRASParams Params;
+        FTBuRAS(const Params &p);
 
-        typedef struct uRASEntry
+        typedef struct FTBuRASEntry
         {
             Addr retAddr;
             unsigned ctr;
-            uRASEntry(Addr retAddr, unsigned ctr) : retAddr(retAddr), ctr(ctr) {}
-            uRASEntry(Addr retAddr) : retAddr(retAddr), ctr(0) {}
-            uRASEntry() : retAddr(0), ctr(0) {}
-        }uRASEntry;
+            FTBuRASEntry(Addr retAddr, unsigned ctr) : retAddr(retAddr), ctr(ctr) {}
+            FTBuRASEntry(Addr retAddr) : retAddr(retAddr), ctr(0) {}
+            FTBuRASEntry() : retAddr(0), ctr(0) {}
+        }FTBuRASEntry;
 
-        typedef struct uRASMeta {
+        typedef struct FTBuRASMeta {
             int sp;
-            uRASEntry tos; // top of stack
-        }uRASMeta;
+            FTBuRASEntry tos; // top of stack
+        }FTBuRASMeta;
 
         void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
                           std::vector<FullFTBPrediction> &stagePreds) override;
@@ -52,7 +52,7 @@ class uRAS : public TimedBaseFTBPredictor
 
         int getMaxCtr() {return maxCtr;}
 
-        std::vector<uRASEntry> getNonSpecStack() {return nonSpecStack;}
+        std::vector<FTBuRASEntry> getNonSpecStack() {return nonSpecStack;}
 
         int getNonSpecSp() {return nonSpecSp;}
 
@@ -69,9 +69,9 @@ class uRAS : public TimedBaseFTBPredictor
             // PUSH_AND_POP
         };
 
-        void push(Addr retAddr, std::vector<uRASEntry> &stack, int &sp);
+        void push(Addr retAddr, std::vector<FTBuRASEntry> &stack, int &sp);
 
-        void pop(std::vector<uRASEntry> &stack, int &sp);
+        void pop(std::vector<FTBuRASEntry> &stack, int &sp);
 
     private:
 
@@ -79,14 +79,14 @@ class uRAS : public TimedBaseFTBPredictor
 
         void ptrDec(int &ptr);
 
-        void printStack(const char *when, std::vector<uRASEntry> &stack, int &sp) {
-            DPRINTF(FTBuRAS, "printStack when %s: \n", when);
+        void printStack(const char *when, std::vector<FTBuRASEntry> &stack, int &sp) {
+            DPRINTF(URAS, "printStack when %s: \n", when);
             for (int i = 0; i < numEntries; i++) {
-                DPRINTFR(FTBuRAS, "entry [%d], retAddr %#lx, ctr %d", i, stack[i].retAddr, stack[i].ctr);
+                DPRINTFR(URAS, "entry [%d], retAddr %#lx, ctr %d", i, stack[i].retAddr, stack[i].ctr);
                 if (sp == i) {
-                    DPRINTFR(FTBuRAS, " <-- SP");
+                    DPRINTFR(URAS, " <-- SP");
                 }
-                DPRINTFR(FTBuRAS, "\n");
+                DPRINTFR(URAS, "\n");
             }
         }
 
@@ -102,11 +102,11 @@ class uRAS : public TimedBaseFTBPredictor
 
         int nonSpecSp;
 
-        std::vector<uRASEntry> specStack;
+        std::vector<FTBuRASEntry> specStack;
 
-        std::vector<uRASEntry> nonSpecStack;
+        std::vector<FTBuRASEntry> nonSpecStack;
 
-        uRASMeta meta;
+        FTBuRASMeta meta;
 
         TraceManager *specRasTrace;
         TraceManager *nonSpecRasTrace;
@@ -114,7 +114,7 @@ class uRAS : public TimedBaseFTBPredictor
 };
 
 struct SpecRASTrace : public Record {
-    SpecRASTrace(uRAS::When when, uRAS::RAS_OP op, Addr startPC, Addr brPC,
+    SpecRASTrace(FTBuRAS::When when, FTBuRAS::RAS_OP op, Addr startPC, Addr brPC,
         Addr retAddr, int sp, Addr tosAddr, unsigned tosCtr)
     {
         _tick = curTick();
@@ -130,7 +130,7 @@ struct SpecRASTrace : public Record {
 };
 
 struct NonSpecRASTrace : public Record {
-    NonSpecRASTrace(uRAS::RAS_OP op, Addr startPC, Addr brPC, Addr retAddr,
+    NonSpecRASTrace(FTBuRAS::RAS_OP op, Addr startPC, Addr brPC, Addr retAddr,
         int predSp, Addr predTosAddr, unsigned predTosCtr,
         int sp, Addr tosAddr, unsigned tosCtr, bool miss)
     {

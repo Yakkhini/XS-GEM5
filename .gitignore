@@ -54,5 +54,7 @@ llvm-pgo/
 *nemu*
 ready-to-run/
 *.out
+.cursorrules
+.cursorignore
 compile_commands.json
 .direnv

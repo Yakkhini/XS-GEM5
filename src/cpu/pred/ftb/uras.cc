@@ -6,7 +6,7 @@ namespace branch_prediction {
 
 namespace ftb_pred {
 
-uRAS::uRAS(const Params &p)
+FTBuRAS::FTBuRAS(const Params &p)
     : TimedBaseFTBPredictor(p),
     numEntries(p.numEntries),
     ctrWidth(p.ctrWidth)
@@ -31,7 +31,7 @@ uRAS::uRAS(const Params &p)
 }
 
 void
-uRAS::setTrace()
+FTBuRAS::setTrace()
 {
     if (enableDB) {
         // record every modification to the spec-stack
@@ -72,7 +72,7 @@ uRAS::setTrace()
 }
 
 void
-uRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
+FTBuRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
                   std::vector<FullFTBPrediction> &stagePreds)
 {
     auto &stack = specStack;
@@ -87,14 +87,14 @@ uRAS::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
 }
 
 std::shared_ptr<void>
-uRAS::getPredictionMeta()
+FTBuRAS::getPredictionMeta()
 {
-    std::shared_ptr<void> meta_void_ptr = std::make_shared<uRASMeta>(meta);
+    std::shared_ptr<void> meta_void_ptr = std::make_shared<FTBuRASMeta>(meta);
     return meta_void_ptr;
 }
 
 void
-uRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred)
+FTBuRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &pred)
 {
     auto &stack = specStack;
     auto &sp = specSp;
@@ -108,7 +108,7 @@ uRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &
                 retAddr, sp, stack[sp].retAddr, stack[sp].ctr);
             specRasTrace->write_record(rec);
         }
-        DPRINTF(FTBuRAS, "spec stack push addr 0x%llx\n", retAddr);
+        DPRINTF(URAS, "spec stack push addr 0x%llx\n", retAddr);
         push(retAddr, stack, sp);
     }
     if (takenSlot.isReturn) {
@@ -119,20 +119,20 @@ uRAS::specUpdateHist(const boost::dynamic_bitset<> &history, FullFTBPrediction &
         }
         // do pop
         auto retAddr = stack[sp].retAddr;
-        DPRINTF(FTBuRAS, "spec stack pop at pc 0x%llx target %llx\n", pred.bbStart, retAddr);
+        DPRINTF(URAS, "spec stack pop at pc 0x%llx target %llx\n", pred.bbStart, retAddr);
         pop(stack, sp);
     }
     printStack("after specUpdateHist", stack, sp);
 }
 
 void
-uRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
+FTBuRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &entry, int shamt, bool cond_taken)
 {
     auto &stack = specStack;
     auto &sp = specSp;
     printStack("before recoverHist", stack, sp);
     // recover sp and tos first
-    auto meta_ptr = std::static_pointer_cast<uRASMeta>(entry.predMetas[getComponentIdx()]);
+    auto meta_ptr = std::static_pointer_cast<FTBuRASMeta>(entry.predMetas[getComponentIdx()]);
     auto takenSlot = entry.exeBranchInfo;
     if (enableDB) {
         SpecRASTrace rec(When::REDIRECT, RAS_OP::RECOVER, entry.startPC, takenSlot.pc, 0, sp, stack[sp].retAddr, stack[sp].ctr);
@@ -148,7 +148,7 @@ uRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &ent
                 SpecRASTrace rec(When::REDIRECT, RAS_OP::POP, entry.startPC, takenSlot.pc, stack[sp].retAddr, sp, stack[sp].retAddr, stack[sp].ctr);
                 specRasTrace->write_record(rec);
             }
-            DPRINTF(FTBuRAS, "recover stack pop at pc 0x%llx target %llx\n", entry.startPC, stack[sp].retAddr);
+            DPRINTF(URAS, "recover stack pop at pc 0x%llx target %llx\n", entry.startPC, stack[sp].retAddr);
             pop(stack, sp);
         }
         if (takenSlot.isCall) {
@@ -157,7 +157,7 @@ uRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &ent
                 SpecRASTrace rec(When::REDIRECT, RAS_OP::PUSH, entry.startPC, takenSlot.pc, retAddr, sp, stack[sp].retAddr, stack[sp].ctr);
                 specRasTrace->write_record(rec);
             }
-            DPRINTF(FTBuRAS, "recover stack push addr 0x%llx\n", retAddr);
+            DPRINTF(URAS, "recover stack push addr 0x%llx\n", retAddr);
             push(retAddr, stack, sp);
         }
     }
@@ -165,14 +165,14 @@ uRAS::recoverHist(const boost::dynamic_bitset<> &history, const FetchStream &ent
 }
 
 void
-uRAS::update(const FetchStream &entry)
+FTBuRAS::update(const FetchStream &entry)
 {
     auto &stack = nonSpecStack;
     auto &sp = nonSpecSp;
     printStack("before update", stack, sp);
     auto takenSlot = entry.exeBranchInfo;
     if (entry.exeTaken && (takenSlot.isReturn || takenSlot.isCall)) {
-        auto meta_ptr = std::static_pointer_cast<uRASMeta>(entry.predMetas[getComponentIdx()]);
+        auto meta_ptr = std::static_pointer_cast<FTBuRASMeta>(entry.predMetas[getComponentIdx()]);
         auto pred_sp = meta_ptr->sp;
         auto pred_tos = meta_ptr->tos;
         auto miss = entry.squashType == SQUASH_CTRL && entry.squashPC == entry.exeBranchInfo.pc;
@@ -198,7 +198,7 @@ uRAS::update(const FetchStream &entry)
 }
 
 void
-uRAS::push(Addr retAddr, std::vector<uRASEntry> &stack, int &sp)
+FTBuRAS::push(Addr retAddr, std::vector<FTBuRASEntry> &stack, int &sp)
 {
     auto &tos = stack[sp];
     if (tos.retAddr == retAddr && tos.ctr < maxCtr) {
@@ -212,7 +212,7 @@ uRAS::push(Addr retAddr, std::vector<uRASEntry> &stack, int &sp)
 }
 
 void
-uRAS::pop(std::vector<uRASEntry> &stack, int &sp)
+FTBuRAS::pop(std::vector<FTBuRASEntry> &stack, int &sp)
 {
     auto &tos = stack[sp];
     if (tos.ctr > 0) {
@@ -223,13 +223,13 @@ uRAS::pop(std::vector<uRASEntry> &stack, int &sp)
 }
 
 void
-uRAS::ptrInc(int &ptr)
+FTBuRAS::ptrInc(int &ptr)
 {
     ptr = (ptr + 1) % numEntries;
 }
 
 void
-uRAS::ptrDec(int &ptr)
+FTBuRAS::ptrDec(int &ptr)
 {
     if (ptr > 0) {
         ptr--;

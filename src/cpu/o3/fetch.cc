@@ -144,17 +144,30 @@ Fetch::Fetch(CPU *_cpu, const BaseO3CPUParams &params)
     if (isStreamPred()) {
         dbsp = dynamic_cast<branch_prediction::stream_pred::DecoupledStreamBPU*>(branchPred);
         dbpftb = nullptr;
+        dbpbtb = nullptr;
         assert(dbsp);
         usedUpFetchTargets = true;
     } else if (isFTBPred()) {
         dbsp = nullptr;
         dbpftb = dynamic_cast<branch_prediction::ftb_pred::DecoupledBPUWithFTB*>(branchPred);
+        dbpbtb = nullptr;
         assert(dbpftb);
         usedUpFetchTargets = true;
         enableLoopBuffer = dbpftb->enableLoopBuffer;
         dbpftb->setCpu(_cpu);
         if (enableLoopBuffer) {
             loopBuffer = &dbpftb->lb;
+        }
+    } else if (isBTBPred()) {
+        dbsp = nullptr;
+        dbpftb = nullptr;
+        dbpbtb = dynamic_cast<branch_prediction::btb_pred::DecoupledBPUWithBTB*>(branchPred);
+        assert(dbpbtb);
+        usedUpFetchTargets = true;
+        enableLoopBuffer = dbpbtb->enableLoopBuffer;
+        dbpbtb->setCpu(_cpu);
+        if (enableLoopBuffer) {
+            // loopBuffer = &dbpbtb->lb;
         }
     }
 
@@ -449,6 +462,8 @@ Fetch::resetStage()
         dbsp->resetPC(pc[0]->instAddr());
     } else if (isFTBPred()) {
         dbpftb->resetPC(pc[0]->instAddr());
+    } else if (isBTBPred()) {
+        dbpbtb->resetPC(pc[0]->instAddr());
     }
 }
 
@@ -704,10 +719,16 @@ Fetch::lookupAndUpdateNextPC(const DynInstPtr &inst, PCStateBase &next_pc)
                 DPRINTF(DecoupleBP, "Used up fetch targets.\n");
             }
         }
-        else if (isFTBPred()) {
-            std::tie(predict_taken, usedUpFetchTargets) =
-                dbpftb->decoupledPredict(
-                    inst->staticInst, inst->seqNum, next_pc, tid, currentLoopIter);
+        else  {
+            if (isFTBPred()) {
+                std::tie(predict_taken, usedUpFetchTargets) =
+                    dbpftb->decoupledPredict(
+                        inst->staticInst, inst->seqNum, next_pc, tid, currentLoopIter);
+            } else if (isBTBPred()) {
+                std::tie(predict_taken, usedUpFetchTargets) =
+                    dbpbtb->decoupledPredict(
+                        inst->staticInst, inst->seqNum, next_pc, tid, currentLoopIter);
+            }
             if (usedUpFetchTargets) {
                 DPRINTF(DecoupleBP, "Used up fetch targets.\n");
             }
@@ -1096,6 +1117,8 @@ Fetch::getPreservedReturnAddr(const DynInstPtr &dynInst)
 {
     if (isFTBPred()) {
         return dbpftb->getPreservedReturnAddr(dynInst);
+    } else if (isBTBPred()) {
+        return dbpbtb->getPreservedReturnAddr(dynInst);
     } else {
         panic("getPreservedReturnAddr not implemented for this bpu");
         return 0;
@@ -1349,6 +1372,10 @@ Fetch::tick()
             dbpftb->tick();
         }
         usedUpFetchTargets = !dbpftb->trySupplyFetchWithTarget(pc[0]->instAddr(), currentFetchTargetInLoop);
+    } else if (isBTBPred()) {
+        assert(dbpbtb);
+        dbpbtb->tick();
+        usedUpFetchTargets = !dbpbtb->trySupplyFetchWithTarget(pc[0]->instAddr(), currentFetchTargetInLoop);
     }
 }
 
@@ -1413,6 +1440,14 @@ Fetch::checkSignalsAndUpdate(ThreadID tid)
                         fromCommit->commitInfo[tid].branchTaken,
                         mispred_inst->seqNum, tid, mispred_inst->getLoopIteration(),
                         true);
+                } else if (isBTBPred()) {
+                    dbpbtb->controlSquash(
+                        mispred_inst->getFtqId(), mispred_inst->getFsqId(),
+                        mispred_inst->pcState(), *fromCommit->commitInfo[tid].pc,
+                        mispred_inst->staticInst, mispred_inst->getInstBytes(),
+                        fromCommit->commitInfo[tid].branchTaken,
+                        mispred_inst->seqNum, tid, mispred_inst->getLoopIteration(),
+                        true);
                 }
             } else if (fromCommit->commitInfo[tid].isTrapSquash) {
                 DPRINTF(Fetch, "Treating as trap squash\n",tid);
@@ -1424,6 +1459,12 @@ Fetch::checkSignalsAndUpdate(ThreadID tid)
                         *fromCommit->commitInfo[tid].pc, tid);
                 } else if (isFTBPred()) {
                     dbpftb->trapSquash(
+                        fromCommit->commitInfo[tid].squashedTargetId,
+                        fromCommit->commitInfo[tid].squashedStreamId,
+                        fromCommit->commitInfo[tid].committedPC,
+                        *fromCommit->commitInfo[tid].pc, tid, fromCommit->commitInfo[tid].squashedLoopIter);
+                } else if (isBTBPred()) {
+                    dbpbtb->trapSquash(
                         fromCommit->commitInfo[tid].squashedTargetId,
                         fromCommit->commitInfo[tid].squashedStreamId,
                         fromCommit->commitInfo[tid].committedPC,
@@ -1443,6 +1484,11 @@ Fetch::checkSignalsAndUpdate(ThreadID tid)
                             *fromCommit->commitInfo[tid].pc, 0, tid);
                     } else if (isFTBPred()) {
                         dbpftb->nonControlSquash(
+                            fromCommit->commitInfo[tid].squashedTargetId,
+                            fromCommit->commitInfo[tid].squashedStreamId,
+                            *fromCommit->commitInfo[tid].pc, 0, tid, fromCommit->commitInfo[tid].squashedLoopIter);
+                    } else if (isBTBPred()) {
+                        dbpbtb->nonControlSquash(
                             fromCommit->commitInfo[tid].squashedTargetId,
                             fromCommit->commitInfo[tid].squashedStreamId,
                             *fromCommit->commitInfo[tid].pc, 0, tid, fromCommit->commitInfo[tid].squashedLoopIter);
@@ -1470,6 +1516,9 @@ Fetch::checkSignalsAndUpdate(ThreadID tid)
             } else if (isFTBPred()) {
                 assert(dbpftb);
                 dbpftb->update(fromCommit->commitInfo[tid].doneFsqId, tid);
+            } else if (isBTBPred()) {
+                assert(dbpbtb);
+                dbpbtb->update(fromCommit->commitInfo[tid].doneFsqId, tid);
             }
         }
     }
@@ -1504,6 +1553,15 @@ Fetch::checkSignalsAndUpdate(ThreadID tid)
                         mispred_inst->seqNum, tid);
                 } else if (isFTBPred()) {
                     dbpftb->controlSquash(
+                        mispred_inst->getFtqId(), mispred_inst->getFsqId(),
+                        mispred_inst->pcState(),
+                        *fromDecode->decodeInfo[tid].nextPC,
+                        mispred_inst->staticInst, mispred_inst->getInstBytes(),
+                        fromDecode->decodeInfo[tid].branchTaken,
+                        mispred_inst->seqNum, tid, mispred_inst->getLoopIteration(),
+                        false);
+                } else if (isBTBPred()) {
+                    dbpbtb->controlSquash(
                         mispred_inst->getFtqId(), mispred_inst->getFsqId(),
                         mispred_inst->pcState(),
                         *fromDecode->decodeInfo[tid].nextPC,
@@ -1602,6 +1660,11 @@ Fetch::buildInst(ThreadID tid, StaticInstPtr staticInst,
                     instruction->seqNum, dbpftb->getSupplyingStreamId(), dbpftb->getSupplyingTargetId());
             instruction->setFsqId(dbpftb->getSupplyingStreamId());
             instruction->setFtqId(dbpftb->getSupplyingTargetId());
+        } else if (isBTBPred()) {
+            DPRINTF(DecoupleBP, "Set instruction %lu with stream id %lu, fetch id %lu\n",
+                    instruction->seqNum, dbpbtb->getSupplyingStreamId(), dbpbtb->getSupplyingTargetId());
+            instruction->setFsqId(dbpbtb->getSupplyingStreamId());
+            instruction->setFtqId(dbpbtb->getSupplyingTargetId());
         }
     }
 
@@ -1668,6 +1731,12 @@ Fetch::fetch(bool &status_change)
                 dbpftb->addFtqNotValid();
                 DPRINTF(Fetch, "Skip fetch when FTQ head is not available\n");
                 setAllFetchStalls(StallReason::FTQBubble);
+                return;
+            }
+        } else if (isBTBPred()) {
+            if (!dbpbtb->fetchTargetAvailable()) {
+                dbpbtb->addFtqNotValid();
+                DPRINTF(Fetch, "Skip fetch when FTQ head is not available\n");
                 return;
             }
         }
@@ -1837,14 +1906,26 @@ Fetch::fetch(bool &status_change)
         // the memory we've processed so far.
         do {
             if (!(curMacroop || in_rom)) {
-                if (dec_ptr->instReady() || (isFTBPred() && enableLoopBuffer && currentFetchTargetInLoop)) {
-                    if (isFTBPred() && enableLoopBuffer && currentFetchTargetInLoop) {
-                        auto instDesc = dbpftb->lb.supplyInst();
-                        staticInst = instDesc.inst;
-                        dec_ptr->setPCStateWithInstDesc(instDesc.compressed, this_pc);
+                bool useLB = (isFTBPred() || isBTBPred()) && enableLoopBuffer && currentFetchTargetInLoop;
+                if (dec_ptr->instReady() || useLB) {
+                    if (useLB) {
+                        bool compressed = false;
+                        Addr instPC = this_pc.instAddr();
+                        if (isFTBPred()) {
+                            auto instDesc = dbpftb->lb.supplyInst();
+                            staticInst = instDesc.inst;
+                            compressed = instDesc.compressed;
+                            instPC = instDesc.pc;
+                        } else if (isBTBPred()) {
+                            auto instDesc = dbpbtb->lb.supplyInst();
+                            staticInst = instDesc.inst;
+                            compressed = instDesc.compressed;
+                            instPC = instDesc.pc;
+                        }
+                        dec_ptr->setPCStateWithInstDesc(compressed, this_pc);
                         DPRINTF(LoopBuffer, "Supplying inst pc %#lx from loop buffer pc %#lx\n",
-                            this_pc.instAddr(), instDesc.pc);
-                        assert(this_pc.instAddr() == instDesc.pc);
+                            this_pc.instAddr(), instPC);
+                        assert(this_pc.instAddr() == instPC);
                     } else {
                         staticInst = dec_ptr->decode(this_pc);
                     }
@@ -1960,7 +2041,7 @@ Fetch::fetch(bool &status_change)
         setAllFetchStalls(stall);
     }
 
-    if (enableLoopBuffer && isFTBPred()) {
+    if (enableLoopBuffer && (isFTBPred() || isBTBPred())) {
         if (ftqEmpty()) {
             currentLoopIter = 0;
             

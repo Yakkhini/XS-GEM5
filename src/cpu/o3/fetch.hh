@@ -54,6 +54,7 @@
 #include "cpu/pred/bpred_unit.hh"
 #include "cpu/pred/stream/decoupled_bpred.hh"
 #include "cpu/pred/ftb/decoupled_bpred.hh"
+#include "cpu/pred/btb/decoupled_bpred.hh"
 #include "cpu/timebuf.hh"
 #include "cpu/translation.hh"
 #include "enums/SMTFetchPolicy.hh"
@@ -436,10 +437,15 @@ class Fetch
 
     branch_prediction::ftb_pred::DecoupledBPUWithFTB *dbpftb;
 
+    branch_prediction::btb_pred::DecoupledBPUWithBTB *dbpbtb;
+
+    /** PC of each thread. */
     std::unique_ptr<PCStateBase> pc[MaxThreads];
 
+    /** Fetch offset of each thread. */
     Addr fetchOffset[MaxThreads];
 
+    /** Macroop of each thread. */
     StaticInstPtr macroop[MaxThreads];
 
     /** Can the fetch stage redirect from an interrupt on this instruction? */
@@ -461,8 +467,8 @@ class Fetch
     /** Source of possible stalls. */
     struct Stalls
     {
-        bool decode;
-        bool drain;
+        bool decode; // stall due to decode
+        bool drain; // stall due to drain
     };
 
     /** Tracks which stages are telling fetch to stall. */
@@ -532,6 +538,7 @@ class Fetch
     bool fetchBufferValid[MaxThreads];
 
     /** Loop buffer with unrolling */
+    // TODO: use the same loop buffer for both of them
     branch_prediction::ftb_pred::LoopBuffer *loopBuffer;
 
     bool enableLoopBuffer{false};
@@ -577,12 +584,14 @@ class Fetch
 
     bool isFTBPred() { return branchPred->isFTB(); }
 
+    bool isBTBPred() {return branchPred->isBTB(); }
+
     bool usedUpFetchTargets;
 
     /** fetch stall reasons */
     std::vector<StallReason> stallReason;
 
-    bool currentFetchTargetInLoop;
+    bool currentFetchTargetInLoop{false};
 
     std::pair<Addr, std::vector<branch_prediction::ftb_pred::LoopBuffer::InstDesc>> currentFtqEntryInsts;
 

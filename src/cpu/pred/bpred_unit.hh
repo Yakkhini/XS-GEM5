@@ -199,9 +199,10 @@ class BPredUnit : public SimObject
     void dump();
 
     BpType bpType;
-    bool isDecoupled() const { return bpType == DecoupledStreamType || bpType == DecoupledFTBType; }
+    bool isDecoupled() const { return bpType == DecoupledStreamType || bpType == DecoupledFTBType || bpType == DecoupledBTBType; }
     bool isStream() const { return bpType == DecoupledStreamType; }
     bool isFTB() const { return bpType == DecoupledFTBType; }
+    bool isBTB() const { return bpType == DecoupledBTBType; }
 
   private:
 

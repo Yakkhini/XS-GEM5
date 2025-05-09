@@ -105,4 +105,10 @@
    ...
    fun:__run_exit_handlers
 }
-
+{
+   # Google Test internal error
+   gtest_internal_error
+   Memcheck:Free
+   ...
+   fun:*testing*Test*
+}

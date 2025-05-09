@@ -5,7 +5,7 @@
 
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
-#include "debug/FTBFoldedHist.hh"
+#include "debug/FoldedHist.hh"
 
 namespace gem5 {
 

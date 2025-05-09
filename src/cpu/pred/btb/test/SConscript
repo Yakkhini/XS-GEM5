@@ -1,0 +1,63 @@
+Import('*')
+
+# Add the test source files
+GTest('uras.test', 'uras_test.cc')
+
+# Add BTB test with minimal dependencies
+GTest('btb.test', 
+    'mockbtb.cc',
+    'btb.test.cc',
+    'timed_base_pred.cc',
+)
+
+GTest('abtb.test',
+    'mockbtb.cc',
+    'abtb.test.cc',
+    'timed_base_pred.cc',
+)
+
+# Add TAGE test with necessary dependencies
+GTest('tage.test', 
+    'btb_tage.cc',
+    'btb_tage.test.cc', 
+    '../folded_hist.cc',
+    'timed_base_pred.cc',
+)
+
+GTest('folded_hist.test',
+    'folded_hist.test.cc',
+    '../folded_hist.cc',
+)
+
+# below tests must add --unit-test to enable unit test mode!
+GTest('jump_ahead.test',
+    'jump_ahead.test.cc',
+)
+
+# must use --unit-test to enable unit test mode!
+# scons build/RISCV/cpu/pred/btb/test/fetch_target_queue.test.debug -j100 --unit-test
+GTest('fetch_target_queue.test',
+    'fetch_target_queue.test.cc',
+    '../fetch_target_queue.cc',
+)
+
+# add --unit-test to enable unit test mode
+GTest('decoupled_bpred.test',
+    'decoupled_bpred.test.cc',
+    'decoupled_bpred.cc',
+    'mockbtb.cc',
+    'btb_tage.cc',
+    '../folded_hist.cc',
+    'timed_base_pred.cc',
+    '../fetch_target_queue.cc',
+    # '../../../../sim/serialize.cc',     # for PCStateBase
+)
+
+# Add the test to UNITTESTS target
+env.Append(UNITTESTS=['uras.test',
+        'btb.test',
+        'tage.test',
+        'folded_hist.test',
+        'jump_ahead.test',
+        'fetch_target_queue.test',
+        'decoupled_bpred.test'])

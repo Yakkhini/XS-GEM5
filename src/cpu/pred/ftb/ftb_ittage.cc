@@ -12,7 +12,7 @@
 #include "debug/DecoupleBP.hh"
 #include "debug/DecoupleBPVerbose.hh"
 #include "debug/DecoupleBPUseful.hh"
-#include "debug/FTBITTAGE.hh"
+#include "debug/ITTAGE.hh"
 
 namespace gem5 {
 
@@ -31,7 +31,7 @@ FTBITTAGE::FTBITTAGE(const Params& p)
       numTablesToAlloc(p.numTablesToAlloc),
       numBr(p.numBr)
 {
-    DPRINTF(FTBITTAGE || debugFlag, "FTBITTAGE constructor numBr=%d\n", numBr);
+    DPRINTF(ITTAGE || debugFlag, "FTBITTAGE constructor numBr=%d\n", numBr);
     tageTable.resize(numPredictors);
     tableIndexBits.resize(numPredictors);
     tableIndexMasks.resize(numPredictors);
@@ -76,7 +76,7 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
                         TageEntry &alt_entry, int &alt_table, int &alt_table_index, bool &use_alt_pred,
                         bool &use_base_table, bitset &usefulMask)
 {
-    DPRINTF(FTBITTAGE || debugFlag, "lookupHelper startAddr: %#lx\n", startAddr);
+    DPRINTF(ITTAGE || debugFlag, "lookupHelper startAddr: %#lx\n", startAddr);
     main_table = -1;
     alt_table = -1;
     main_table_index = -1;
@@ -93,7 +93,7 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
         bool match = way.valid && matchTag(tmp_tag, way.tag);
         if (match) {
             ++provider_counts;
-            DPRINTF(FTBITTAGE || debugFlag, "matches table %d index %d tag %d\n", i, tmp_index, tmp_tag);
+            DPRINTF(ITTAGE || debugFlag, "matches table %d index %d tag %d\n", i, tmp_index, tmp_tag);
             if (!provided) {
                 main_entry = way;
                 main_table = i;
@@ -112,7 +112,7 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
             usefulMask <<= 1;
             usefulMask[0] = way.useful;
         }
-        DPRINTF(FTBITTAGE || debugFlag, "table %d, index %d, lookup tag %d, tag %d, useful %d\n",
+        DPRINTF(ITTAGE || debugFlag, "table %d, index %d, lookup tag %d, tag %d, useful %d\n",
             i, tmp_index, tmp_tag, way.tag, way.useful);
     }
 
@@ -122,7 +122,7 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
         // if (!(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1))) {
         //     debugFlag = true;
         // }
-        DPRINTF(FTBITTAGE || debugFlag,
+        DPRINTF(ITTAGE || debugFlag,
                 "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n", provided,
                 provider_counts, main_table, main_table_index, use_alt_pred);
         assert(!use_alt_pred || (use_alt_pred && alt_provided && provider_counts > 1));
@@ -130,7 +130,7 @@ FTBITTAGE::lookupHelper(Addr startAddr, TageEntry &main_entry, int &main_table, 
         use_alt_pred = false;
         use_base_table = true;
     }
-    DPRINTF(FTBITTAGE || debugFlag, "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
+    DPRINTF(ITTAGE || debugFlag, "lookup provided %d, provider_counts %d, main_table %d, main_table_index %d, use_alt %d\n",
                 provided, provider_counts, main_table, main_table_index, use_alt_pred);
     return std::make_pair(provided, alt_provided);
 }
@@ -140,7 +140,7 @@ FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
     // if (debugPC == stream_start) {
     //     debugFlag = true;
     // }
-    DPRINTF(FTBITTAGE || debugFlag, "putPCHistory startAddr: %#lx\n", stream_start);
+    DPRINTF(ITTAGE || debugFlag, "putPCHistory startAddr: %#lx\n", stream_start);
     TageEntry main_entry, alt_entry;
     main_entry.valid = false;
     alt_entry.valid = false;
@@ -159,7 +159,7 @@ FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
                         alt_table, main_table_index, alt_table_index, use_alt_pred,
                         use_base_table, usefulMask);
     
-    DPRINTF(FTBITTAGE || debugFlag, "main_found %d, alt_found %d, main_table %d, alt_table %d, main_index %d, alt_index %d\n",
+    DPRINTF(ITTAGE || debugFlag, "main_found %d, alt_found %d, main_table %d, alt_table %d, main_index %d, alt_index %d\n",
         main_found, alt_found, main_table, alt_table, main_table_index, alt_table_index);
     
     assert(getDelay() < stagePreds.size());
@@ -180,7 +180,7 @@ FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
             useTarget = base_target;
             warn("no target found\n");
         }
-        DPRINTF(FTBITTAGE || debugFlag, "indirect target=%#lx\n", useTarget);
+        DPRINTF(ITTAGE || debugFlag, "indirect target=%#lx\n", useTarget);
         if (taken) {
             stagePreds[s].indirectTarget = useTarget;
         }
@@ -190,7 +190,7 @@ FTBITTAGE::putPCHistory(Addr stream_start, const bitset &history, std::vector<Fu
     meta.tagFoldedHist = tagFoldedHist;
     meta.altTagFoldedHist = altTagFoldedHist;
     meta.indexFoldedHist = indexFoldedHist;
-    DPRINTF(FTBITTAGE || debugFlag, "putPCHistory end\n");
+    DPRINTF(ITTAGE || debugFlag, "putPCHistory end\n");
     debugFlag = false;
 }
 
@@ -207,7 +207,7 @@ FTBITTAGE::update(const FetchStream &entry)
     //     debugFlag = true;
     // }
     Addr startAddr = entry.getRealStartPC();
-    DPRINTF(FTBITTAGE || debugFlag, "update startAddr: %#lx\n", startAddr);
+    DPRINTF(ITTAGE || debugFlag, "update startAddr: %#lx\n", startAddr);
     auto ftb_entry = entry.updateFTBEntry;
 
     // get tage predictions from meta
@@ -230,14 +230,14 @@ FTBITTAGE::update(const FetchStream &entry)
         entry.exeBranchInfo.isIndirect && !entry.exeBranchInfo.isReturn;
     bool mispred = entry.squashType == SquashType::SQUASH_CTRL && entry.squashPC == indirect_slot.pc;
     if (should_update) {
-        DPRINTF(FTBITTAGE || debugFlag, "try to update indirect pc %#lx \n", indirect_slot.pc);
+        DPRINTF(ITTAGE || debugFlag, "try to update indirect pc %#lx \n", indirect_slot.pc);
 
         bool mainFound = pred.mainFound;
         Addr mainTarget = pred.mainEntry.target;
 
         // update useful bit, counter and predTaken for main entry
         if (mainFound) { // updateProvided
-            DPRINTF(FTBITTAGE || debugFlag, "prediction provided by table %d, idx %d, updating corresponding entry\n",
+            DPRINTF(ITTAGE || debugFlag, "prediction provided by table %d, idx %d, updating corresponding entry\n",
                 pred.main_table, pred.main_index);
             assert(pred.main_table < numPredictors && pred.main_index < tableSizes[pred.main_table]);
             auto &way = tageTable[pred.main_table][pred.main_index];
@@ -245,7 +245,7 @@ FTBITTAGE::update(const FetchStream &entry)
             // if (mainTarget != altTarget) { // updateAltDiffers
             //     way.useful = entry.exeBranchInfo.target == mainTarget; // updateProviderCorrect
             // }
-            DPRINTF(FTBITTAGE || debugFlag, "useful bit set to %d\n", way.useful);
+            DPRINTF(ITTAGE || debugFlag, "useful bit set to %d\n", way.useful);
 
             updateCounter(entry.exeBranchInfo.target == mainTarget, 2, way.counter); // need modify
             if (way.counter == 0) {
@@ -258,7 +258,7 @@ FTBITTAGE::update(const FetchStream &entry)
             }
 
             if (pred.useAlt && mispred) {
-                DPRINTF(FTBITTAGE, "prediction provided by alt table %d, idx %d, updating corresponding entry\n",
+                DPRINTF(ITTAGE, "prediction provided by alt table %d, idx %d, updating corresponding entry\n",
                     pred.alt_table, pred.alt_index);
                 assert(pred.alt_table < numPredictors && pred.alt_index < tableSizes[pred.alt_table]);
                 auto &alt_way = tageTable[pred.alt_table][pred.alt_index];
@@ -272,7 +272,7 @@ FTBITTAGE::update(const FetchStream &entry)
         // update base table counter
         // if (pred.useAlt) {
         //     unsigned base_idx = getBaseTableIndex(startAddr);
-        //     DPRINTF(FTBITTAGE || debugFlag, "prediction provided by base table idx %d, updating corresponding entry\n", base_idx);
+        //     DPRINTF(ITTAGE || debugFlag, "prediction provided by base table idx %d, updating corresponding entry\n", base_idx);
         //     baseTable.at(base_idx)[b].first = entry.exeBranchInfo.target;
         //     updateCounter(entry.exeBranchInfo.target == altTarget, 2, baseTable.at(base_idx)[b].second); // need mofigy
         // }
@@ -286,18 +286,18 @@ FTBITTAGE::update(const FetchStream &entry)
         //     } else {
         //         satDecrement(-8, use_alt_counter);
         //     }
-        //     DPRINTF(FTBITTAGE || debugFlag, "updating use_alt_counter %d\n", use_alt_counter);
+        //     DPRINTF(ITTAGE || debugFlag, "updating use_alt_counter %d\n", use_alt_counter);
         // }
 
         if (mispred) {
-            DPRINTF(FTBITTAGE || debugFlag, "miss target=%#lx, correct target=%#lx\n", entry.predBranchInfo.target, entry.exeBranchInfo.target);
+            DPRINTF(ITTAGE || debugFlag, "miss target=%#lx, correct target=%#lx\n", entry.predBranchInfo.target, entry.exeBranchInfo.target);
         } else {
-            DPRINTF(FTBITTAGE || debugFlag, "hit target=%#lx, correct target=%#lx\n", entry.predBranchInfo.target, entry.exeBranchInfo.target);
+            DPRINTF(ITTAGE || debugFlag, "hit target=%#lx, correct target=%#lx\n", entry.predBranchInfo.target, entry.exeBranchInfo.target);
         }
         // update useful reset counter
         bool use_alt_on_main_found_correct = (pred.useAlt || pred.useBase) && pred.mainFound && mainTarget == entry.exeBranchInfo.target;
         bool needToAllocate = mispred && !use_alt_on_main_found_correct;
-        DPRINTF(FTBITTAGE || debugFlag, "mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
+        DPRINTF(ITTAGE || debugFlag, "mispred %d, use_alt_on_main_found_correct %d, needToAllocate %d\n",
             mispred, use_alt_on_main_found_correct, needToAllocate);
 
         int num_tables_can_allocate = (~pred.usefulMask).count();
@@ -311,12 +311,12 @@ FTBITTAGE::update(const FetchStream &entry)
             //     usefulResetCnt[b] += changeVal;
             //     if (usefulResetCnt[b] >= 128)
             //         usefulResetCnt[b] = 128;
-            //     DPRINTF(FTBITTAGE || debugFlag, "incUsefulResetCounter, changeVal %d, usefulResetCnt %d\n", changeVal, usefulResetCnt[b]);
+            //     DPRINTF(ITTAGE || debugFlag, "incUsefulResetCounter, changeVal %d, usefulResetCnt %d\n", changeVal, usefulResetCnt[b]);
             // } else if (decUsefulResetCounter) {
             //     usefulResetCnt[b] -= changeVal;
             //     if (usefulResetCnt[b] <= 0)
             //         usefulResetCnt[b] = 0;
-            //     DPRINTF(FTBITTAGE || debugFlag, "decUsefulResetCounter, changeVal %d, usefulResetCnt %d\n", changeVal, usefulResetCnt[b]);
+            //     DPRINTF(ITTAGE || debugFlag, "decUsefulResetCounter, changeVal %d, usefulResetCnt %d\n", changeVal, usefulResetCnt[b]);
             // }
 
             if (canAllocate) {
@@ -324,16 +324,16 @@ FTBITTAGE::update(const FetchStream &entry)
                 if (usefulResetCnt <= 0) {
                     usefulResetCnt = 0;
                 }
-                DPRINTF(FTBITTAGE || debugFlag, "can allocate, usefulResetCnt %d\n", usefulResetCnt);
+                DPRINTF(ITTAGE || debugFlag, "can allocate, usefulResetCnt %d\n", usefulResetCnt);
             } else {
                 usefulResetCnt += 1;
                 if (usefulResetCnt >= 256) {
                     usefulResetCnt = 256;
                 }
-                DPRINTF(FTBITTAGE || debugFlag, "can not allocate, usefulResetCnt %d\n", usefulResetCnt);
+                DPRINTF(ITTAGE || debugFlag, "can not allocate, usefulResetCnt %d\n", usefulResetCnt);
             }
             if (usefulResetCnt == 256) {
-                DPRINTF(FTBITTAGE || debugFlag, "reset useful bit of all entries\n");
+                DPRINTF(ITTAGE || debugFlag, "reset useful bit of all entries\n");
                 for (auto &table : tageTable) {
                     for (auto &entry : table) {
                         entry.useful = 0;
@@ -352,15 +352,15 @@ FTBITTAGE::update(const FetchStream &entry)
             auto flipped_usefulMask = pred.usefulMask.flip();
             bitset masked = allocateLFSR & flipped_usefulMask;
             bitset allocate = masked.any() ? masked : flipped_usefulMask;
-            DPRINTF(FTBITTAGE || debugFlag, "allocateLFSR %s, size %d\n", allocateLFSR, allocateLFSR.size());
-            DPRINTF(FTBITTAGE || debugFlag, "pred usefulmask %s, size %d\n", flipped_usefulMask,
+            DPRINTF(ITTAGE || debugFlag, "allocateLFSR %s, size %d\n", allocateLFSR, allocateLFSR.size());
+            DPRINTF(ITTAGE || debugFlag, "pred usefulmask %s, size %d\n", flipped_usefulMask,
                     pred.usefulMask.size());
-            DPRINTF(FTBITTAGE || debugFlag, "masked %s, size %d\n", masked, masked.size());
-            DPRINTF(FTBITTAGE || debugFlag, "allocate %s, size %d\n", allocate, allocate.size());
+            DPRINTF(ITTAGE || debugFlag, "masked %s, size %d\n", masked, masked.size());
+            DPRINTF(ITTAGE || debugFlag, "allocate %s, size %d\n", allocate, allocate.size());
 
             bool allocateValid = flipped_usefulMask.any();
             if (needToAllocate && allocateValid) {
-                DPRINTF(FTBITTAGE || debugFlag, "allocate new entry\n");
+                DPRINTF(ITTAGE || debugFlag, "allocate new entry\n");
                 unsigned startTable = pred.main_table + 1;
 
                 for (int ti = startTable; ti < numPredictors; ti++) {
@@ -370,7 +370,7 @@ FTBITTAGE::update(const FetchStream &entry)
                     auto &newEntry = tageTable[ti][newIndex];
 
                     if (allocate[ti - startTable]) {
-                        DPRINTF(FTBITTAGE || debugFlag, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
+                        DPRINTF(ITTAGE || debugFlag, "found allocatable entry, table %d, index %d, tag %d, counter %d\n",
                             ti, newIndex, newTag, 2);
                         newEntry = TageEntry(newTag, entry.exeBranchInfo.target, 2);
                         break; // allocate only 1 entry
@@ -379,7 +379,7 @@ FTBITTAGE::update(const FetchStream &entry)
             }
         }
     }
-    DPRINTF(FTBITTAGE || debugFlag, "end update\n");
+    DPRINTF(ITTAGE || debugFlag, "end update\n");
     debugFlag = false;
 }
 
@@ -453,15 +453,15 @@ FTBITTAGE::satDecrement(int min, short &counter)
 void
 FTBITTAGE::doUpdateHist(const boost::dynamic_bitset<> &history, int shamt, bool taken)
 {
-    DPRINTF(FTBITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, history);
+    DPRINTF(ITTAGE || debugFlag, "in doUpdateHist, shamt %d, taken %d, history %s\n", shamt, taken, history);
     if (shamt == 0) {
-        DPRINTF(FTBITTAGE || debugFlag, "shamt is 0, returning\n");
+        DPRINTF(ITTAGE || debugFlag, "shamt is 0, returning\n");
         return;
     }
 
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 3; type++) {
-            DPRINTF(FTBITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
+            DPRINTF(ITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
 
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.update(history, shamt, taken);
@@ -495,11 +495,11 @@ FTBITTAGE::recoverHist(const boost::dynamic_bitset<> &history,
 void
 FTBITTAGE::checkFoldedHist(const boost::dynamic_bitset<> &hist, const char * when)
 {
-    DPRINTF(FTBITTAGE || debugFlag, "checking folded history when %s\n", when);
-    DPRINTF(FTBITTAGE || debugFlag, "history:\t%s\n", hist);
+    DPRINTF(ITTAGE || debugFlag, "checking folded history when %s\n", when);
+    DPRINTF(ITTAGE || debugFlag, "history:\t%s\n", hist);
     for (int t = 0; t < numPredictors; t++) {
         for (int type = 0; type < 2; type++) {
-            DPRINTF(FTBITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
+            DPRINTF(ITTAGE || debugFlag, "t: %d, type: %d\n", t, type);
             std::string buf2, buf3;
             auto &foldedHist = type == 0 ? indexFoldedHist[t] : type == 1 ? tagFoldedHist[t] : altTagFoldedHist[t];
             foldedHist.check(hist);

@@ -234,8 +234,8 @@ class DecoupledBPUWithFTB : public BPredUnit
     FTBTAGE *tage{};
     FTBITTAGE *ittage{};
     
-    ftb_pred::RAS *ras{};
-    ftb_pred::uRAS *uras{};
+    FTBRAS *ras{};
+    FTBuRAS *uras{};
 
     // bool enableDB;
     std::vector<std::string> bpDBSwitches;
@@ -403,7 +403,17 @@ class DecoupledBPUWithFTB : public BPredUnit
 
         statistics::Vector predsOfEachStage;
         statistics::Scalar overrideBubbleNum;
+        statistics::Scalar overrideCount;
         statistics::Vector commitPredsFromEachStage;
+        statistics::Formula commitOverrideBubbleNum;
+        statistics::Formula commitOverrideCount;
+        statistics::Scalar overrideFallThruMismatch;
+        statistics::Scalar overrideControlAddrMismatch;
+        statistics::Scalar overrideTargetMismatch;
+        statistics::Scalar overrideEndMismatch;
+        statistics::Scalar overrideHistInfoMismatch;
+
+
         statistics::Distribution fsqEntryDist;
         statistics::Scalar fsqEntryEnqueued;
         statistics::Scalar fsqEntryCommitted;
@@ -772,6 +782,8 @@ class DecoupledBPUWithFTB : public BPredUnit
     std::map<Addr, unsigned> topMispredIndirect;
 
     int currentFtqEntryInstNum{0};
+
+    void overrideStats(OverrideReason overrideReason);
 
 };
 

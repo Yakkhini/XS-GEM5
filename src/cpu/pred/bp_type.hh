@@ -50,6 +50,7 @@ using enums::BpType;
 static const BpType CoupledType = enums::Coupled;
 static const BpType DecoupledStreamType = enums::DecoupledStream;
 static const BpType DecoupledFTBType = enums::DecoupledFTB;
+static const BpType DecoupledBTBType = enums::DecoupledBTB;
 
 } // namespace gem5
 

@@ -150,6 +150,8 @@ AddOption('--pgo-prof', action='store_true',
           help='Enable pgo profiling generation')
 AddOption('--pgo-use', action='store', default=None,
           help='Use pgo profiling results')
+AddOption('--unit-test', action='store_true',
+          help='Enable unit test build')
 
 # Inject the built_tools directory into the python path.
 sys.path[1:1] = [ Dir('#build_tools').abspath ]

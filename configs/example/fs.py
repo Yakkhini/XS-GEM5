@@ -289,44 +289,42 @@ def build_test_system(np):
             if args.checker:
                 test_sys.cpu[i].addCheckerCpu()
             if not ObjectList.is_kvm_cpu(TestCPUClass):
-                if args.bp_type:
-                    bpClass = ObjectList.bp_list.get(args.bp_type)
-                    test_sys.cpu[i].branchPred = bpClass()
-                    test_sys.cpu[i].branchPred.isDumpMisspredPC = True
-                    if (bpClass == ObjectList.bp_list.get('DecoupledStreamBPU')):
-                        test_sys.cpu[i].branchPred.dump_loop_pred = args.dump_loop_pred
-                if args.indirect_bp_type:
-                    IndirectBPClass = ObjectList.indirect_bp_list.get(
-                        args.indirect_bp_type)
-                    test_sys.cpu[i].branchPred.indirectBranchPred = \
-                        IndirectBPClass()
-                        
-                bpClass = ObjectList.bp_list.get('DecoupledBPUWithFTB')
-                print(args.enable_bp_db)
-                enable_bp_db = len(args.enable_bp_db) > 1
-                if enable_bp_db:
-                    bp_db_switches = args.enable_bp_db[1] + ['basic']
-                else:
-                    bp_db_switches = []
-                if isinstance(test_sys.cpu[i].branchPred, bpClass):
-                    test_sys.cpu[i].branchPred = bpClass(
+                if args.bp_type is None or args.bp_type == 'DecoupledBPUWithFTB' or \
+                    args.bp_type == 'DecoupledBPUWithBTB':
+                    enable_bp_db = len(args.enable_bp_db) > 1
+                    if enable_bp_db:
+                        bp_db_switches = args.enable_bp_db[1] + ['basic']
+                        print("BP db switches:", bp_db_switches)
+                    else:
+                        bp_db_switches = []
+                    # for DecoupledBPUWithBTB, loop predictor and jump ahead predictor are not supported
+                    #if args.bp_type == 'DecoupledBPUWithBTB':
+                    if args.enable_loop_predictor or args.enable_loop_buffer:
+                        print("loop predictor and loop buffer not supported for DecoupledBPUWithBTB")
+                        args.enable_loop_predictor = False
+                        args.enable_loop_buffer = False
+                    if args.enable_jump_ahead_predictor:
+                        print("jump ahead predictor not supported for DecoupledBPUWithBTB")
+                        args.enable_jump_ahead_predictor = False
+
+                    BPClass = DecoupledBPUWithBTB() if args.bp_type == 'DecoupledBPUWithBTB' else DecoupledBPUWithFTB()
+                    test_sys.cpu[i].branchPred = BPClass(
                                                     bpDBSwitches=bp_db_switches,
                                                     enableLoopBuffer=args.enable_loop_buffer,
                                                     enableLoopPredictor=args.enable_loop_predictor,
                                                     enableJumpAheadPredictor=args.enable_jump_ahead_predictor
                                                     )
                     test_sys.cpu[i].branchPred.tage.enableSC = not args.disable_sc
-                    print("db_switches:", bp_db_switches)
+                    test_sys.cpu[i].branchPred.isDumpMisspredPC = True
                 else:
-                    if enable_bp_db:
-                        print("bpdb not supported for this branch predictor")
-                    if args.enable_loop_buffer:
-                        print("loop buffer not supported for this branch predictor")
-                    if args.enable_loop_predictor:
-                        print("loop predictor not supported for this branch predictor")
-                    if args.enable_jump_ahead_predictor:
-                        print("jump ahead predictor not supported for this branch predictor")
-                    assert(False)
+                    test_sys.cpu[i].branchPred = ObjectList.bp_list.get(args.bp_type)
+
+                if args.indirect_bp_type:
+                    IndirectBPClass = ObjectList.indirect_bp_list.get(
+                        args.indirect_bp_type)
+                    test_sys.cpu[i].branchPred.indirectBranchPred = \
+                        IndirectBPClass()
+                        
             test_sys.cpu[i].createThreads()
             print("Create threads for test sys cpu ({})".format(type(test_sys.cpu[i])))
 

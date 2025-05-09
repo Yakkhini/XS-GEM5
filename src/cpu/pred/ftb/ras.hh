@@ -5,8 +5,8 @@
 #include "cpu/inst_seq.hh"
 #include "cpu/pred/ftb/stream_struct.hh"
 #include "cpu/pred/ftb/timed_base_pred.hh"
-#include "debug/FTBRAS.hh"
-#include "params/RAS.hh"
+#include "debug/RAS.hh"
+#include "params/FTBRAS.hh"
 
 namespace gem5 {
 
@@ -14,12 +14,12 @@ namespace branch_prediction {
 
 namespace ftb_pred {
 
-class RAS : public TimedBaseFTBPredictor
+class FTBRAS : public TimedBaseFTBPredictor
 {
     public:
     
-        typedef RASParams Params;
-        RAS(const Params &p);
+        typedef FTBRASParams Params;
+        FTBRAS(const Params &p);
 
         typedef struct RASEssential
         {
@@ -108,47 +108,47 @@ class RAS : public TimedBaseFTBPredictor
         RASEssential getTop_meta();
 
         void printStack(const char *when) {
-            DPRINTF(FTBRAS, "printStack when %s: \n", when);
+            DPRINTF(RAS, "printStack when %s: \n", when);
             for (int i = 0; i < numEntries; i++) {
-                DPRINTFR(FTBRAS, "entry [%d], retAddr %#lx, ctr %d", i, stack[i].data.retAddr, stack[i].data.ctr);
+                DPRINTFR(RAS, "entry [%d], retAddr %#lx, ctr %d", i, stack[i].data.retAddr, stack[i].data.ctr);
                 if (ssp == i) {
-                    DPRINTFR(FTBRAS, " <-- SSP");
+                    DPRINTFR(RAS, " <-- SSP");
                 }
                 if (nsp == i) {
-                    DPRINTFR(FTBRAS, " <-- NSP");
+                    DPRINTFR(RAS, " <-- NSP");
                 }
-                DPRINTFR(FTBRAS, "\n");
+                DPRINTFR(RAS, "\n");
             }
-            DPRINTFR(FTBRAS, "non-volatile stack:\n");
+            DPRINTFR(RAS, "non-volatile stack:\n");
             for (int i = 0; i < numInflightEntries; i++) {
-                DPRINTFR(FTBRAS, "entry [%d] retAddr %#lx, ctr %u nos %d", i, inflightStack[i].data.retAddr, inflightStack[i].data.ctr, inflightStack[i].nos);
+                DPRINTFR(RAS, "entry [%d] retAddr %#lx, ctr %u nos %d", i, inflightStack[i].data.retAddr, inflightStack[i].data.ctr, inflightStack[i].nos);
                 if (TOSW == i) {
-                    DPRINTFR(FTBRAS, " <-- TOSW");
+                    DPRINTFR(RAS, " <-- TOSW");
                 }
                 if (TOSR == i) {
-                    DPRINTFR(FTBRAS, " <-- TOSR");
+                    DPRINTFR(RAS, " <-- TOSR");
                 }
                 if (BOS == i) {
-                    DPRINTFR(FTBRAS, " <-- BOS");
+                    DPRINTFR(RAS, " <-- BOS");
                 }
-                DPRINTFR(FTBRAS, "\n");
+                DPRINTFR(RAS, "\n");
             }
             /*
-            DPRINTFR(FTBRAS, "non-volatile stack current data:\n");
+            DPRINTFR(RAS, "non-volatile stack current data:\n");
             int a = TOSR;
             int inflightCurrentSz = 0;
             while (inflightInRange(a)) {
-                DPRINTFR(FTBRAS, "retAddr %#lx, ctr %d\n", inflightStack[a].data.retAddr, inflightStack[a].data.ctr);
+                DPRINTFR(RAS, "retAddr %#lx, ctr %d\n", inflightStack[a].data.retAddr, inflightStack[a].data.ctr);
                 ++inflightCurrentSz;
                 a = inflightStack[a].nos;
                 if (inflightCurrentSz > 30) {
-                    DPRINTFR(FTBRAS, "...\n");
+                    DPRINTFR(RAS, "...\n");
                     break;
                 }
             }
             */
             //if (ssp > nsp && (ssp - nsp != inflightCurrentSz)) {
-            //    DPRINTFR(FTBRAS, "inflight size mismatch!\n");
+            //    DPRINTFR(RAS, "inflight size mismatch!\n");
             //}
         }
 
