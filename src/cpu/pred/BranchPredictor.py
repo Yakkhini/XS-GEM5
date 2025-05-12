@@ -980,7 +980,7 @@ class DefaultBTB(TimedBaseBTBPredictor):
     numThreads = Param.Unsigned(1, "Number of threads")
     numWays = Param.Unsigned(8, "Number of ways per set")
     aheadPipelinedStages = Param.Unsigned(0, "Number of stages ahead pipelined")
-    numDelay = 1
+    numDelay = 2
     blockSize = 32  # max 64 byte block, 32 byte aligned
     entryHalfAligned = Param.Bool(True, "Whether the entries are half-aligned")
 
@@ -1013,7 +1013,7 @@ class BTBRAS(TimedBaseBTBPredictor):
     numEntries = Param.Unsigned(32, "Number of entries in the RAS")
     ctrWidth = Param.Unsigned(8, "Width of the counter")
     numInflightEntries = Param.Unsigned(384, "Number of inflight entries")
-    numDelay = 1
+    numDelay = 2
 
 class BTBuRAS(TimedBaseBTBPredictor):
     type = 'BTBuRAS'
@@ -1039,7 +1039,7 @@ class BTBTAGE(TimedBaseBTBPredictor):
     maxHistLen = Param.Unsigned(970, "The length of history passed from DBP")
     numTablesToAlloc = Param.Unsigned(1,"The number of table to allocated each time")
     numWays = Param.Unsigned(2, "Number of ways per set")
-    numDelay = 1
+    numDelay = 2
 
 class BTBITTAGE(TimedBaseBTBPredictor):
     type = 'BTBITTAGE'
