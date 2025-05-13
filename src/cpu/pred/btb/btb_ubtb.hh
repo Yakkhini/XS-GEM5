@@ -99,20 +99,16 @@ class UBTB : public TimedBaseBTBPredictor
         TickedUBTBEntry(const BTBEntry &be, uint64_t tick) : BTBEntry(be), uctr(0), tick(tick), numNTConds(0) {}
     }TickedUBTBEntry;
 
-    // A BTB set is a vector of entries (ways)
-    using UBTBSet = std::vector<TickedUBTBEntry>;
-    using UBTBSetIter = typename UBTBSet::iterator;
-    // MRU heap for each set
-    using UBTBHeap = std::vector<UBTBSetIter>;
+    using UBTBIter = typename std::vector<TickedUBTBEntry>::iterator;
+    using UBTBHeap = std::vector<UBTBIter>; // for MRU tracking
 
     void tickStart() override{};
-
     void tick() override{};
 
     /*
-     * Main prediction function
+     * Entry point for uBTB Prediction, called at S1
      * @param startAddr: start address of the fetch block
-     * @param history: branch history register
+     * @param history: branch history register (not used)
      * @param stagePreds: predictions for each pipeline stage
      *
      * This function:
@@ -123,7 +119,26 @@ class UBTB : public TimedBaseBTBPredictor
     void putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history,
                       std::vector<FullBTBPrediction> &stagePreds) override;
 
+    /** Updates the uBTB predictions based on S3 prediction results.
+     * This function is called from decoupled_bpred during S3 prediction
+     * specifically, it reconciles differences between S1 (uBTB) and S3 predictions,
+     * adjusting the uBTB's confidence in its predictions and updating entries
+     * when necessary to improve future predictions.
+     *
+     * @param s3Pred The S3 prediction containing branch information and target
+     */
     void updateUsingS3Pred(FullBTBPrediction &s3Pred);
+
+    /** for statistics only
+     * @param stream The fetch stream containing execution results and prediction metadata
+     */
+    void update(const FetchStream &stream) override;
+
+    /** for statistics only
+     * @param stream The fetch stream containing execution results
+     * @param inst The dynamic instruction being committed
+     */
+    void commitBranch(const FetchStream &stream, const DynInstPtr &inst) override;
 
     /** Get prediction BTBMeta
      *  @return Returns the prediction meta
@@ -133,29 +148,16 @@ class UBTB : public TimedBaseBTBPredictor
         std::shared_ptr<void> meta_void_ptr = std::make_shared<UBTBMeta>(meta);
         return meta_void_ptr;
     }
-    // not used
-    void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override {}
 
+    // the following methods are not used
+    void specUpdateHist(const boost::dynamic_bitset<> &history, FullBTBPrediction &pred) override {}
     void recoverHist(const boost::dynamic_bitset<> &history,
         const FetchStream &entry, int shamt, bool cond_taken) override{};
-
-
     void reset();
-
-    /** Updates the BTB with the branch info of a block and execution result.
-     *  This function:
-     *  1. Updates existing entries with new information
-     *  2. Adds new entries if necessary
-     *  3. Updates MRU information
-     */
-    void update(const FetchStream &stream) override;
-
-    void commitBranch(const FetchStream &stream, const DynInstPtr &inst) override;
-
     void setTrace() override;
-
     TraceManager *ubtbTrace;
 
+    // for debuggin purpose
     void printTickedUBTBEntry(const TickedUBTBEntry &e) {
         DPRINTF(UBTB, "uBTB entry: valid %d, pc:%#lx, tag: %#lx, size:%d, target:%#lx, \
             cond:%d, indirect:%d, call:%d, return:%d, tick:%lu\n",
@@ -173,22 +175,32 @@ class UBTB : public TimedBaseBTBPredictor
 
   private:
 
-    typedef struct LastPred
+    /** this struct holds the lastest prediction made by uBTB,
+     * it's set in putPCHistory, and used in updateUsingS3Pred
+     */
+    struct LastPred
     {
-        UBTBSetIter hit_entry; // this might point to ubtb.end()
+        UBTBIter hit_entry; // this might point to ubtb.end()
 
         LastPred() {
             // Default constructor - will be assigned proper value later
         }
-    }LastPred;
+    };
+    LastPred lastPred;
 
-    typedef struct UBTBMeta
+    /** this struct holds the metadata for uBTB,
+     * note that unlike other predictors, the ubtb meta serves only statistical purpose
+     * and has no functional significance,
+     * it's set in putPCHistory, and passed to a fetch stream, to be later used in update.
+     */
+    struct UBTBMeta
     {
         TickedUBTBEntry hit_entry;
         UBTBMeta() {
             hit_entry = TickedUBTBEntry();
         }
-    }UBTBMeta;
+    };
+    UBTBMeta meta;
 
     // helper methods
     /*
@@ -198,7 +210,7 @@ class UBTB : public TimedBaseBTBPredictor
      */
     struct older
     {
-        bool operator()(const UBTBSetIter &a, const UBTBSetIter &b) const
+        bool operator()(const UBTBIter &a, const UBTBIter &b) const
         {
             return a->tick > b->tick;
         }
@@ -213,38 +225,36 @@ class UBTB : public TimedBaseBTBPredictor
         return (startPC >> 1) & tagMask;
     }
 
-    /** Update the 2-bit saturating counter for conditional branches
-     *  Counter range: [-2, 1]
-     *  - Increment on taken (max 1)
-     *  - Decrement on not taken (min -2)
-     */
-    void updateTCtr(int &ctr, bool taken) {
-        if (taken && ctr < 1) {ctr++;}
-        if (!taken && ctr > -2) {ctr--;}
-    }
-
     void updateUCtr(unsigned &ctr, bool inc) {
         if (inc && ctr < 3) {ctr++;}
         if (!inc && ctr > 0) {ctr--;}
     }
 
-    UBTBSetIter lookup(Addr block_pc);
+    /** helper method called by putPCHistory: Searches for a entry in the uBTB.
+     * @param startAddr The FB start address to look up
+     * @return Iterator to the matching entry if found, or ubtb.end() if not found
+     */
+    UBTBIter lookup(Addr startAddr);
 
+    /** helper method called by putPCHistory: Check uBTB entry pc range and update statistics
+     * @param entry The uBTB entry to check
+     * @param startAddr The start address of the fetch block
+     */
     void PredStatistics(const TickedUBTBEntry entry, Addr startAddr);
 
-    /** Fill predictions for each pipeline stage based on BTB entries
+    /** helper method called by putPCHistory: Fill predictions for each pipeline stage based on uBTB entries
      *  @param entry The BTB entry containing branch info
      *  @param stagePreds Predictions for each pipeline stage
      */
     void fillStagePredictions(const TickedUBTBEntry& entry,
                               std::vector<FullBTBPrediction>& stagePreds);
 
-    void replaceOldEntry(UBTBSetIter oldEntry,FullBTBPrediction & newPrediction);
-
-
-
-
-
+    /** helper method called in updateUsingS3Pred: This function replaces an existing uBTB entry with new prediction
+     *
+     * @param oldEntry Iterator to the entry to replace
+     * @param newPrediction The new prediction to store
+     */
+    void replaceOldEntry(UBTBIter oldEntry, FullBTBPrediction & newPrediction);
 
 
     /** The uBTB structure:
@@ -254,9 +264,6 @@ class UBTB : public TimedBaseBTBPredictor
      */
     std::vector<TickedUBTBEntry> ubtb;
 
-
-    LastPred lastPred; // last prediction, set in putPCHistory, used in updateUsingS3Pred
-    UBTBMeta meta; // metadata for uBTB, set in putPCHistory, used in update, for the sole purpose of statistics
 
     /** MRU tracking:
      *  - Uses a heap to track entry timestamps
@@ -271,10 +278,6 @@ class UBTB : public TimedBaseBTBPredictor
     unsigned tagBits;      // Number of tag bits
     Addr tagMask;          // Mask for extracting tag bits
 
-    enum Mode
-    {
-        READ, WRITE, EVICT
-    };
 
     struct UBTBStats : public statistics::Group
     {
@@ -282,15 +285,6 @@ class UBTB : public TimedBaseBTBPredictor
         statistics::Scalar predMiss;
         statistics::Scalar predHit;
         statistics::Scalar updateMiss;
-        statistics::Scalar updateHit;
-        statistics::Scalar updateExisting;
-        statistics::Scalar updateReplace;
-        statistics::Scalar updateReplaceValidOne;
-
-
-        statistics::Scalar S0Predmiss;
-        statistics::Scalar S0PredUseUBTB;
-        statistics::Scalar S0PredUseABTB;
 
         // per branch statistics
         statistics::Scalar allBranchHits;

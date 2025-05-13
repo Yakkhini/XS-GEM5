@@ -44,18 +44,11 @@ namespace branch_prediction
 namespace btb_pred
 {
 
-/*
- * uBTB Constructor
- * Initializes:
- * - uBTB structure (fully associative)
- * - MRU tracking for entries
- * - tag bits
- */
 UBTB::UBTB(const Params &p)
     : TimedBaseBTBPredictor(p),
-      ubtb(),
       lastPred(),
       meta(),
+      ubtb(),
       mruList(),
       numEntries(p.numEntries),
       tagBits(p.tagBits),
@@ -92,11 +85,9 @@ UBTB::setTrace()
     }
 }
 
-// Check uBTB entry pc range and update statistics
 void
 UBTB::PredStatistics(const TickedUBTBEntry entry, Addr startAddr)
 {
-    // Update prediction statistics
     if (entry.valid) {
         Addr mbtb_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
         assert(entry.pc >= startAddr && entry.pc < mbtb_end);
@@ -110,7 +101,6 @@ UBTB::PredStatistics(const TickedUBTBEntry entry, Addr startAddr)
     return;
 }
 
-// Fill predictions for each pipeline stage
 void
 UBTB::fillStagePredictions(const TickedUBTBEntry &entry, std::vector<FullBTBPrediction> &stagePreds)
 {
@@ -153,7 +143,6 @@ UBTB::fillStagePredictions(const TickedUBTBEntry &entry, std::vector<FullBTBPred
     }
 }
 
-// the Entry point of uBTB prediction pipeline
 void
 UBTB::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history, std::vector<FullBTBPrediction> &stagePreds)
 {
@@ -170,8 +159,7 @@ UBTB::putPCHistory(Addr startAddr, const boost::dynamic_bitset<> &history, std::
     meta.hit_entry = entry;
 }
 
-// Lookup a FetchBlock entry in the uBTB, return the iterator to the entry
-UBTB::UBTBSetIter
+UBTB::UBTBIter
 UBTB::lookup(Addr startAddr)
 {
     if (startAddr & 0x1) {
@@ -194,25 +182,26 @@ UBTB::lookup(Addr startAddr)
 
         // go on to update the mruList
         it->tick = curTick();  // Update timestamp for MRU
+        // might be unnecessary, considering the heap is updated on every reaplacement
         std::make_heap(mruList.begin(), mruList.end(), older());
     }
 
     return it;
 }
 
-// Replace an old uBTB entry with a new one
+
 void
-UBTB::replaceOldEntry(UBTBSetIter oldEntryIter, FullBTBPrediction &newPrediction)
+UBTB::replaceOldEntry(UBTBIter oldEntryIter, FullBTBPrediction &newPrediction)
 {
-    // replace the old entry with the new one
     assert(newPrediction.getTakenEntry().valid);
     TickedUBTBEntry newEntry = TickedUBTBEntry(newPrediction.getTakenEntry(), curTick());
-    newEntry.target =
-        newPrediction.getTarget(predictWidth);  // important! this is so that target set by RAS or ITTAGE is used
+    // important! this is so that target set by RAS or ITTAGE is used
+    newEntry.target = newPrediction.getTarget(predictWidth);
     // important: update tag (mbtb and ubtb have different tags, even diffferent tag length)
     newEntry.tag = getTag(newPrediction.bbStart);
-    // save the number of conditional branches before the taken branch
-    // this is useful in the prediction phase: to generate the correct speculative history information
+    /*  save the number of conditional branches before the taken branch
+     *  this is useful in the prediction phase: to generate the correct speculative history information
+     */
     newEntry.numNTConds = newPrediction.getHistInfo().first;
     if (newPrediction.getTakenEntry().isCond) {
         newEntry.numNTConds--;
@@ -221,24 +210,13 @@ UBTB::replaceOldEntry(UBTBSetIter oldEntryIter, FullBTBPrediction &newPrediction
     *oldEntryIter = newEntry;
 }
 
-/*
- * Update uBTB using S3 prediction
- * Handles different cases of S0 and S3 predictions:
- * 1. S0 hit but S3 miss
- * 2. S0 miss but S3 hit
- * 3. Both S0 and S3 hit
- * 4. Both miss
- */
+
 void
 UBTB::updateUsingS3Pred(FullBTBPrediction &s3Pred)
 {
-    // obtain meta from S0,
-    // note that the purpose of meta is different from the other sub-predictors,
-    // uBTB's meta is to record the hit entry of S0, and is used immediatly in the same BPU tick() to update uBTB
-    // while other predictor's meta are attached to a FetchStream entry and will be used to update the predictor at
-    // commit
 
-    UBTBSetIter s0EntryIter = lastPred.hit_entry;
+
+    UBTBIter s0EntryIter = lastPred.hit_entry;
     if (s0EntryIter != ubtb.end()) {
         assert(s0EntryIter->valid); //lookup() should only return valid entry
     }
@@ -250,10 +228,10 @@ UBTB::updateUsingS3Pred(FullBTBPrediction &s3Pred)
             s0EntryIter->valid = false;
         }
     } else if (s0EntryIter == ubtb.end() && s3TakenEntry.valid) {
-        // S0 misses, but S3 predicts taken
-        // generate new entry and replace another using LRU
-        // TODO: employ the uctr
-        UBTBSetIter toBeReplacedIter;
+        /* S0 misses, but S3 predicts taken,
+         * generate new entry and replace another using LRU
+         */
+        UBTBIter toBeReplacedIter;
         // First try to find an invalid entry in the set
         bool foundInvalidEntry = false;
 
@@ -266,6 +244,7 @@ UBTB::updateUsingS3Pred(FullBTBPrediction &s3Pred)
         }
 
         // If no invalid entry found, use LRU policy
+        // TODO: consider using LRU only among the entries with the least confidence(smallest uctr)
         if (!foundInvalidEntry) {
             // Find the least recently used entry
             std::make_heap(mruList.begin(), mruList.end(), older());
@@ -293,9 +272,7 @@ UBTB::updateUsingS3Pred(FullBTBPrediction &s3Pred)
     }
 }
 
-/*
- * for statistical purpose only
- */
+
 void
 UBTB::update(const FetchStream &stream)
 {
@@ -316,7 +293,6 @@ UBTB::update(const FetchStream &stream)
     assert(ubtb.size() <= numEntries);
 }
 
-// also for statistical purpose only
 void
 UBTB::commitBranch(const FetchStream &stream, const DynInstPtr &inst)
 {
@@ -414,15 +390,7 @@ UBTB::UBTBStats::UBTBStats(statistics::Group *parent)
       ADD_STAT(predMiss, statistics::units::Count::get(), "misses encountered on prediction"),
       ADD_STAT(predHit, statistics::units::Count::get(), "hits encountered on prediction"),
       ADD_STAT(updateMiss, statistics::units::Count::get(), "misses encountered on update"),
-      ADD_STAT(updateHit, statistics::units::Count::get(), "hits encountered on update"),
-      ADD_STAT(updateExisting, statistics::units::Count::get(), "existing entries updated"),
-      ADD_STAT(updateReplace, statistics::units::Count::get(), "entries replaced"),
-      ADD_STAT(updateReplaceValidOne, statistics::units::Count::get(), "entries replaced with valid entry"),
 
-      ADD_STAT(S0Predmiss, statistics::units::Count::get(),
-               "misses encountered on S0 prediction, i.e. uBTB and ABTB miss"),
-      ADD_STAT(S0PredUseUBTB, statistics::units::Count::get(), "uBTB prediction used, i.e. uBTB hit"),
-      ADD_STAT(S0PredUseABTB, statistics::units::Count::get(), "aBTB prediction used, i.e. uBTB miss and ABTB hit"),
 
       ADD_STAT(allBranchHits, statistics::units::Count::get(),
                "all types of branches committed that was predicted hit"),
