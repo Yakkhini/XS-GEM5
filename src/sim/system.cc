@@ -186,7 +186,7 @@ System::System(const Params &p)
       enableDifftest(p.enable_difftest),
       enableMemDedup(p.enable_mem_dedup),
       physmem(name() + ".physmem", p.memories, p.mmap_using_noreserve,
-              p.shared_backstore, p.restore_from_gcpt, p.gcpt_restorer_file,
+              p.shared_backstore, p.enable_h_gcpt, p.restore_from_gcpt, p.gcpt_restorer_file,
               p.gcpt_file, p.map_to_raw_cpt, p.auto_unlink_shared_backstore, p.gcpt_restorer_size_limit,
               &dedupMemManager, p.enable_mem_dedup),
       ShadowRomRanges(p.shadow_rom_ranges.begin(),

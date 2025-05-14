@@ -174,6 +174,7 @@ class PhysicalMemory : public Serializable
     // Prevent assignment
     PhysicalMemory& operator=(const PhysicalMemory&);
 
+    bool enableHGcpt;
     // Restore from Xiangshan checkpoint image
     bool restoreFromXiangshanCpt;
 
@@ -218,6 +219,7 @@ class PhysicalMemory : public Serializable
                    const std::vector<AbstractMemory*>& _memories,
                    bool mmap_using_noreserve,
                    const std::string& shared_backstore,
+                   bool enable_h_gcpt,
                    bool restore_from_gcpt,
                    const std::string& gcpt_restorer_path,
                    const std::string&gcpt_path,

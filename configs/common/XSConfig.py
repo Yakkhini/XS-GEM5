@@ -104,7 +104,9 @@ def config_xiangshan_inputs(args: argparse.Namespace, sys):
             sys.workload.raw_bootloader = True
         else:
             sys.gcpt_restorer_file = gcpt_restorer
-
+    # enable h checkpoint
+    if args.enable_h_gcpt:
+        sys.enable_h_gcpt = True
     # configure DRAMSim input
     if args.mem_type == 'DRAMsim3' and args.dramsim3_ini is None:
         # use relative path to find the dramsim3 ini file, from configs/common/ to root

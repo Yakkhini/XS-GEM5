@@ -633,6 +633,8 @@ def addXiangshanFSOptions(parser):
     parser.add_argument("--xiangshan-system", action= "store_true",
                         help="Use memory layout of Xiangshan system")
 
+    parser.add_argument("--enable-h-gcpt", action= "store_true",
+                        help="enable h checkpoint")
     parser.add_argument("--generic-rv-cpt", action= "store", type = str,
                         default=None, required=True,
                         help="The path of Xiangshan risc-v checkpoint")

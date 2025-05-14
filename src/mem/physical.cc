@@ -87,6 +87,7 @@ PhysicalMemory::PhysicalMemory(const std::string& _name,
                                const std::vector<AbstractMemory*>& _memories,
                                bool mmap_using_noreserve,
                                const std::string& shared_backstore,
+                               bool enable_h_gcpt,
                                bool restore_from_gcpt,
                                const std::string& gcpt_restorer_path,
                                const std::string& gcpt_path,
@@ -98,6 +99,7 @@ PhysicalMemory::PhysicalMemory(const std::string& _name,
     _name(_name), size(0), mmapUsingNoReserve(mmap_using_noreserve),
     sharedBackstore(shared_backstore), sharedBackstoreSize(0),
     pageSize(sysconf(_SC_PAGE_SIZE)),
+    enableHGcpt(enable_h_gcpt),
     restoreFromXiangshanCpt(restore_from_gcpt),
     gCptRestorerPath(gcpt_restorer_path),
     xsCptPath(gcpt_path), mapToRawCpt(map_to_raw_cpt), gcptRestorerSizeLimit(gcpt_restorer_size_limit),
@@ -699,6 +701,8 @@ void
 PhysicalMemory::overrideGCptRestorer(unsigned store_id)
 {
     uint8_t* pmem = backingStore[store_id].pmem;
+    if (enableHGcpt)
+        return;
     if (restoreFromXiangshanCpt && !gCptRestorerPath.empty()) {
         if (gCptRestorerPath == "None") {
             warn("gcpt restore is None\n");
