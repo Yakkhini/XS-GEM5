@@ -586,6 +586,11 @@ ISA::setMiscReg(int misc_reg, RegVal val)
     } else if (misc_reg == MISCREG_VSSTATUS) {
         auto vsstatus = readMiscRegNoEffect(MISCREG_VSSTATUS);
         STATUS write_val = ((vsstatus & ~(NEMU_SSTATUS_WMASK)) | (val & NEMU_SSTATUS_WMASK));
+        // if enable h
+        bool fs_dirty = (write_val.fs == 0x3);
+        bool vs_dirty = (write_val.vs == 0x3);
+        uint64_t write_val2 = ((uint64_t)(fs_dirty || vs_dirty) << 63);
+        write_val = write_val | write_val2;
         setMiscRegNoEffect(MISCREG_VSSTATUS, write_val);
     } else {
         switch (misc_reg) {
