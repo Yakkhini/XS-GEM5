@@ -29,6 +29,33 @@ jobs:
           CC=gcc CXX=g++ scons build/RISCV/gem5.opt --linker=gold -j64
       - name: Run paralel autotest script
         run: python3 .github/workflows/autotest/script/autotest.py -f .github/workflows/autotest/gem5.cfg
+  
+  paralel_cpt_h_test:
+    # 由于gem5.cfg使用的切片ck_path都在小机房上，默认使用小机房运行这个测试
+    runs-on: [self-hosted, open]  # 所有open*的机器上运行
+    continue-on-error: false
+    name: XS-GEM5 - Running h test checkpoints
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build DRAMSim
+        run: |
+          export GEM5_HOME=$(pwd)
+          cd ext/dramsim3
+          git clone git@github.com:umd-memsys/DRAMSim3.git DRAMsim3
+          cd DRAMsim3 && mkdir -p build
+          cd build
+          cmake ..
+          make -j 48
+          cd $GEM5_HOME
+      - name: Build GEM5 opt
+        run: |
+          CC=gcc CXX=g++ scons build/RISCV/gem5.opt --linker=gold -j64
+      - name: Run paralel h autotest script
+        run: |
+          export GCBH_REF_SO="/nfs-nvme/home/share/zhenhao/ref-h-u/riscv64-nemu-interpreter-so"
+          export GCBV_REF_SO="/nfs-nvme/home/share/zhenhao/ref-h-u/riscv64-nemu-interpreter-so"
+          export GCB_RESTORER="None"
+          python3 .github/workflows/autotest/script/autotest.py -f .github/workflows/autotest/gem5-h.cfg
 
   valgrind_memory_check:
     runs-on: [self-hosted, open]

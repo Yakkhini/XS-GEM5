@@ -130,6 +130,7 @@ class System(SimObject):
        "memory-mapped m5ops. Set to 0 to disable.")
 
     # Checkpoint image file for Xiangshan
+    enable_h_gcpt = Param.Bool(False, "Restoring set for Xiangshan h-gcpt")
     restore_from_gcpt = Param.Bool(False, "Restoring from Xiangshan gcpt")
     gcpt_file = Param.String("", "Xiangshan checkpoint image file")
     map_to_raw_cpt = Param.Bool(False, "Map physical memory to raw cpt with mmap")
