@@ -214,7 +214,7 @@ bool
 IssueQue::checkScoreboard(const DynInstPtr& inst)
 {
     for (int i = 0; i < inst->numSrcRegs(); i++) {
-        auto src = inst->renamedSrcIdx(i);
+        auto src = inst->renamedSrcIdx(i).PhyReg();
         if (src->isFixedMapping()) [[unlikely]] {
             continue;
         }
@@ -327,7 +327,7 @@ IssueQue::wakeUpDependents(const DynInstPtr& inst, bool speculative)
         return;
     }
     for (int i = 0; i < inst->numDestRegs(); i++) {
-        PhysRegIdPtr dst = inst->renamedDestIdx(i);
+        PhysRegIdPtr dst = inst->renamedDestIdx(i).PhyReg();
         if (dst->isFixedMapping() || dst->getNumPinnedWritesToComplete() != 1) [[unlikely]] {
             continue;
         }
@@ -419,7 +419,7 @@ IssueQue::selectInst()
                 // get regfile read port
                 for (int i = 0; i < inst->numSrcRegs(); i++) {
                     auto src = inst->srcRegIdx(i);
-                    PhysRegIdPtr psrc = inst->renamedSrcIdx(i);
+                    PhysRegIdPtr psrc = inst->renamedSrcIdx(i).PhyReg();
                     if (psrc->isFixedMapping())
                         continue;
                     std::pair<int, int> rfTypePortId;
@@ -528,7 +528,7 @@ IssueQue::insert(const DynInstPtr& inst)
     instList.emplace_back(inst);
     bool addToDepGraph = false;
     for (int i = 0; i < inst->numSrcRegs(); i++) {
-        auto src = inst->renamedSrcIdx(i);
+        auto src = inst->renamedSrcIdx(i).PhyReg();
         if (!inst->readySrcIdx(i) && !src->isFixedMapping()) {
             if (scheduler->scoreboard[src->flatIndex()]) {
                 inst->markSrcRegReady(i);
@@ -913,7 +913,7 @@ Scheduler::getInstByDstReg(RegIndex flatIdx)
 {
     for (auto iq : issueQues) {
         for (auto& inst : iq->instList) {
-            if (inst->numDestRegs() > 0 && inst->renamedDestIdx(0)->flatIndex() == flatIdx) {
+            if (inst->numDestRegs() > 0 && inst->renamedDestIdx(0).PhyReg()->flatIndex() == flatIdx) {
                 return inst;
             }
         }
@@ -926,7 +926,7 @@ Scheduler::addProducer(const DynInstPtr& inst)
 {
     DPRINTF(Schedule, "[sn:%llu] addProdecer\n", inst->seqNum);
     for (int i = 0; i < inst->numDestRegs(); i++) {
-        auto dst = inst->renamedDestIdx(i);
+        auto dst = inst->renamedDestIdx(i).PhyReg();
         if (dst->isFixedMapping()) {
             continue;
         }
@@ -1005,7 +1005,7 @@ Scheduler::specWakeUpDependents(const DynInstPtr& inst, IssueQue* from_issue_que
             to->wakeUpDependents(inst, true);
             if (!(inst->isFloating() || inst->isVector())) {
                 for (int i = 0; i < inst->numDestRegs(); i++) {
-                    PhysRegIdPtr dst = inst->renamedDestIdx(i);
+                    PhysRegIdPtr dst = inst->renamedDestIdx(i).PhyReg();
                     if (dst->isFixedMapping()) [[unlikely]] {
                         continue;
                     }
@@ -1033,7 +1033,7 @@ Scheduler::specWakeUpFromLoadPipe(const DynInstPtr& inst)
         to->wakeUpDependents(inst, true);
 
         for (int i = 0; i < inst->numDestRegs(); i++) {
-            PhysRegIdPtr dst = inst->renamedDestIdx(i);
+            PhysRegIdPtr dst = inst->renamedDestIdx(i).PhyReg();
             if (dst->isFixedMapping()) [[unlikely]] {
                 continue;
             }
@@ -1109,7 +1109,7 @@ Scheduler::loadCancel(const DynInstPtr& inst)
         }
         specWakeEvents.erase(top->seqNum);
         for (int i = 0; i < top->numDestRegs(); i++) {
-            auto dst = top->renamedDestIdx(i);
+            auto dst = top->renamedDestIdx(i).PhyReg();
             if (dst->isFixedMapping()) {
                 continue;
             }
@@ -1120,7 +1120,7 @@ Scheduler::loadCancel(const DynInstPtr& inst)
                     auto& depInst = it.second;
                     if (depInst->readySrcIdx(srcIdx)) {
                         DPRINTF(Schedule, "cancel [sn:%llu], clear src p%d ready\n", depInst->seqNum,
-                                depInst->renamedSrcIdx(srcIdx)->flatIndex());
+                                depInst->renamedSrcIdx(srcIdx).PhyReg()->flatIndex());
                         depInst->issueQue->cancel(depInst);
                         depInst->clearSrcRegReady(srcIdx);
                         dfs.push(depInst);
@@ -1150,7 +1150,7 @@ Scheduler::writebackWakeup(const DynInstPtr& inst)
     inst->setWriteback();  // clear in issueQue
     cpu->perfCCT->updateInstPos(inst->seqNum, PerfRecord::AtWriteVal);
     for (int i = 0; i < inst->numDestRegs(); i++) {
-        auto dst = inst->renamedDestIdx(i);
+        auto dst = inst->renamedDestIdx(i).PhyReg();
         if (dst->isFixedMapping()) {
             continue;
         }
@@ -1170,7 +1170,7 @@ Scheduler::bypassWriteback(const DynInstPtr& inst)
     cpu->perfCCT->updateInstPos(inst->seqNum, PerfRecord::AtBypassVal);
     DPRINTF(Schedule, "[sn:%llu] bypass write\n", inst->seqNum);
     for (int i = 0; i < inst->numDestRegs(); i++) {
-        auto dst = inst->renamedDestIdx(i);
+        auto dst = inst->renamedDestIdx(i).PhyReg();
         if (dst->isFixedMapping()) {
             continue;
         }
