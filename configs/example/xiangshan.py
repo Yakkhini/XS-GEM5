@@ -340,7 +340,7 @@ def setKmhV3IdealParams(args, system):
         cpu.squashWidth = 12
         cpu.replayWidth = 12
         cpu.LQEntries = 128
-        cpu.SQEntries = 96
+        cpu.SQEntries = 64
         cpu.SbufferEntries = 24
         cpu.SbufferEvictThreshold = 16
         cpu.numPhysIntRegs = 354
@@ -348,11 +348,11 @@ def setKmhV3IdealParams(args, system):
         cpu.numROBEntries = 640
         cpu.numDQEntries = [32, 16, 16] # 32->36
         cpu.mmu.itb.size = 96
-
-        cpu.BankConflictCheck = False   # real bank conflict 0.2 score
+        
+        cpu.BankConflictCheck = True   # real bank conflict 0.2 score
         cpu.EnableLdMissReplay = False
         cpu.EnablePipeNukeCheck = False
-        cpu.StoreWbStage = 2 # store writeback at s2
+        cpu.StoreWbStage = 4 # store writeback at s4
 
         cpu.scheduler = IdealScheduler()
         # use centralized load/store issue queue, for hmmer
@@ -371,8 +371,7 @@ def setKmhV3IdealParams(args, system):
                 cpu.branchPred.predictWidth = 64              # max width of a fetch block
                 cpu.branchPred.btb.numEntries = 16384
                 # TODO: BTB TAGE do not bave base table, do not support SC
-                cpu.branchPred.tage.tableSizes = [4096] * 14  # BTB TAGE may need larger table
-                cpu.branchPred.mgsc.enableMGSC = True
+                cpu.branchPred.tage.tableSizes = [2048] * 14  # 2ways, 2048 sets
 
             cpu.branchPred.tage.enableSC = False # TODO(bug): When numBr changes, enabling SC will trigger an assert
             cpu.branchPred.ftq_size = 256
@@ -384,12 +383,12 @@ def setKmhV3IdealParams(args, system):
 
         # ideal l1 caches
         if args.caches:
-            cpu.icache.size = '128kB'
-            cpu.dcache.size = '128kB'
+            cpu.icache.size = '64kB'
+            cpu.dcache.size = '64kB'
             cpu.icache.enable_wayprediction = False
             cpu.dcache.enable_wayprediction = False
             cpu.dcache.tag_load_read_ports = 100 # 3->100
-            cpu.dcache.mshrs = 32
+            cpu.dcache.mshrs = 16
 
     if args.l2cache:
         for i in range(args.num_cpus):
