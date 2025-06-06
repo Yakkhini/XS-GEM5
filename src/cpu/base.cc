@@ -992,7 +992,8 @@ BaseCPU::diffWithNEMU(ThreadID tid, InstSeqNum seq)
         uint64_t gem5_val = readMiscReg(RiscvISA::MiscRegIndex::MISCREG_VTYPE, tid);
         diffAllStates->gem5RegFile.vtype = gem5_val;
         uint64_t ref_val = diffAllStates->referenceRegFile.vtype;
-        if (gem5_val != ref_val) {
+        // unable highest digit comparison of vtype because the older version of NEMU (used by GCBH) did not support it well.
+        if (gem5_val % (1ULL<<63) != ref_val % (1ULL<<63)) {
             warn("Diff at \033[31m%s\033[0m Ref value: \033[31m"
                     "%#lx\033[0m, GEM5 value: \033[31m%#lx\033[0m\n",
                     "vtype", ref_val, gem5_val);
@@ -1145,7 +1146,7 @@ BaseCPU::diffWithNEMU(ThreadID tid, InstSeqNum seq)
         gem5_val = readMiscReg(RiscvISA::MiscRegIndex::MISCREG_IP, tid);
         ref_val = diffAllStates->referenceRegFile.mip;
         if (gem5_val != ref_val) {
-            DPRINTF(DiffValue, "mip:\tGEM5: %#lx,\tREF: %#lx\n", gem5_val, ref_val);
+            warn("mip:\tGEM5: %#lx,\tREF: %#lx\n", gem5_val, ref_val);
             diffMsg <<
                 csprintf("%s at \033[31m%s\033[0m Ref value: \033[31m%#lx\033[0m, GEM5 value: \033[31m%#lx\033[0m\n",
                     gem5_val == ref_val ? "match" : "diff", "mip", ref_val, gem5_val);
@@ -1299,9 +1300,6 @@ BaseCPU::diffWithNEMU(ThreadID tid, InstSeqNum seq)
             DPRINTF(Diff, "Inst [sn:%llu] @ \033[31m%#lx\033[0m in GEM5 is \033[31m%s\033[0m\n", seq,
                     diffInfo.pc->instAddr(),
                     diffInfo.inst->disassemble(diffInfo.pc->instAddr()));
-            if (diffInfo.inst->isLoad()) {
-                DPRINTF(Diff, "Load addr: %#lx\n", diffInfo.physEffAddr);
-            }
         }
 
 
@@ -1327,8 +1325,8 @@ BaseCPU::diffWithNEMU(ThreadID tid, InstSeqNum seq)
 
                 if (system->multiCore() && (diffInfo.inst->isLoad() || diffInfo.inst->isAtomic()) &&
                     _goldenMemManager->inPmem(diffInfo.physEffAddr)) {
-                    DPRINTF(Diff, "Difference on %s instr found in multicore mode, check in golden memory\n",
-                            diffInfo.inst->isLoad() ? "load" : "amo");
+                    warn("Difference on %s instr found in multicore mode, check in golden memory\n",
+                         diffInfo.inst->isLoad() ? "load" : "amo");
                     uint8_t *golden_ptr = diffInfo.goldenValue;
 
                     // a lambda function to sync memory and register from golden results to ref
@@ -1364,7 +1362,9 @@ BaseCPU::diffWithNEMU(ThreadID tid, InstSeqNum seq)
                 } else {
                     for (int i = 0; i < diffInfo.inst->numSrcRegs(); i++) {
                         const auto &src = diffInfo.inst->srcRegIdx(i);
-                        DPRINTF(Diff, "Src%d %s = %lx\n", i, reg_name[src.index()], diffInfo.getSrcReg(src));
+                        warn("Src%d %s = %lx\n", i,
+                                reg_name[src.index()],
+                                diffInfo.getSrcReg(src));
                         // threadContexts[curThread]->getReg(src));
                     }
                     bool skipCSR = false;
@@ -1377,7 +1377,8 @@ BaseCPU::diffWithNEMU(ThreadID tid, InstSeqNum seq)
                             break;
                         }
                     }
-                    DPRINTF(Diff, "Inst src count: %u, dest count: %u\n", diffInfo.inst->numSrcRegs(),
+                    warn("Inst src count: %u, dest count: %u\n",
+                            diffInfo.inst->numSrcRegs(),
                             diffInfo.inst->numDestRegs());
                     diffMsg << csprintf("Inst [sn:%lli] pc: %#lx\n", seq, diffInfo.pc->instAddr());
                     diffMsg << csprintf(
