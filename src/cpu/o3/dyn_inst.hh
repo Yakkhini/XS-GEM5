@@ -95,9 +95,9 @@ class DynInst : public ExecContext, public RefCounted
         size_t numDests;
 
         RegId *flatDestIdx;
-        PhysRegIdPtr *destIdx;
-        PhysRegIdPtr *prevDestIdx;
-        PhysRegIdPtr *srcIdx;
+        VirtRegId *destIdx;
+        VirtRegId *prevDestIdx;
+        VirtRegId *srcIdx;
         uint8_t *readySrcIdx;
     };
 
@@ -157,8 +157,6 @@ class DynInst : public ExecContext, public RefCounted
     /** InstRecord that tracks this instructions. */
     Trace::InstRecord *traceData = nullptr;
 
-    bool isEmptyMove{false};
-
   protected:
     enum Status
     {
@@ -213,6 +211,8 @@ class DynInst : public ExecContext, public RefCounted
         ReqMade,
         MemOpDone,
         HtmFromTransaction,
+        IsEmptyMov,
+        IsConstantFolded,
         MaxFlags
     };
 
@@ -250,14 +250,14 @@ class DynInst : public ExecContext, public RefCounted
 
     // Physical register index of the destination registers of this
     // instruction.
-    PhysRegIdPtr *_destIdx;
+    VirtRegId *_destIdx;
 
     // Physical register index of the previous producers of the
     // architected destinations.
-    PhysRegIdPtr *_prevDestIdx;
+    VirtRegId *_prevDestIdx;
 
     // Physical register index of the source registers of this instruction.
-    PhysRegIdPtr *_srcIdx;
+    VirtRegId *_srcIdx;
 
     // Whether or not the source register is ready, one bit per register.
     uint8_t *_readySrcIdx;
@@ -291,19 +291,25 @@ class DynInst : public ExecContext, public RefCounted
     PhysRegIdPtr
     renamedDestIdx(int idx) const
     {
+        return _destIdx[idx].PhyReg();
+    }
+
+    VirtRegId
+    extRenamedDestIdx(int idx) const
+    {
         return _destIdx[idx];
     }
 
     // Set the renamed dest register id.
     void
-    renamedDestIdx(int idx, PhysRegIdPtr phys_reg_id)
+    renamedDestIdx(int idx, VirtRegId phys_reg_id)
     {
         _destIdx[idx] = phys_reg_id;
     }
 
     // Returns the physical register index of the previous physical
     // register that remapped to the same logical register index.
-    PhysRegIdPtr
+    VirtRegId
     prevDestIdx(int idx) const
     {
         return _prevDestIdx[idx];
@@ -311,7 +317,7 @@ class DynInst : public ExecContext, public RefCounted
 
     // Set the previous renamed dest register id.
     void
-    prevDestIdx(int idx, PhysRegIdPtr phys_reg_id)
+    prevDestIdx(int idx, VirtRegId phys_reg_id)
     {
         _prevDestIdx[idx] = phys_reg_id;
     }
@@ -320,11 +326,17 @@ class DynInst : public ExecContext, public RefCounted
     PhysRegIdPtr
     renamedSrcIdx(int idx) const
     {
+        return _srcIdx[idx].PhyReg();
+    }
+
+    VirtRegId
+    extRenamedSrcIdx(int idx) const
+    {
         return _srcIdx[idx];
     }
 
     void
-    renamedSrcIdx(int idx, PhysRegIdPtr phys_reg_id)
+    renamedSrcIdx(int idx, VirtRegId phys_reg_id)
     {
         _srcIdx[idx] = phys_reg_id;
     }
@@ -437,6 +449,9 @@ class DynInst : public ExecContext, public RefCounted
     bool notAnInst() const { return instFlags[NotAnInst]; }
     void setNotAnInst() { instFlags[NotAnInst] = true; }
 
+    void setEmptyMov() { instFlags[IsEmptyMov] = true; }
+
+    void setConstantFolded() { instFlags[IsConstantFolded] = true; }
 
     ////////////////////////////////////////////
     //
@@ -532,12 +547,12 @@ class DynInst : public ExecContext, public RefCounted
      *  the previous physical register that the logical register mapped to.
      */
     void
-    renameDestReg(int idx, PhysRegIdPtr renamed_dest,
-                  PhysRegIdPtr previous_rename)
+    renameDestReg(int idx, VirtRegId renamed_dest,
+                  VirtRegId previous_rename)
     {
         renamedDestIdx(idx, renamed_dest);
         prevDestIdx(idx, previous_rename);
-        if (renamed_dest->isPinned())
+        if (renamed_dest.PhyReg()->isPinned())
             setPinnedRegsRenamed();
     }
 
@@ -546,7 +561,7 @@ class DynInst : public ExecContext, public RefCounted
      *  @todo: add in whether or not the source register is ready.
      */
     void
-    renameSrcReg(int idx, PhysRegIdPtr renamed_src)
+    renameSrcReg(int idx, VirtRegId renamed_src)
     {
         renamedSrcIdx(idx, renamed_src);
     }
@@ -612,11 +627,10 @@ class DynInst : public ExecContext, public RefCounted
     //
     bool isSplitStoreAddr()   const { return staticInst->isSplitStoreAddr(); }
     bool isSplitStoreData() const { return opClass() == StoreDataOp; }
-    void setEmptyMove(bool f) { isEmptyMove = f; }
-    bool isNop()          const { return staticInst->isNop() || isEmptyMove; }
+    bool isNop()          const { return staticInst->isNop(); }
     bool isMemRef()       const { return staticInst->isMemRef(); }
     bool isLoad()         const { return staticInst->isLoad(); }
-    bool isHInst()         const { return staticInst->isHInst(); }
+    bool isHInst()        const { return staticInst->isHInst(); }
     bool isStore()        const { return staticInst->isStore(); }
     bool isAtomic()       const { return staticInst->isAtomic(); }
     bool isStoreConditional() const
@@ -634,6 +648,12 @@ class DynInst : public ExecContext, public RefCounted
     bool isCondCtrl()     const { return staticInst->isCondCtrl(); }
     bool isUncondCtrl()   const { return staticInst->isUncondCtrl(); }
     bool isSerializing()  const { return staticInst->isSerializing(); }
+    bool isMov()          const { return staticInst->isMov(); }
+    bool isAddImm()       const { return staticInst->isAddImm(); }
+    bool isEliminated() const
+    {
+        return instFlags[IsEmptyMov] || instFlags[IsConstantFolded];
+    }
     bool
     isSerializeBefore() const
     {
@@ -1207,7 +1227,7 @@ class DynInst : public ExecContext, public RefCounted
     {
 
         for (int idx = 0; idx < numDestRegs(); idx++) {
-            PhysRegIdPtr prev_phys_reg = prevDestIdx(idx);
+            VirtRegId prev_phys_reg = prevDestIdx(idx);
             const RegId& original_dest_reg = staticInst->destRegIdx(idx);
             switch (original_dest_reg.classValue()) {
               case IntRegClass:
@@ -1220,7 +1240,7 @@ class DynInst : public ExecContext, public RefCounted
               case VecRegClass:
                 {
                     TheISA::VecRegContainer val;
-                    cpu->getReg(prev_phys_reg, &val);
+                    cpu->getReg(prev_phys_reg.PhyReg(), &val);
                     setRegOperand(staticInst.get(), idx, &val);
                 }
                 break;
@@ -1231,7 +1251,7 @@ class DynInst : public ExecContext, public RefCounted
               case VecPredRegClass:
                 {
                     TheISA::VecPredRegContainer val;
-                    cpu->getReg(prev_phys_reg, &val);
+                    cpu->getReg(prev_phys_reg.PhyReg(), &val);
                     setRegOperand(staticInst.get(), idx, &val);
                 }
                 break;
@@ -1264,25 +1284,23 @@ class DynInst : public ExecContext, public RefCounted
     RegVal
     getRegOperand(const StaticInst *si, int idx) override
     {
-        const PhysRegIdPtr reg = renamedSrcIdx(idx);
-        if (reg->is(InvalidRegClass))
-            return 0;
+        const VirtRegId reg = extRenamedSrcIdx(idx);
         return cpu->getReg(reg);
     }
 
     void
     getRegOperand(const StaticInst *si, int idx, void *val) override
     {
-        const PhysRegIdPtr reg = renamedSrcIdx(idx);
-        if (reg->is(InvalidRegClass))
+        const VirtRegId reg = extRenamedSrcIdx(idx);
+        if (reg.PhyReg()->is(InvalidRegClass))
             return;
-        cpu->getReg(reg, val);
+        cpu->getReg(reg.PhyReg(), val);
     }
 
     void *
     getWritableRegOperand(const StaticInst *si, int idx) override
     {
-        return cpu->getWritableReg(renamedDestIdx(idx));
+        return cpu->getWritableReg(extRenamedDestIdx(idx).PhyReg());
     }
 
     /** @todo: Make results into arrays so they can handle multiple dest
@@ -1291,7 +1309,7 @@ class DynInst : public ExecContext, public RefCounted
     void
     setRegOperand(const StaticInst *si, int idx, RegVal val) override
     {
-        const PhysRegIdPtr reg = renamedDestIdx(idx);
+        const PhysRegIdPtr reg = extRenamedDestIdx(idx).PhyReg();
         if (reg->is(InvalidRegClass))
             return;
         cpu->setReg(reg, val);
@@ -1301,7 +1319,7 @@ class DynInst : public ExecContext, public RefCounted
     void
     setRegOperand(const StaticInst *si, int idx, const void *val) override
     {
-        const PhysRegIdPtr reg = renamedDestIdx(idx);
+        const PhysRegIdPtr reg = extRenamedDestIdx(idx).PhyReg();
         if (reg->is(InvalidRegClass))
             return;
         cpu->setReg(reg, val);
