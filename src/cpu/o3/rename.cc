@@ -1114,10 +1114,10 @@ Rename::doSquash(const InstSeqNum &squashed_seq_num, ThreadID tid)
 
         DPRINTF(Rename,
                 "[tid:%i] Removing history entry with sequence "
-                "number %i (archReg: %d, newPhysReg: [%d:%d], prevPhysReg: [%d:%d]).\n",
+                "number %i (archReg: %d, newPhysReg: %s, prevPhysReg: %s).\n",
                 tid, hb_it->instSeqNum, hb_it->archReg.index(),
-                hb_it->newPhysReg.PhyReg()->index(), hb_it->newPhysReg.Displacement(),
-                hb_it->prevPhysReg.PhyReg()->index(), hb_it->prevPhysReg.Displacement());
+                hb_it->newPhysReg.toString(),
+                hb_it->prevPhysReg.toString());
 
         // Undo the rename mapping only if it was really a change.
         // Special regs that are not really renamed (like misc regs
@@ -1177,9 +1177,9 @@ Rename::removeFromHistory(InstSeqNum inst_seq_num, ThreadID tid)
            hb_it->instSeqNum <= inst_seq_num) {
 
         DPRINTF(Rename,
-                "[tid:%i] try to free up older rename of reg [p%i:%d] (%s), "
+                "[tid:%i] try to free up older rename of reg %s (%s), "
                 "[sn:%llu].\n",
-                tid, hb_it->prevPhysReg.PhyReg()->flatIndex(), hb_it->prevPhysReg.Displacement(),
+                tid, hb_it->prevPhysReg.toString(),
                 hb_it->prevPhysReg.PhyReg()->className(),
                 hb_it->instSeqNum);
 
@@ -1208,7 +1208,7 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
     // operands, and redirect them to the right physical register.
     for (int src_idx = 0; src_idx < num_src_regs; src_idx++) {
         const RegId& src_reg = inst->srcRegIdx(src_idx);
-        RenameEntry renamed_reg;
+        VirtRegId renamed_reg;
 
         renamed_reg = map->lookup(tc->flattenRegId(src_reg));
         switch (src_reg.classValue()) {
@@ -1238,9 +1238,9 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
 
         DPRINTF(Rename,
                 "[tid:%i] "
-                "Looking up %s arch reg x%i, got [p%i:%d]\n",
+                "Looking up %s arch reg x%i, got %s\n",
                 tid, src_reg.className(), src_reg.index(),
-                renamed_reg.PhyReg()->flatIndex(), renamed_reg.Displacement());
+                renamed_reg.toString());
 
         inst->renameSrcReg(src_idx, renamed_reg);
 
@@ -1280,14 +1280,14 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
         RegId flat_dest_regid = tc->flattenRegId(dest_reg);
         flat_dest_regid.setNumPinnedWrites(dest_reg.getNumPinnedWrites());
 
-        RenameEntry last_dest_phy_reg;
+        VirtRegId bypass_reg;
         bool inc_ref_of_last_dest_phy_reg = false;
         if (inst->isMov()) {
             // Move elimination
-            last_dest_phy_reg =
+            bypass_reg =
                 map->lookup(tc->flattenRegId(inst->srcRegIdx(0)));
             DPRINTF(Rename, "Find the last reg p%i renamed for mv x%i, x%i\n",
-                    last_dest_phy_reg.PhyReg()->flatIndex(), dest_reg.index(),
+                    bypass_reg.PhyReg()->flatIndex(), dest_reg.index(),
                     inst->srcRegIdx(0).index());
             inc_ref_of_last_dest_phy_reg = true;
             inst->setEmptyMov();
@@ -1296,19 +1296,27 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
             stats.moveEliminated++;
         } else if (cpu->enableConstantFolding && inst->isAddImm()) {
             // Constant folding
-            last_dest_phy_reg =
+            bypass_reg =
                 map->lookup(tc->flattenRegId(inst->srcRegIdx(0)));
-            inc_ref_of_last_dest_phy_reg = true;
-            int64_t displacement = last_dest_phy_reg.Displacement() + inst->staticInst->getImm();
-            last_dest_phy_reg.setDisplacement(displacement);
-            inst->setConstantFolded();
-            DPRINTF(Rename, "[sn:%llu] Inst constant folded, is AddImm: %i\n", inst->seqNum, inst->isNop(),
-                    inst->isAddImm());
-            stats.constantFolded++;
+
+            if (!bypass_reg.IEOper() || bypass_reg.IEOper()->type == IEOperand::Type::ADD) {
+                if (bypass_reg.IEOper()) {
+                    IEOperPtr ie_op = new IEOperand(IEOperand::Type::ADD,
+                        bypass_reg.IEOper()->imm + inst->staticInst->getImm());
+                    bypass_reg.setIEOper(ie_op);
+                } else {
+                    IEOperPtr ie_op = new IEOperand(IEOperand::Type::ADD, inst->staticInst->getImm());
+                    bypass_reg.setIEOper(ie_op);
+                }
+                inc_ref_of_last_dest_phy_reg = true;
+
+                inst->setConstantFolded();
+                DPRINTF(Rename, "[sn:%llu] Inst constant folded, virtRegId: %s\n", inst->seqNum, bypass_reg.toString());
+                stats.constantFolded++;
+            }
         }
 
-        rename_result = map->rename(flat_dest_regid, last_dest_phy_reg.PhyReg(),
-                                    last_dest_phy_reg.Displacement());
+        rename_result = map->rename(flat_dest_regid, bypass_reg);
 
         inst->flattenedDestIdx(dest_idx, flat_dest_regid);
 
@@ -1316,11 +1324,11 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
             scoreboard->unsetReg(rename_result.first.PhyReg());
         }
 
-        DPRINTF(Rename, "[tid:%i] %s arch reg x%i (%s) from [p%i:%d] to [p%i:%d].\n", tid,
+        DPRINTF(Rename, "[tid:%i] %s arch reg x%i (%s) from %s to %s.\n", tid,
                 inc_ref_of_last_dest_phy_reg ? "Mov" : "Rename",
                 dest_reg.index(), dest_reg.className(),
-                rename_result.second.PhyReg()->flatIndex(), rename_result.second.Displacement(),
-                rename_result.first.PhyReg()->flatIndex(), rename_result.first.Displacement());
+                rename_result.second.toString(),
+                rename_result.first.toString());
 
         // Record the rename information so that a history can be kept.
         RenameHistory hb_entry(inst->seqNum, flat_dest_regid,

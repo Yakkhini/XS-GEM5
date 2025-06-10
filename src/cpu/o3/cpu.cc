@@ -249,8 +249,8 @@ CPU::CPU(const BaseO3CPUParams &params)
                 // want special treatment for the zero register at this point
                 RegId rid = RegId(type, ridx);
                 PhysRegIdPtr phys_reg = freeList.getReg(type);
-                renameMap[tid].setEntry(rid, phys_reg);
-                commitRenameMap[tid].setEntry(rid, phys_reg);
+                renameMap[tid].setEntry(rid, VirtRegId(phys_reg));
+                commitRenameMap[tid].setEntry(rid, VirtRegId(phys_reg));
             }
         }
     }
@@ -794,7 +794,7 @@ CPU::insertThread(ThreadID tid)
             type = (RegClassType)(type + 1)) {
         for (RegIndex idx = 0; idx < regClasses.at(type).numRegs(); idx++) {
             PhysRegIdPtr phys_reg = freeList.getReg(type);
-            renameMap[tid].setEntry(RegId(type, idx), phys_reg);
+            renameMap[tid].setEntry(RegId(type, idx), VirtRegId(phys_reg));
             scoreboard.setReg(phys_reg);
         }
     }
@@ -1164,9 +1164,9 @@ CPU::getReg(PhysRegIdPtr phys_reg)
 }
 
 RegVal
-CPU::getReg(RenameEntry phys_reg)
+CPU::getReg(VirtRegId virt_reg)
 {
-    switch (phys_reg.PhyReg()->classValue()) {
+    switch (virt_reg.PhyReg()->classValue()) {
       case IntRegClass:
         cpuStats.intRegfileReads++;
         break;
@@ -1186,39 +1186,13 @@ CPU::getReg(RenameEntry phys_reg)
       default:
         break;
     }
-    return regFile.getReg(phys_reg);
+    return regFile.getReg(virt_reg);
 }
 
 void
 CPU::getReg(PhysRegIdPtr phys_reg, void *val)
 {
     switch (phys_reg->classValue()) {
-      case IntRegClass:
-        cpuStats.intRegfileReads++;
-        break;
-      case FloatRegClass:
-        cpuStats.fpRegfileReads++;
-        break;
-      case CCRegClass:
-        cpuStats.ccRegfileReads++;
-        break;
-      case VecRegClass:
-      case VecElemClass:
-        cpuStats.vecRegfileReads++;
-        break;
-      case VecPredRegClass:
-        cpuStats.vecPredRegfileReads++;
-        break;
-      default:
-        break;
-    }
-    regFile.getReg(phys_reg, val);
-}
-
-void
-CPU::getReg(RenameEntry phys_reg, void *val)
-{
-    switch (phys_reg.PhyReg()->classValue()) {
       case IntRegClass:
         cpuStats.intRegfileReads++;
         break;
@@ -1312,15 +1286,16 @@ CPU::setReg(PhysRegIdPtr phys_reg, const void *val)
 RegVal
 CPU::getArchReg(const RegId &reg, ThreadID tid)
 {
-    RenameEntry phys_reg = commitRenameMap[tid].lookup(reg);
-    return regFile.getReg(phys_reg);
+    VirtRegId virt_reg = commitRenameMap[tid].lookup(reg);
+    return regFile.getReg(virt_reg);
 }
 
 void
 CPU::getArchReg(const RegId &reg, void *val, ThreadID tid)
 {
-    RenameEntry phys_reg = commitRenameMap[tid].lookup(reg);
-    regFile.getReg(phys_reg, val);
+    VirtRegId virt_reg = commitRenameMap[tid].lookup(reg);
+    assert(!virt_reg.IEOper());
+    regFile.getReg(virt_reg.PhyReg(), val);
 }
 
 void *

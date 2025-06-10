@@ -70,27 +70,25 @@ SimpleRenameMap::init(const RegClass &reg_class, SimpleFreeList *_freeList)
 }
 
 SimpleRenameMap::RenameInfo
-SimpleRenameMap::rename(const RegId &arch_reg, const PhysRegIdPtr provided_dest,
-                        const int64_t displacement)
+SimpleRenameMap::rename(const RegId &arch_reg, const VirtRegId& bypass_reg)
 {
-    RenameEntry renamed_reg = RenameEntry();
+    VirtRegId renamed_reg = VirtRegId();
     // Record the current physical register that is renamed to the
     // requested architected register.
-    RenameEntry prev_reg = map[arch_reg.index()];
+    VirtRegId prev_reg = map[arch_reg.index()];
 
     if (arch_reg.is(InvalidRegClass)) {
         assert(prev_reg.PhyReg()->is(InvalidRegClass));
         renamed_reg = prev_reg;
-    } else if (provided_dest != nullptr) {
+    } else if (bypass_reg.PhyReg() != nullptr) {
 
         // Move elimination & Constant folding
-        renamed_reg.setPhyReg(provided_dest);
-        renamed_reg.setDisplacement(displacement);
+        renamed_reg = bypass_reg;
 
         // New mapping
         map[arch_reg.index()] = renamed_reg;
 
-        if (prev_reg.PhyReg() != provided_dest) {
+        if (prev_reg.PhyReg() != bypass_reg.PhyReg()) {
             // A new archReg map to the same physReg
             renamed_reg.PhyReg()->incRef();
             DPRINTF(Rename, "Increment the refcnt of p%i to %i\n",

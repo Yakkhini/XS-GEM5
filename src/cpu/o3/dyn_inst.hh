@@ -95,9 +95,9 @@ class DynInst : public ExecContext, public RefCounted
         size_t numDests;
 
         RegId *flatDestIdx;
-        RenameEntry *destIdx;
-        RenameEntry *prevDestIdx;
-        RenameEntry *srcIdx;
+        VirtRegId *destIdx;
+        VirtRegId *prevDestIdx;
+        VirtRegId *srcIdx;
         uint8_t *readySrcIdx;
     };
 
@@ -250,14 +250,14 @@ class DynInst : public ExecContext, public RefCounted
 
     // Physical register index of the destination registers of this
     // instruction.
-    RenameEntry *_destIdx;
+    VirtRegId *_destIdx;
 
     // Physical register index of the previous producers of the
     // architected destinations.
-    RenameEntry *_prevDestIdx;
+    VirtRegId *_prevDestIdx;
 
     // Physical register index of the source registers of this instruction.
-    RenameEntry *_srcIdx;
+    VirtRegId *_srcIdx;
 
     // Whether or not the source register is ready, one bit per register.
     uint8_t *_readySrcIdx;
@@ -288,22 +288,28 @@ class DynInst : public ExecContext, public RefCounted
 
     // Returns the physical register index of the idx'th destination
     // register.
-    RenameEntry
+    PhysRegIdPtr
     renamedDestIdx(int idx) const
+    {
+        return _destIdx[idx].PhyReg();
+    }
+
+    VirtRegId
+    extRenamedDestIdx(int idx) const
     {
         return _destIdx[idx];
     }
 
     // Set the renamed dest register id.
     void
-    renamedDestIdx(int idx, RenameEntry phys_reg_id)
+    renamedDestIdx(int idx, VirtRegId phys_reg_id)
     {
         _destIdx[idx] = phys_reg_id;
     }
 
     // Returns the physical register index of the previous physical
     // register that remapped to the same logical register index.
-    RenameEntry
+    VirtRegId
     prevDestIdx(int idx) const
     {
         return _prevDestIdx[idx];
@@ -311,20 +317,26 @@ class DynInst : public ExecContext, public RefCounted
 
     // Set the previous renamed dest register id.
     void
-    prevDestIdx(int idx, RenameEntry phys_reg_id)
+    prevDestIdx(int idx, VirtRegId phys_reg_id)
     {
         _prevDestIdx[idx] = phys_reg_id;
     }
 
     // Returns the physical register index of the i'th source register.
-    RenameEntry
+    PhysRegIdPtr
     renamedSrcIdx(int idx) const
+    {
+        return _srcIdx[idx].PhyReg();
+    }
+
+    VirtRegId
+    extRenamedSrcIdx(int idx) const
     {
         return _srcIdx[idx];
     }
 
     void
-    renamedSrcIdx(int idx, RenameEntry phys_reg_id)
+    renamedSrcIdx(int idx, VirtRegId phys_reg_id)
     {
         _srcIdx[idx] = phys_reg_id;
     }
@@ -535,8 +547,8 @@ class DynInst : public ExecContext, public RefCounted
      *  the previous physical register that the logical register mapped to.
      */
     void
-    renameDestReg(int idx, RenameEntry renamed_dest,
-                  RenameEntry previous_rename)
+    renameDestReg(int idx, VirtRegId renamed_dest,
+                  VirtRegId previous_rename)
     {
         renamedDestIdx(idx, renamed_dest);
         prevDestIdx(idx, previous_rename);
@@ -549,7 +561,7 @@ class DynInst : public ExecContext, public RefCounted
      *  @todo: add in whether or not the source register is ready.
      */
     void
-    renameSrcReg(int idx, RenameEntry renamed_src)
+    renameSrcReg(int idx, VirtRegId renamed_src)
     {
         renamedSrcIdx(idx, renamed_src);
     }
@@ -1215,7 +1227,7 @@ class DynInst : public ExecContext, public RefCounted
     {
 
         for (int idx = 0; idx < numDestRegs(); idx++) {
-            RenameEntry prev_phys_reg = prevDestIdx(idx);
+            VirtRegId prev_phys_reg = prevDestIdx(idx);
             const RegId& original_dest_reg = staticInst->destRegIdx(idx);
             switch (original_dest_reg.classValue()) {
               case IntRegClass:
@@ -1228,7 +1240,7 @@ class DynInst : public ExecContext, public RefCounted
               case VecRegClass:
                 {
                     TheISA::VecRegContainer val;
-                    cpu->getReg(prev_phys_reg, &val);
+                    cpu->getReg(prev_phys_reg.PhyReg(), &val);
                     setRegOperand(staticInst.get(), idx, &val);
                 }
                 break;
@@ -1239,7 +1251,7 @@ class DynInst : public ExecContext, public RefCounted
               case VecPredRegClass:
                 {
                     TheISA::VecPredRegContainer val;
-                    cpu->getReg(prev_phys_reg, &val);
+                    cpu->getReg(prev_phys_reg.PhyReg(), &val);
                     setRegOperand(staticInst.get(), idx, &val);
                 }
                 break;
@@ -1272,23 +1284,23 @@ class DynInst : public ExecContext, public RefCounted
     RegVal
     getRegOperand(const StaticInst *si, int idx) override
     {
-        const RenameEntry reg = renamedSrcIdx(idx);
+        const VirtRegId reg = extRenamedSrcIdx(idx);
         return cpu->getReg(reg);
     }
 
     void
     getRegOperand(const StaticInst *si, int idx, void *val) override
     {
-        const RenameEntry reg = renamedSrcIdx(idx);
+        const VirtRegId reg = extRenamedSrcIdx(idx);
         if (reg.PhyReg()->is(InvalidRegClass))
             return;
-        cpu->getReg(reg, val);
+        cpu->getReg(reg.PhyReg(), val);
     }
 
     void *
     getWritableRegOperand(const StaticInst *si, int idx) override
     {
-        return cpu->getWritableReg(renamedDestIdx(idx).PhyReg());
+        return cpu->getWritableReg(extRenamedDestIdx(idx).PhyReg());
     }
 
     /** @todo: Make results into arrays so they can handle multiple dest
@@ -1297,7 +1309,7 @@ class DynInst : public ExecContext, public RefCounted
     void
     setRegOperand(const StaticInst *si, int idx, RegVal val) override
     {
-        const PhysRegIdPtr reg = renamedDestIdx(idx).PhyReg();
+        const PhysRegIdPtr reg = extRenamedDestIdx(idx).PhyReg();
         if (reg->is(InvalidRegClass))
             return;
         cpu->setReg(reg, val);
@@ -1307,7 +1319,7 @@ class DynInst : public ExecContext, public RefCounted
     void
     setRegOperand(const StaticInst *si, int idx, const void *val) override
     {
-        const PhysRegIdPtr reg = renamedDestIdx(idx).PhyReg();
+        const PhysRegIdPtr reg = extRenamedDestIdx(idx).PhyReg();
         if (reg->is(InvalidRegClass))
             return;
         cpu->setReg(reg, val);

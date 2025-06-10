@@ -71,7 +71,7 @@ namespace o3
 class SimpleRenameMap
 {
   private:
-    using Arch2PhysMap = std::vector<RenameEntry>;
+    using Arch2PhysMap = std::vector<VirtRegId>;
     /** The acutal arch-to-phys register map */
     Arch2PhysMap map;
   public:
@@ -102,7 +102,7 @@ class SimpleRenameMap
      * renamed to, and the previous physical register that the same
      * logical register was previously mapped to.
      */
-    typedef std::pair<RenameEntry, RenameEntry> RenameInfo;
+    typedef std::pair<VirtRegId, VirtRegId> RenameInfo;
 
     /**
      * Tell rename map to get a new free physical register to remap
@@ -111,14 +111,14 @@ class SimpleRenameMap
      * @return A RenameInfo pair indicating both the new and previous
      * physical registers.
      */
-    RenameInfo rename(const RegId& arch_reg, PhysRegIdPtr provided_dest, int64_t displacement);
+    RenameInfo rename(const RegId& arch_reg, const VirtRegId& bypass_reg);
 
     /**
      * Look up the physical register mapped to an architectural register.
      * @param arch_reg The architectural register to look up.
      * @return The physical register it is currently mapped to.
      */
-    RenameEntry
+    VirtRegId
     lookup(const RegId& arch_reg) const
     {
         assert(arch_reg.index() <= map.size());
@@ -132,7 +132,7 @@ class SimpleRenameMap
      * @param phys_reg The physical register to remap it to.
      */
     void
-    setEntry(const RegId& arch_reg, RenameEntry phys_reg)
+    setEntry(const RegId& arch_reg, VirtRegId phys_reg)
     {
         assert(arch_reg.index() <= map.size());
         map[arch_reg.index()] = phys_reg;
@@ -202,17 +202,17 @@ class UnifiedRenameMap
      * @return A RenameInfo pair indicating both the new and previous
      * physical registers.
      */
-    RenameInfo rename(const RegId &dest_reg, const PhysRegIdPtr last_dest_phy, int64_t displacement)
+    RenameInfo rename(const RegId &dest_reg, const VirtRegId& bypass_reg)
     {
         if (!dest_reg.isRenameable()) {
             // misc regs aren't really renamed, just remapped
-            RenameEntry phys_reg = lookup(dest_reg);
+            VirtRegId phys_reg = lookup(dest_reg);
             // Set the new register to the previous one to keep the same
             // mapping throughout the execution.
             return RenameInfo(phys_reg, phys_reg);
         }
 
-        return renameMaps[dest_reg.classValue()].rename(dest_reg, last_dest_phy, displacement);
+        return renameMaps[dest_reg.classValue()].rename(dest_reg, bypass_reg);
     }
 
     /**
@@ -222,16 +222,16 @@ class UnifiedRenameMap
      * @param arch_reg The architectural register to look up.
      * @return The physical register it is currently mapped to.
      */
-    RenameEntry
+    VirtRegId
     lookup(const RegId& arch_reg) const
     {
         auto reg_class = arch_reg.classValue();
         if (reg_class == InvalidRegClass) {
-            return &invalidPhysRegId;
+            return VirtRegId(&invalidPhysRegId);
         } else if (reg_class == MiscRegClass) {
             // misc regs aren't really renamed, they keep the same
             // mapping throughout the execution.
-            return regFile->getMiscRegId(arch_reg.index());
+            return VirtRegId(regFile->getMiscRegId(arch_reg.index()));
         }
         return renameMaps[reg_class].lookup(arch_reg);
     }
@@ -245,19 +245,19 @@ class UnifiedRenameMap
      * @param phys_reg The physical register to remap it to.
      */
     void
-    setEntry(const RegId& arch_reg, RenameEntry phys_reg)
+    setEntry(const RegId& arch_reg, VirtRegId virt_reg)
     {
-        assert(phys_reg.PhyReg()->is(arch_reg.classValue()) || phys_reg.PhyReg()->is(InvalidRegClass));
+        assert(virt_reg.PhyReg()->is(arch_reg.classValue()) || virt_reg.PhyReg()->is(InvalidRegClass));
         if (!arch_reg.isRenameable()) {
             // Misc registers do not actually rename, so don't change
             // their mappings.  We end up here when a commit or squash
             // tries to update or undo a hardwired misc reg nmapping,
             // which should always be setting it to what it already is.
-            assert(phys_reg == lookup(arch_reg));
+            assert(virt_reg == lookup(arch_reg));
             return;
         }
 
-        return renameMaps[arch_reg.classValue()].setEntry(arch_reg, phys_reg);
+        return renameMaps[arch_reg.classValue()].setEntry(arch_reg, virt_reg);
     }
 
     /**

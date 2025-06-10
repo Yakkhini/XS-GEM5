@@ -313,8 +313,8 @@ class Rename
     struct RenameHistory
     {
         RenameHistory(InstSeqNum _instSeqNum, const RegId& _archReg,
-                      RenameEntry _newPhysReg,
-                      RenameEntry _prevPhysReg)
+                      VirtRegId _newPhysReg,
+                      VirtRegId _prevPhysReg)
             : instSeqNum(_instSeqNum), archReg(_archReg),
               newPhysReg(_newPhysReg), prevPhysReg(_prevPhysReg)
         {
@@ -325,10 +325,10 @@ class Rename
         /** The architectural register index that was renamed. */
         RegId archReg;
         /** The new physical register that the arch. register is renamed to. */
-        RenameEntry newPhysReg;
+        VirtRegId newPhysReg;
         /** The old physical register that the arch. register was renamed to.
          */
-        RenameEntry prevPhysReg;
+        VirtRegId prevPhysReg;
     };
 
     /** A per-thread list of all destination register renames, used to either
