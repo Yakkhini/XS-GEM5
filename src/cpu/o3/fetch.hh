@@ -283,6 +283,48 @@ class Fetch
     void switchToInactive();
 
     /**
+     * initialize the state for this tick cycle
+     * @return whether there is a status change
+     */
+    bool initializeTickState();
+
+    /**
+     * execute fetch and process instructions
+     * @param status_change status change flag
+     */
+    void fetchAndProcessInstructions(bool status_change);
+
+    /**
+     * handle interrupts and perform related operations
+     */
+    void handleInterrupts();
+
+    /**
+     * send instructions to decode stage
+     * update stall reasons and measure frontend bubbles
+     */
+    void sendInstructionsToDecode();
+
+    /**
+     * update stall reasons based on fetch status
+     * @param insts_to_decode number of instructions to send to decode stage
+     * @param tid thread ID
+     */
+    void updateStallReasons(unsigned insts_to_decode, ThreadID tid);
+
+    /**
+     * measure frontend performance bubbles
+     * @param insts_to_decode number of instructions to send to decode stage
+     * @param tid thread ID
+     */
+    void measureFrontendBubbles(unsigned insts_to_decode, ThreadID tid);
+
+    /**
+     * update branch predictors
+     */
+    void updateBranchPredictors();
+
+    /**
      * Looks up in the branch predictor to see if the next PC should be
      * either next PC+=MachInst or a branch target.
      * @param next_PC Next PC variable passed in by reference.  It is
@@ -406,6 +448,68 @@ class Fetch
     /** Set the reasons of all fetch stalls. */
     void setAllFetchStalls(StallReason stall);
 
+    /** Select the thread to fetch from.
+     * @return Thread ID to fetch from, or InvalidThreadID if none available
+     */
+    ThreadID selectFetchThread();
+
+    /** Check decoupled frontend (FTQ) availability.
+     * @param tid Thread ID
+     * @return true if frontend is ready for fetch, false otherwise
+     */
+    bool checkDecoupledFrontend(ThreadID tid);
+
+    /** Prepare fetch address and handle status transitions.
+     * @param tid Thread ID
+     * @param status_change Reference to status change flag
+     * @param fetch_addr Reference to fetch address to be set
+     * @return true if ready to fetch, false if stalled/idle
+     */
+    bool prepareFetchAddress(ThreadID tid, bool &status_change, Addr &fetch_addr);
+
+    /** Perform the main instruction fetching loop.
+     * @param tid Thread ID
+     * @param fetch_addr Starting fetch address
+     * @param status_change Reference to status change flag
+     */
+    void performInstructionFetch(ThreadID tid, Addr fetch_addr, bool &status_change);
+
+    /** Check if decoder needs memory and supply bytes if needed.
+     * This function checks if the decoder has enough bytes for the current
+     * instruction and supplies bytes from fetchBuffer if needed.
+     * @param tid Thread ID
+     * @param this_pc Current PC state
+     * @param curMacroop Current macroop (if any)
+     * @return StallReason if stalled, NoStall otherwise
+     */
+    StallReason checkMemoryNeeds(ThreadID tid, const PCStateBase &this_pc,
+                                StaticInstPtr &curMacroop);
+
+    /** Process instruction decoding and create dynamic instruction.
+     * @param tid Thread ID
+     * @param this_pc Current PC state
+     * @param next_pc Next PC state
+     * @param staticInst Static instruction pointer
+     * @param curMacroop Current macroop
+     * @param newMacro Whether moving to new macroop
+     * @return DynInstPtr if instruction processed successfully, nullptr otherwise
+     */
+    DynInstPtr processInstructionDecoding(ThreadID tid, PCStateBase &this_pc,
+                                         const std::unique_ptr<PCStateBase> &next_pc,
+                                         StaticInstPtr &staticInst,
+                                         StaticInstPtr &curMacroop,
+                                         bool &newMacro);
+
+    /** Handle branch prediction and PC updates.
+     * @param instruction Dynamic instruction
+     * @param this_pc Current PC state
+     * @param next_pc Next PC state
+     * @param predictedBranch Whether branch was predicted
+     * @param newMacro Whether moving to new macroop
+     */
+    void handleBranchAndNextPC(DynInstPtr instruction, PCStateBase &this_pc,
+                              std::unique_ptr<PCStateBase> &next_pc,
+                              bool &predictedBranch, bool &newMacro);
 
   private:
     /** Pointer to the O3CPU. */
@@ -441,9 +545,6 @@ class Fetch
 
     /** PC of each thread. */
     std::unique_ptr<PCStateBase> pc[MaxThreads];
-
-    /** Fetch offset of each thread. */
-    Addr fetchOffset[MaxThreads];
 
     /** Macroop of each thread. */
     StaticInstPtr macroop[MaxThreads];
@@ -537,16 +638,7 @@ class Fetch
     /** Whether or not the fetch buffer data is valid. */
     bool fetchBufferValid[MaxThreads];
 
-    /** Loop buffer with unrolling */
-    // TODO: use the same loop buffer for both of them
-    branch_prediction::ftb_pred::LoopBuffer *loopBuffer;
-
-    bool enableLoopBuffer{false};
-
-    unsigned currentLoopIter{0};
-
-    /** Size of instructions. */
-    int instSize;
+    unsigned currentLoopIter{0};  // todo: remove this
 
     /** Icache stall statistics. */
     Counter lastIcacheStall[MaxThreads];
