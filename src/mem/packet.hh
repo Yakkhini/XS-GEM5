@@ -1604,9 +1604,6 @@ class Packet : public Printable
     // cache hit
     bool cacheSatisfied = true;
 
-    // cache miss, but MSHR has the data
-    bool cacheSatisfiedByMSHR = false;
-
     bool fromBOP() const { return pfSource == PrefetchSourceType::HWP_BOP; }
     
     PrefetchSourceType getPFSource() const { return static_cast<PrefetchSourceType>(pfSource); }

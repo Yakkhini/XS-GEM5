@@ -1225,7 +1225,7 @@ LSQUnit::loadDoRecvData(const DynInstPtr &inst)
     } else if (inst->isNormalLd() && !request) {
         loadSetReplay(inst, request, false);
         inst->setBankConflicyReplay();// fast replay
-        DPRINTF(LoadPipeline, "Load [sn:%llu] setCacheMissReplay\n", inst->seqNum);
+        DPRINTF(LoadPipeline, "Load [sn:%llu] setBankConflicyReplay\n", inst->seqNum);
         return fault;
     }
 

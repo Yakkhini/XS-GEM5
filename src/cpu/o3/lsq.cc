@@ -579,8 +579,7 @@ LSQ::recvTimingResp(PacketPtr pkt)
     }
 
     if (request->isNormalLd() &&
-        !request->mainPacket()->cacheSatisfied &&
-        !request->mainPacket()->cacheSatisfiedByMSHR) {
+        !request->instruction()->cacheHit()) {
         // if cache miss, the packet must be delete
         assert(request->isReleased());
         assert(request->_numOutstandingPackets == 1);
@@ -1527,12 +1526,13 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
     LSQ* lsq = this->_port.getLsq();
     bool isNormalLd = this->isNormalLd();
     bool enableLdMissReplay = lsq->enableLdMissReplay();
+    // All responses received in 1 cycle are cache hit.
+    bool cacheHit = LSQRequest::_inst->getCpuPtr()->ticksToCycles(curTick() - pkt->sendTick) <= 1;
     // Dump inst num, request addr, and packet addr
     DPRINTF(LSQ, "Single Req::recvTimingResp: inst: %llu, pkt: %#lx, isLoad: %d, "
                 "isLLSC: %d, isUncache: %d, isCachehit: %d, data: %d\n",
                 pkt->req->getReqInstSeqNum(), pkt->getAddr(), isLoad(), mainReq()->isLLSC(),
-                mainReq()->isUncacheable(), pkt->cacheSatisfied || pkt->cacheSatisfiedByMSHR,
-                *(pkt->getPtr<uint64_t*>()));
+                mainReq()->isUncacheable(), cacheHit, *(pkt->getPtr<uint64_t*>()));
 
     if (isLoad()) {
         auto it = std::find(lsqUnit()->inflightLoads.begin(), lsqUnit()->inflightLoads.end(), this);
@@ -1540,35 +1540,37 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
             lsqUnit()->inflightLoads.erase(it);
         }
     }
+
     assert(_numOutstandingPackets == 1);
     if (enableLdMissReplay && isNormalLd) {
         DPRINTF(Hint, "[sn:%ld] Recv TimingResp\n", pkt->req->getReqInstSeqNum());
-        if (LSQRequest::_inst->waitingCacheRefill()) {
+        if (cacheHit) {
+            DPRINTF(LSQ, "[sn:%ld] %s hit\n", _inst->seqNum, "cache");
+            // Cache hit, the subsequent processing will be carried out in s2.
+            instruction()->setCacheHit();
+        } else if (LSQRequest::_inst->waitingCacheRefill()) {
             // Missed Data is ready at lsq side data bus, wake up missed load in replay queue
+            // Handle the missed early wake-up here.
             DPRINTF(LSQ, "[sn:%ld] waitingCacheRefill\n", pkt->req->getReqInstSeqNum());
             LSQRequest::_inst->waitingCacheRefill(false);
             discard();
         } else {
-            // this load is either missed and waken up early or hit.
-            if (pkt->cacheSatisfied || pkt->cacheSatisfiedByMSHR) {
-                DPRINTF(LSQ, "[sn:%ld] %s hit\n", _inst->seqNum, pkt->cacheSatisfied ? "cache" : "MSHR");
-                // cache hit
-                instruction()->setCacheHit();
-            } else {
-                DPRINTF(LSQ, "[sn:%ld] addToBus\n", _inst->seqNum);
-                // cache miss refill, make data stable on data bus
-                lsq->bus[_inst->seqNum] = pkt->getAddr();
-                _port.getStats()->busAppendTimes++;
-                discard();
-            }
+            DPRINTF(LSQ, "[sn:%ld] addToBus\n", _inst->seqNum);
+            // Cache miss refill, make data stable on data bus
+            lsq->bus[_inst->seqNum] = pkt->getAddr();
+            _port.getStats()->busAppendTimes++;
+            discard();
         }
     } else {
+        // When enableLdMissReplay is false, the specific execution stage of
+        // the instruction is unknown, so complete here.
         flags.set(Flag::Complete);
         assert(pkt == _packets.front());
         assert(pkt == mainPacket());
         assemblePackets();
         _hasStaleTranslation = false;
     }
+    // Clear the pending cache request
     LSQRequest::_inst->hasPendingCacheReq(false);
     LSQRequest::_inst->pendingCacheReq = nullptr;
     return true;
