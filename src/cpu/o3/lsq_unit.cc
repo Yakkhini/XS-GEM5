@@ -864,7 +864,7 @@ LSQUnit::checkSnoop(PacketPtr pkt)
 
     DynInstPtr ld_inst = iter->instruction();
     assert(ld_inst);
-    LSQRequest *request = ld_inst->savedRequest; //iter->request();
+    LSQRequest *request = ld_inst->savedRequest;
 
     // Check that this snoop didn't just invalidate our lock flag
     if (ld_inst->effAddrValid() && request &&
@@ -1160,9 +1160,6 @@ LSQUnit::loadDoSendRequest(const DynInstPtr &inst)
             inst->setExecuted();
         }
         inst->setSkipFollowingPipe();
-        // if (inst->strictlyOrdered() && !inst->isExecuted()) {
-        //     iewStage->readyToFinish(inst);
-        // }
         return load_fault;
     }
 
@@ -1238,7 +1235,7 @@ LSQUnit::loadDoRecvData(const DynInstPtr &inst)
         }
     }
 
-    // no nuke happens, prepare the inst data
+    // No nuke happens, prepare the inst data
     // assert(request->isNormalLd() ? !request->isAnyOutstandingRequest() : true);
     request = inst->savedRequest;
     if (inst->fullForward()) {
@@ -1317,7 +1314,7 @@ LSQUnit::executeLoadPipeSx()
                 }
             }
 
-            // if inst was replyed, must clear inst in pipeline
+            // If inst was replyed, must clear inst in pipeline
             if (inst->needSTLFReplay() || inst->needCacheBlockedReplay() || inst->needRescheduleReplay()) {
                 DPRINTF(LoadPipeline, "Load [sn:%llu] replayed\n", inst->seqNum);
                 iewStage->loadCancel(inst);
@@ -1340,9 +1337,6 @@ LSQUnit::executeLoadPipeSx()
                     inst->issueQue->retryMem(inst);
                 }
                 else if (inst->needTLBMissReplay()) iewStage->deferMemInst(inst);
-                // else if (inst->needRescheduleReplay()) iewStage->rescheduleMemInst(inst);
-                // if (inst->needSTLFReplay()) iewStage->stlfFailLdReplay //do not here called
-                // if (inst->needCacheBlockedReplay()) iewStage->blockMemInst //do not here called
 
                 iewStage->loadCancel(inst);
                 inst->endPipelining();
@@ -1351,10 +1345,6 @@ LSQUnit::executeLoadPipeSx()
             }
 
             if (i == loadPipeStages - 1 && !inst->needReplay()) {
-                // if (!inst->savedRequest && inst->seqNum == 1683) {
-                //     assert(false);
-                //     DPRINTF(LoadPipeline, "Load [sn:%llu] no savedRequest\n", inst->seqNum);
-                // }
                 if (inst->isNormalLd() || !inst->readMemAccPredicate()) iewStage->readyToFinish(inst);
                 iewStage->activityThisCycle();
                 inst->endPipelining();
@@ -2813,7 +2803,7 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
                         const auto &store_req = store_it->request()->mainReq();
                         if (store_it->instruction()->isSplitStoreAddr() && !store_it->canForwardToLoad()) {
                             stats.forwardSTDNotReady++;
-                            // insert load inst into replayQ and wait for store data to be ready
+                            // Insert load inst into replayQ and wait for store data to be ready
                             iewStage->stlfFailLdReplay(load_inst, store_it->instruction()->seqNum);
                             loadSetReplay(load_inst, request, true);
                             load_inst->setSTLFReplay();
@@ -2888,7 +2878,7 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
                 const auto &store_req = store_it->request()->mainReq();
                 if (store_it->instruction()->isSplitStoreAddr() && !store_it->canForwardToLoad()) {
                     stats.forwardSTDNotReady++;
-                    // insert load inst into replayQ and wait for store data to be ready
+                    // Insert load inst into replayQ and wait for store data to be ready
                     iewStage->stlfFailLdReplay(load_inst, store_it->instruction()->seqNum);
                     loadSetReplay(load_inst, request, true);
                     load_inst->setSTLFReplay();

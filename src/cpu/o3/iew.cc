@@ -2104,7 +2104,7 @@ IEW::checkLoadStoreInst(DynInstPtr inst)
     int depth=-1;
     if (inFlight) {
         assert(inst->pendingCacheReq);
-        depth = 0;// inst->pendingCacheReq->mainReq()->depth;
+        depth = inst->pendingCacheReq->mainReq()->depth;
     }
     assert(depth < 5);
     bool in_l1 = depth == 0;

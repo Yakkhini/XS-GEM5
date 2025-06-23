@@ -698,15 +698,9 @@ BaseCache::recvTimingReq(PacketPtr pkt)
         }
 
         handleTimingReqHit(pkt, blk, request_time, first_acc_after_pf);
-        if (cacheLevel == 1 && pkt->isResponse() && pkt->isRead() && !pkt->isWrite() && lat > 1) {
-            pkt->cacheSatisfied = false;
-        }
     } else {
         if (cacheLevel != 1) {
             calculateSliceBusy(pkt);
-        }
-        if (cacheLevel == 1 && pkt->needsResponse() && pkt->isRead() && !pkt->isWrite()) {
-            pkt->cacheSatisfied = false;
         }
 
         // ArchDB: for now we only track packet which has PC

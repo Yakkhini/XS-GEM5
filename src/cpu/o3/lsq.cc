@@ -659,7 +659,7 @@ LSQ::recvFunctionalCustomSignal(PacketPtr pkt, int sig)
                 DPRINTF(LSQ, " erased bus: [sn:%ld] addr: %#lx\n", seqNum, addr);
             } else {
                 it++;
-            } 
+            }
         }
         panic_if(bus.size() > getLQEntries(), "elements on bus should never be greater than LQ size");
     } else {
@@ -1773,7 +1773,7 @@ LSQ::SingleDataRequest::sendPacketToCache()
     if (success) {
         if (isLoad()) {
             assert(lsqUnit()->inflightLoads.size() < lsqUnit()->numLoads() + 4);
-            //lsqUnit()->inflightLoads.emplace_back(this);
+            lsqUnit()->inflightLoads.emplace_back(this);
         }
 
         if (!bank_conflict) {

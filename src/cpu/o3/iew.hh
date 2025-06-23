@@ -218,7 +218,7 @@ class IEW
     /** Notifies that the cache has become unblocked */
     void cacheUnblocked();
 
-    /** inst is ready to finish (The last cycle in FU) */
+    /** Inst is ready to finish (The last cycle in FU) */
     void readyToFinish(const DynInstPtr &inst);
 
     /** Inserts unused instructions of a thread into the skid buffer. */

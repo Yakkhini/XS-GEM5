@@ -262,7 +262,7 @@ class LSQ
         LSQUnit& _port;
         const DynInstPtr _inst;
         uint32_t _taskId;
-        // !!! Only can use in pushrequest except for the storebuffer
+        // Only can use in pushrequest except for the storebuffer
         PacketDataPtr _data;
         std::vector<PacketPtr> _packets;
         std::vector<RequestPtr> _reqs;
