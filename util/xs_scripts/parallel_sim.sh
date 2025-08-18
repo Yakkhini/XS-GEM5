@@ -25,7 +25,10 @@ export workload_list=$(realpath $1)
 # under this directory to get the checkpoint path.
 export cpt_dir=$(realpath $2)
 
-export tag=parallel-$(date +%F-%H-%M-%S)-result
+export tag=parallel-$(date +%F)-$(
+  cd $GEM5_HOME || exit
+  git rev-parse --short=8 HEAD
+)-result
 
 export log_file='log.txt'
 
