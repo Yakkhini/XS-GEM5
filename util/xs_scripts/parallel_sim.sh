@@ -70,7 +70,7 @@ function run() {
   touch running
 
   script_dir=$(dirname -- "$(readlink -f -- "$0")")
-  xs-gem5 $GEM5_HOME/configs/example/xiangshan.py --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --gcpt-restore /nfs/share/gem5_ci/tools/normal-gcb-restorer.bin --generic-rv-cpt $1
+  xs-gem5 $GEM5_HOME/configs/example/xiangshan.py --bp-type=DecoupledBPUWithBTB --ideal-kmhv3 --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --gcpt-restore /nfs/share/gem5_ci/tools/normal-gcb-restorer.bin --generic-rv-cpt $1
   check $?
 
   rm running
@@ -124,6 +124,9 @@ function parallel_run() {
   # We use gnu parallel to control the parallelism.
   # If your server has 32 core and 64 SMT threads, we suggest to run with no more than 32 threads.
   cat $workload_list | parallel -a - -j $num_threads arg_wrapper {}
+  cd "$GEM5_HOME"/DataProcess || exit
+  bash example-scripts/gem5-score-ci.sh $XS_PROJECT_ROOT/out/gem5/$tag /nfs/share/gem5_ci/spec06_cpts/cluster-0-0.json >$XS_PROJECT_ROOT/out/gem5/"$tag"/score.txt
+  cat $XS_PROJECT_ROOT/out/gem5/"$tag"/score.txt
 }
 
 parallel_run
