@@ -1,0 +1,3 @@
+[submodule "DataProcess"]
+	path = DataProcess
+	url = git@github.com:Yakkhini/gem5_data_proc.git
