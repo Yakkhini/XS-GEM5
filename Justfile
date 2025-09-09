@@ -22,9 +22,12 @@ prepare:
   cd $NEMU_HOME/resource/gcpt_restore && make clean && make
 
 xs-run workload:
+  #!/usr/bin/env zsh
   mkdir -p $XS_PROJECT_ROOT/out
+  export tag=single-$(date +%F)-$(cd $GEM5_HOME && git rev-parse --short HEAD)
+  mkdir -p $XS_PROJECT_ROOT/out/gem5/$tag
   # should not hardcode the path here like `nfs`
-  xs-gem5 -d $XS_PROJECT_ROOT/out/gem5 $GEM5_HOME/configs/example/xiangshan.py --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --gcpt-restore /nfs/share/gem5_ci/tools/normal-gcb-restorer.bin --generic-rv-cpt {{workload}}
+  xs-gem5 -d $XS_PROJECT_ROOT/out/gem5/$tag $GEM5_HOME/configs/example/xiangshan.py --bp-type=DecoupledBPUWithBTB --ideal-kmhv3 --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --gcpt-restore /nfs/share/gem5_ci/tools/normal-gcb-restorer.bin --generic-rv-cpt {{workload}} > $XS_PROJECT_ROOT/out/gem5/$tag/log
 
 xs-parallel-run workload:
 
