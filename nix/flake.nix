@@ -43,7 +43,7 @@
           pythonPackages.distutils
           pythonPackages.pydot
           pythonPackages.six
-          (scons.override {python3Packages = pkgs.python310Packages;})
+          scons
           sqlite
           swig
           zlib
