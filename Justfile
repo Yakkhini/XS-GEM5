@@ -12,6 +12,11 @@ build:
   mkdir -p $XS_PROJECT_ROOT/install/bin
   cp $GEM5_HOME/build/RISCV/gem5.opt $XS_PROJECT_ROOT/install/bin/xs-gem5
 
+build-debug:
+  scons build/RISCV/gem5.debug --gold-linker -j $NIX_BUILD_CORES
+  mkdir -p $XS_PROJECT_ROOT/install/bin
+  cp $GEM5_HOME/build/RISCV/gem5.debug $XS_PROJECT_ROOT/install/bin/xs-gem5-debug
+
 only-install:
   mkdir -p $XS_PROJECT_ROOT/install/bin
   cp $GEM5_HOME/build/RISCV/gem5.opt $XS_PROJECT_ROOT/install/bin/xs-gem5
@@ -27,17 +32,23 @@ xs-run workload:
   export tag=single-$(date +%F)-$(cd $GEM5_HOME && git rev-parse --short HEAD)
   mkdir -p $XS_PROJECT_ROOT/out/gem5/$tag
   # should not hardcode the path here like `nfs`
-  xs-gem5 -d $XS_PROJECT_ROOT/out/gem5/$tag $GEM5_HOME/configs/example/xiangshan.py --bp-type=DecoupledBPUWithBTB --ideal-kmhv3 --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --gcpt-restore /nfs/share/gem5_ci/tools/normal-gcb-restorer.bin --generic-rv-cpt {{workload}} > $XS_PROJECT_ROOT/out/gem5/$tag/log
+  xs-gem5 -d $XS_PROJECT_ROOT/out/gem5/$tag $GEM5_HOME/configs/example/xiangshan.py --enable-bp-db tage --bp-type=DecoupledBPUWithBTB --disable-mgsc --ideal-kmhv3 --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --gcpt-restore /nfs/share/gem5_ci/tools/normal-gcb-restorer.bin --generic-rv-cpt {{workload}} > $XS_PROJECT_ROOT/out/gem5/$tag/log
 
 xs-parallel-run workload:
 
 xs-run-raw workload:
+  #!/usr/bin/env zsh
   mkdir -p $XS_PROJECT_ROOT/out
-  xs-gem5 -d $XS_PROJECT_ROOT/out/gem5 $GEM5_HOME/configs/example/xiangshan.py --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --raw-cpt --generic-rv-cpt {{workload}}
+  export tag=single-raw-$(date +%F)-$(cd $GEM5_HOME && git rev-parse --short HEAD)
+  mkdir -p $XS_PROJECT_ROOT/out/gem5/$tag
+  xs-gem5 -d $XS_PROJECT_ROOT/out/gem5/$tag $GEM5_HOME/configs/example/xiangshan.py --enable-bp-db tage --bp-type=DecoupledBPUWithBTB --disable-mgsc --ideal-kmhv3 --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --raw-cpt --generic-rv-cpt {{workload}}
 
 xs-run-raw-debug workload:
+  #!/usr/bin/env zsh
   mkdir -p $XS_PROJECT_ROOT/out
-  gef --tui --args xs-gem5 -d $XS_PROJECT_ROOT/out/gem5 $GEM5_HOME/configs/example/xiangshan.py --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --raw-cpt --generic-rv-cpt {{workload}}
+  export tag=single-raw-$(date +%F)-$(cd $GEM5_HOME && git rev-parse --short HEAD)
+  mkdir -p $XS_PROJECT_ROOT/out/gem5/$tag
+  gdb --args xs-gem5-debug -d $XS_PROJECT_ROOT/out/gem5/$tag $GEM5_HOME/configs/example/xiangshan.py --enable-bp-db tage --bp-type=DecoupledBPUWithBTB --disable-mgsc --ideal-kmhv3 --difftest-ref-so $NEMU_HOME/build/riscv64-nemu-interpreter-so --raw-cpt --generic-rv-cpt {{workload}}
 
 run-dot8coverage:
   # should not hardcode the path here like `nfs`
