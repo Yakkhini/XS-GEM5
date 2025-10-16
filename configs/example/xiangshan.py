@@ -345,32 +345,33 @@ def setKmhV3IdealParams(args, system):
         cpu.commitWidth = 12
         cpu.squashWidth = 12
         cpu.replayWidth = 12
-        cpu.LQEntries = 128
-        cpu.SQEntries = 64
-        cpu.SbufferEntries = 24
-        cpu.SbufferEvictThreshold = 16
-        # RAR/RAW replay queue thresholds
-        cpu.RARQEntries = 96 # set 72 in the RTL model.
-        cpu.RAWQEntries = 56 # set 32 in the RTL model.
-        cpu.LoadCompletionWidth = 8
-        cpu.StoreCompletionWidth = 4
-        cpu.RARDequeuePerCycle = 4
-        cpu.RAWDequeuePerCycle = 4
-        cpu.numPhysIntRegs = 224
-        cpu.numPhysFloatRegs = 256
-        cpu.RobCompressPolicy = 'kmhv3'
-        cpu.numROBEntries = 160
-        cpu.CROB_instPerGroup = 2 # 1 if not using ROB compression
-        cpu.enableDispatchStage = True
-        cpu.numDQEntries = [8, 8, 8]
-        cpu.dispWidth = [8, 8, 8]
-        cpu.scheduler = KMHV3Scheduler()
 
-        cpu.BankConflictCheck = True   # real bank conflict 0.2 score
-        cpu.sbufferBankWriteAccurately = True
-        # cpu.EnableLdMissReplay = False
-        # cpu.EnablePipeNukeCheck = False
-        cpu.StoreWbStage = 4 # store writeback at s4
+        # cpu.LQEntries = 128
+        # cpu.SQEntries = 64
+        # cpu.SbufferEntries = 24
+        # cpu.SbufferEvictThreshold = 16
+        # # RAR/RAW replay queue thresholds
+        # cpu.RARQEntries = 96 # set 72 in the RTL model.
+        # cpu.RAWQEntries = 56 # set 32 in the RTL model.
+        # cpu.LoadCompletionWidth = 8
+        # cpu.StoreCompletionWidth = 4
+        # cpu.RARDequeuePerCycle = 4
+        # cpu.RAWDequeuePerCycle = 4
+        # cpu.numPhysIntRegs = 224
+        # cpu.numPhysFloatRegs = 256
+        # cpu.RobCompressPolicy = 'kmhv3'
+        # cpu.numROBEntries = 160
+        # cpu.CROB_instPerGroup = 2 # 1 if not using ROB compression
+        # cpu.enableDispatchStage = True
+        # cpu.numDQEntries = [8, 8, 8]
+        # cpu.dispWidth = [8, 8, 8]
+        # cpu.scheduler = KMHV3Scheduler()
+        #
+        # cpu.BankConflictCheck = True   # real bank conflict 0.2 score
+        # cpu.sbufferBankWriteAccurately = True
+        # # cpu.EnableLdMissReplay = False
+        # # cpu.EnablePipeNukeCheck = False
+        # cpu.StoreWbStage = 4 # store writeback at s4
 
         # enable constant folding
         cpu.enableConstantFolding = False
@@ -401,33 +402,33 @@ def setKmhV3IdealParams(args, system):
             cpu.branchPred.tage.TTagPcShifts = [1] * 8
             cpu.branchPred.tage.histLengths = [4, 9, 17, 29, 56, 109, 211, 397]
 
-        # ideal l1 caches
-        if args.caches:
-            cpu.icache.size = '64kB'
-            cpu.dcache.size = '64kB'
-            cpu.dcache.tag_load_read_ports = 100 # 3->100
-            cpu.dcache.mshrs = 16
-
-    if args.l2cache:
-        for i in range(args.num_cpus):
-            if args.classic_l2:
-                system.l2_caches[i].size = '2MB'
-                system.l2_caches[i].slice_num = 0 # 4 -> 0, no slice
-            else:
-                l2_wrapper = system.l2_wrappers[i]
-                l2_wrapper.data_sram_banks = 2
-                l2_wrapper.dir_sram_banks = 2
-                l2_wrapper.pipe_dir_write_stage = 4
-                l2_wrapper.dir_read_bypass = True
-                for j in range(args.l2_slices):
-                    l2cache = l2_wrapper.slices[j].inner_cache
-                    l2cache.size = '2MB'
-            system.tol2bus_list[i].forward_latency = 0  # 3->0
-            system.tol2bus_list[i].response_latency = 0  # 3->0
-            system.tol2bus_list[i].hint_wakeup_ahead_cycles = 0  # 2->0
-
-    if args.l3cache:
-        system.l3.mshrs = 128
+    #     # ideal l1 caches
+    #     if args.caches:
+    #         cpu.icache.size = '64kB'
+    #         cpu.dcache.size = '64kB'
+    #         cpu.dcache.tag_load_read_ports = 100 # 3->100
+    #         cpu.dcache.mshrs = 16
+    #
+    # if args.l2cache:
+    #     for i in range(args.num_cpus):
+    #         if args.classic_l2:
+    #             system.l2_caches[i].size = '2MB'
+    #             system.l2_caches[i].slice_num = 0 # 4 -> 0, no slice
+    #         else:
+    #             l2_wrapper = system.l2_wrappers[i]
+    #             l2_wrapper.data_sram_banks = 2
+    #             l2_wrapper.dir_sram_banks = 2
+    #             l2_wrapper.pipe_dir_write_stage = 4
+    #             l2_wrapper.dir_read_bypass = True
+    #             for j in range(args.l2_slices):
+    #                 l2cache = l2_wrapper.slices[j].inner_cache
+    #                 l2cache.size = '2MB'
+    #         system.tol2bus_list[i].forward_latency = 0  # 3->0
+    #         system.tol2bus_list[i].response_latency = 0  # 3->0
+    #         system.tol2bus_list[i].hint_wakeup_ahead_cycles = 0  # 2->0
+    #
+    # if args.l3cache:
+    #     system.l3.mshrs = 128
 
 if __name__ == '__m5_main__':
     # Add args
